@@ -1,0 +1,44 @@
+Updating the package
+====================
+
+0. Update debcargo-conf.git so that cargo's dependencies are up-to-date. This
+   means less stuff will have to be patched (in debian/debcargo-conf.patch) in
+   the next step. This might take a while, ask other people for help if needed.
+1. Empty d/make_orig_multi-pre-vendor.sh, then run d/make_orig_multi.sh <version>.
+
+   If cargo-vendor tries to use too-new crates that debcargo-conf doesn't have
+   patches for yet, downgrade them by tweaking d/make_orig_multi-pre-vendor.sh
+
+   e.g. cargo update -p tempfile --precise 3.1.0
+2. Verify the -vendor component tarball to make sure it looks good.
+   If not, edit d/make_orig_multi.sh and the surrounding files (such as patches
+   and exclude files) and repeat the above until it looks good.
+3. $ git fetch upstream
+   You might have to first run:
+   $ git remote add upstream https://github.com/rust-lang/cargo
+4. $ git checkout debian/experimental
+   $ gbp import-orig ../cargo_<version>.orig.tar.gz
+   If you get errors, check the extra default flags in d/gbp.conf
+5. Check that no old versions remain in vendor/. If there are, then your git
+   repo was messed up when you ran (4). Rewind the debian/sid, upstream, and
+   pristine-tar branches, delete the upstream/<version> tag; this reverts step
+   (4). Clean up your git repo, and then try (4) again.
+6. Update d/patches and the rest of the packaging, as normal.
+
+General info
+============
+
+Cargo depends on a few hundred other crates (which themselves need cargo to
+build). To avoid an insane bootstrapping loop, this package therefore embeds
+all dependency crates. This is made convenient by the "vendor" subcommand.
+
+(The alternative method, that expresses the true upstream dependencies more
+faithfully, can be found in the "rust-cargo" crate, which is packaged just like
+any other Debian Rust package. That is used as a library by the Debian packages
+of various Rust ecosystem tools that build on top of cargo, such as our very
+own debcargo. By contrast, this package is used as the actual executable
+package manager, with a smaller bootstrapping requirement.)
+
+As such, the original source is composed by two tarballs:
+ * cargo source
+ * dependencies crates (under vendor/), stripped of unused embedded C libraries

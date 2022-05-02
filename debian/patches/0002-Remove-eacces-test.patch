@@ -1,0 +1,93 @@
+From d92dceaeba18e826eca4ae672356cdca0f8803cb Mon Sep 17 00:00:00 2001
+From: Weihang Lo <me@weihanglo.tw>
+Date: Tue, 21 Dec 2021 02:59:41 +0800
+Origin: https://github.com/rust-lang/cargo/pull/10214
+Subject: Remove `build_script::build_script_scan_eacces` test case
+
+Remove the test because cargo ignores it and returns its path during a
+`cargo build`. The caller still has a chance to hit the IO error if they
+does access it.
+
+The original patch is part of a patchset for loop detection, but the
+loop content has been edited out to only contain the test removal.
+
+---
+ tests/testsuite/build.rs        |  6 ++-
+ tests/testsuite/build_script.rs | 69 ---------------------------------
+ tests/testsuite/package.rs      |  7 ++--
+ 3 files changed, 8 insertions(+), 74 deletions(-)
+
+diff --git a/tests/testsuite/build_script.rs b/tests/testsuite/build_script.rs
+index 0a98abe3893..40d8067d548 100644
+--- a/tests/testsuite/build_script.rs
++++ b/tests/testsuite/build_script.rs
+@@ -4618,69 +4618,6 @@ fn links_interrupted_can_restart() {
+         .run();
+ }
+ 
+-#[cargo_test]
+-#[cfg(unix)]
+-fn build_script_scan_eacces() {
+-    // build.rs causes a scan of the whole project, which can be a problem if
+-    // a directory is not accessible.
+-    use cargo_test_support::git;
+-    use std::os::unix::fs::PermissionsExt;
+-
+-    let p = project()
+-        .file("src/lib.rs", "")
+-        .file("build.rs", "fn main() {}")
+-        .file("secrets/stuff", "")
+-        .build();
+-    let path = p.root().join("secrets");
+-    fs::set_permissions(&path, fs::Permissions::from_mode(0o0)).unwrap();
+-    // The last "Caused by" is a string from libc such as the following:
+-    //   Permission denied (os error 13)
+-    p.cargo("build")
+-        .with_stderr(
+-            "\
+-[ERROR] failed to determine package fingerprint for build script for foo v0.0.1 ([..]/foo)
+-
+-Caused by:
+-  failed to determine the most recently modified file in [..]/foo
+-
+-Caused by:
+-  failed to determine list of files in [..]/foo
+-
+-Caused by:
+-  cannot read \"[..]/foo/secrets\"
+-
+-Caused by:
+-  [..]
+-",
+-        )
+-        .with_status(101)
+-        .run();
+-
+-    // Try `package.exclude` to skip a directory.
+-    p.change_file(
+-        "Cargo.toml",
+-        r#"
+-        [package]
+-        name = "foo"
+-        version = "0.0.1"
+-        exclude = ["secrets"]
+-        "#,
+-    );
+-    p.cargo("build").run();
+-
+-    // Try with git. This succeeds because the git status walker ignores
+-    // directories it can't access.
+-    p.change_file("Cargo.toml", &basic_manifest("foo", "0.0.1"));
+-    p.build_dir().rm_rf();
+-    let repo = git::init(&p.root());
+-    git::add(&repo);
+-    git::commit(&repo);
+-    p.cargo("build").run();
+-
+-    // Restore permissions so that the directory can be deleted.
+-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+-}
+-
+ #[cargo_test]
+ fn dev_dep_with_links() {
+     let p = project()

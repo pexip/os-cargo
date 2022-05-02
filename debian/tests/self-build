@@ -1,0 +1,6 @@
+#!/bin/sh
+
+mkdir -p .cargo
+cp ./debian/tests/self-build.config.toml .cargo/config.toml
+export CFG_DISABLE_CROSS_TESTS=1
+exec cargo test -Zavoid-dev-deps

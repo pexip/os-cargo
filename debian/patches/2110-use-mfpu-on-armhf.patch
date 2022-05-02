@@ -1,0 +1,18 @@
+Already in debcargo-conf.git, can be deleted for next source import.
+
+The upstream code uses -march but not -mfpu on debian armhf, this works
+with gcc-10 but produces an error with gcc-11, set mfpu to fix this.
+
+--- a/vendor/cc/src/lib.rs	1973-11-29 21:33:09.000000000 +0000
++++ b/vendor/cc/src/lib.rs	2021-10-23 23:05:21.409460780 +0000
+@@ -1638,6 +1638,10 @@
+                     && (target.contains("-linux-") || target.contains("-kmc-solid_"))
+                 {
+                     cmd.args.push("-march=armv7-a".into());
++                    if target.ends_with("eabihf") {
++                        // lowest common denominator FPU
++                        cmd.args.push("-mfpu=vfpv3-d16".into());
++                    }
+                 }
+ 
+                 // (x86 Android doesn't say "eabi")

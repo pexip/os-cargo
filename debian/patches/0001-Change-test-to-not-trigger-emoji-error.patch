@@ -1,0 +1,37 @@
+From 0dfe70f7e1384620e0e38c7bf58147e95be5e638 Mon Sep 17 00:00:00 2001
+From: Esteban Kuber <esteban@kuber.com.ar>
+Date: Wed, 24 Nov 2021 05:59:42 +0000
+Subject: [PATCH] Change test to not trigger emoji error
+
+This change is needed to land rust-lang/rust#88781, as it changes the
+handling of emojis in source code to treat them as identifiers.
+
+Applied-Upstream: 0.59.0
+---
+ tests/testsuite/doc.rs | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/tests/testsuite/doc.rs b/tests/testsuite/doc.rs
+index 965e7eaa9bd..6bcdd2d02cf 100644
+--- a/tests/testsuite/doc.rs
++++ b/tests/testsuite/doc.rs
+@@ -803,7 +803,7 @@ fn output_not_captured() {
+             "a/src/lib.rs",
+             "
+             /// ```
+-            /// ☃
++            /// `
+             /// ```
+             pub fn foo() {}
+         ",
+@@ -811,9 +811,7 @@ fn output_not_captured() {
+         .build();
+ 
+     p.cargo("doc")
+-        .without_status()
+-        .with_stderr_contains("[..]☃")
+-        .with_stderr_contains(r"[..]unknown start of token: \u{2603}")
++        .with_stderr_contains("[..]unknown start of token: `")
+         .run();
+ }
+ 

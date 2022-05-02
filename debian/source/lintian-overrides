@@ -1,0 +1,6 @@
+# debian policy bug #649530
+cargo source: mismatched-override missing-license-paragraph-in-dep5-copyright mpl-2.0+ (*)
+cargo source: missing-license-paragraph-in-dep5-copyright debian/copyright mpl-2.0+ (*)
+
+# lintian is superfluous
+cargo source: superfluous-file-pattern debian/copyright * (*)
