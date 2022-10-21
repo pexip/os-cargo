@@ -1,7 +1,8 @@
 Source: cargo
 Section: devel
-Maintainer: Rust Maintainers <pkg-rust-maintainers@alioth-lists.debian.net>
-Uploaders: Luca Bruno <lucab@debian.org>,
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Rust Maintainers <pkg-rust-maintainers@alioth-lists.debian.net>
+XSBC-Pexip-Original-Uploaders: Luca Bruno <lucab@debian.org>,
  Angus Lees <gus@debian.org>,
  Ximin Luo <infinity0@debian.org>,
  Vasudev Kamath <vasudev@copyninja.info>
@@ -28,6 +29,7 @@ Homepage: https://crates.io/
 Standards-Version: 4.2.1
 Vcs-Git: https://salsa.debian.org/rust-team/cargo.git
 Vcs-Browser: https://salsa.debian.org/rust-team/cargo
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ bookworm
 
 Package: cargo
 Architecture: any
