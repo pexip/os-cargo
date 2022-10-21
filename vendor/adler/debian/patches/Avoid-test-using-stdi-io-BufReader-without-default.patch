@@ -1,0 +1,37 @@
+From 27ab6c2016634a7111429ec055f41c594d1ae703 Mon Sep 17 00:00:00 2001
+From: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+Date: Mon, 19 Oct 2020 15:15:24 -0400
+Subject: [PATCH] Avoid test using std::io::BufReader when run without default
+ features
+
+Fixes: #4
+---
+ src/lib.rs | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib.rs b/src/lib.rs
+index ac29ea2..d3a0ee8 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -151,7 +151,6 @@ pub fn adler32_reader<R: BufRead>(reader: &mut R) -> io::Result<u32> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use std::io::BufReader;
+ 
+     #[test]
+     fn zeroes() {
+@@ -198,8 +197,10 @@ mod tests {
+         assert_eq!(adler.checksum(), 0x8e88ef11); // from above
+     }
+ 
++    #[cfg(feature = "std")]
+     #[test]
+     fn bufread() {
++        use std::io::BufReader;
+         fn test(data: &[u8], checksum: u32) {
+             // `BufReader` uses an 8 KB buffer, so this will test buffer refilling.
+             let mut buf = BufReader::new(data);
+-- 
+2.28.0
+

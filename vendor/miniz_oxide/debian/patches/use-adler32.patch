@@ -1,0 +1,36 @@
+Revert to using the adler32 crate as the adler crate is not in Debian.
+
+Reverts https://github.com/Frommi/miniz_oxide/commit/ad0f8fef9c532720fb9603a0341ff7d176af2fc4
+
+--- a/src/shared.rs
++++ b/src/shared.rs
+@@ -1,4 +1,4 @@
+-use adler::Adler32;
++use adler32::RollingAdler32;
+ 
+ #[doc(hidden)]
+ pub const MZ_ADLER32_INIT: u32 = 1;
+@@ -12,7 +12,7 @@
+ 
+ #[doc(hidden)]
+ pub fn update_adler32(adler: u32, data: &[u8]) -> u32 {
+-    let mut hash = Adler32::from_checksum(adler);
+-    hash.write_slice(data);
+-    hash.checksum()
++    let mut hash = RollingAdler32::from_value(adler);
++    hash.update_buffer(data);
++    hash.hash()
+ }
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -28,8 +28,8 @@
+ 
+ [lib]
+ name = "miniz_oxide"
+-[dependencies.adler]
+-version = "1.0"
++[dependencies.adler32]
++version = "1.1.0"
+ default-features = false
+ 
+ [build-dependencies.autocfg]

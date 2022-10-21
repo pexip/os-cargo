@@ -1,0 +1,10 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -39,7 +39,6 @@
+ 
+ [features]
+ openssl-on-win32 = ["openssl-sys"]
+-vendored-openssl = ["openssl-sys/vendored"]
+ zlib-ng-compat = ["libz-sys/zlib-ng"]
+ [target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
+ version = "0.2"

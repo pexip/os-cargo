@@ -1,0 +1,11 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -46,8 +46,6 @@
+ https = ["openssl-sys"]
+ ssh = ["libssh2-sys"]
+ ssh_key_from_memory = []
+-vendored = []
+-vendored-openssl = ["openssl-sys/vendored"]
+ [target."cfg(unix)".dependencies.openssl-sys]
+ version = "0.9"
+ optional = true

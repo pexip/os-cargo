@@ -1,0 +1,12 @@
+Index: flate2/Cargo.toml
+===================================================================
+--- flate2.orig/Cargo.toml
++++ flate2/Cargo.toml
+@@ -54,7 +54,6 @@ default = ["rust_backend"]
+ rust_backend = ["miniz_oxide"]
+ miniz-sys = ["zlib"]
+ zlib = ["any_zlib", "libz-sys"]
+-zlib-ng-compat = ["zlib", "libz-sys/zlib-ng"]
+ [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
+ version = "0.4.0"
+ default-features = false

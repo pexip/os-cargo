@@ -1,0 +1,5 @@
+disable-miniz.patch
+remove-futures-and-tokio.patch
+disable-cloudflare-zlib.patch
+disable-zlib-ng.patch
+eliminate-any-zlib.patch

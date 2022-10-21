@@ -1,0 +1,7 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -50,4 +50,3 @@
+ v102 = []
+ v110 = []
+ v111 = []
+-vendored = ["ffi/vendored"]

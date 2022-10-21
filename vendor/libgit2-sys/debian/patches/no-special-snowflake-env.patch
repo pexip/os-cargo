@@ -1,0 +1,11 @@
+--- a/build.rs
++++ b/build.rs
+@@ -24,7 +24,7 @@
+ 
+     println!("cargo:rustc-cfg=libgit2_vendored");
+ 
+-    if !Path::new("libgit2/.git").exists() {
++    if false {
+         let _ = Command::new("git")
+             .args(&["submodule", "update", "--init", "libgit2"])
+             .status();

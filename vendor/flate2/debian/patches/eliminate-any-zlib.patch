@@ -1,0 +1,241 @@
+Description: eliminate any_zlib
+ The "any_zlib" feature has no dependencies, but it still seems to cause debcargo
+ to split the libz-sys and zlib feature packages.
+Author: Peter Michael Green <plugwash@debian.org>
+
+Index: rust-flate2-1.0.22/src/ffi/c.rs
+===================================================================
+--- rust-flate2-1.0.22.orig/src/ffi/c.rs
++++ rust-flate2-1.0.22/src/ffi/c.rs
+@@ -14,15 +14,15 @@ use crate::mem::{self, FlushDecompress,
+ 
+ // miniz doesn't provide any error messages, so only enable the field when we use a real zlib
+ #[derive(Default)]
+-pub struct ErrorMessage(#[cfg(feature = "any_zlib")] Option<&'static str>);
++pub struct ErrorMessage(#[cfg(feature = "zlib")] Option<&'static str>);
+ 
+ impl ErrorMessage {
+     pub fn get(&self) -> Option<&str> {
+-        #[cfg(feature = "any_zlib")]
++        #[cfg(feature = "zlib")]
+         {
+             self.0
+         }
+-        #[cfg(not(feature = "any_zlib"))]
++        #[cfg(not(feature = "zlib"))]
+         {
+             None
+         }
+@@ -55,13 +55,13 @@ impl Default for StreamWrapper {
+                 reserved: 0,
+                 opaque: ptr::null_mut(),
+                 state: ptr::null_mut(),
+-                #[cfg(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys")))]
++                #[cfg(all(feature = "zlib", not(feature = "cloudflare-zlib-sys")))]
+                 zalloc,
+-                #[cfg(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys")))]
++                #[cfg(all(feature = "zlib", not(feature = "cloudflare-zlib-sys")))]
+                 zfree,
+-                #[cfg(not(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys"))))]
++                #[cfg(not(all(feature = "zlib", not(feature = "cloudflare-zlib-sys"))))]
+                 zalloc: Some(zalloc),
+-                #[cfg(not(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys"))))]
++                #[cfg(not(all(feature = "zlib", not(feature = "cloudflare-zlib-sys"))))]
+                 zfree: Some(zfree),
+             }),
+         }
+@@ -157,7 +157,7 @@ pub struct Stream<D: Direction> {
+ 
+ impl<D: Direction> Stream<D> {
+     pub fn msg(&self) -> ErrorMessage {
+-        #[cfg(feature = "any_zlib")]
++        #[cfg(feature = "zlib")]
+         {
+             let msg = self.stream_wrapper.msg;
+             ErrorMessage(if msg.is_null() {
+@@ -167,7 +167,7 @@ impl<D: Direction> Stream<D> {
+                 std::str::from_utf8(s.to_bytes()).ok()
+             })
+         }
+-        #[cfg(not(feature = "any_zlib"))]
++        #[cfg(not(feature = "zlib"))]
+         {
+             ErrorMessage()
+         }
+@@ -252,7 +252,7 @@ impl InflateBackend for Inflate {
+         }
+     }
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     fn reset(&mut self, zlib_header: bool) {
+         let bits = if zlib_header {
+             MZ_DEFAULT_WINDOW_BITS
+@@ -266,7 +266,7 @@ impl InflateBackend for Inflate {
+         self.inner.total_in = 0;
+     }
+ 
+-    #[cfg(not(feature = "any_zlib"))]
++    #[cfg(not(feature = "zlib"))]
+     fn reset(&mut self, zlib_header: bool) {
+         *self = Self::make(zlib_header, MZ_DEFAULT_WINDOW_BITS as u8);
+     }
+@@ -368,14 +368,14 @@ impl Backend for Deflate {
+ pub use self::c_backend::*;
+ 
+ /// Miniz specific
+-#[cfg(not(feature = "any_zlib"))]
++#[cfg(not(feature = "zlib"))]
+ mod c_backend {
+     pub use miniz_sys::*;
+     pub type AllocSize = libc::size_t;
+ }
+ 
+ /// Zlib specific - make zlib mimic miniz' API
+-#[cfg(feature = "any_zlib")]
++#[cfg(feature = "zlib")]
+ #[allow(bad_style)]
+ mod c_backend {
+     use libc::{c_char, c_int};
+Index: rust-flate2-1.0.22/src/ffi/mod.rs
+===================================================================
+--- rust-flate2-1.0.22.orig/src/ffi/mod.rs
++++ rust-flate2-1.0.22/src/ffi/mod.rs
+@@ -36,7 +36,7 @@ pub trait DeflateBackend: Backend {
+ 
+ // Default to Rust implementation unless explicitly opted in to a different backend.
+ cfg_if::cfg_if! {
+-    if #[cfg(any(feature = "miniz-sys", feature = "any_zlib"))] {
++    if #[cfg(any(feature = "miniz-sys", feature = "zlib"))] {
+         mod c;
+         pub use self::c::*;
+     } else {
+Index: rust-flate2-1.0.22/src/mem.rs
+===================================================================
+--- rust-flate2-1.0.22.orig/src/mem.rs
++++ rust-flate2-1.0.22/src/mem.rs
+@@ -220,7 +220,7 @@ impl Compress {
+     ///
+     /// This constructor is only available when the `zlib` feature is used.
+     /// Other backends currently do not support custom window bits.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn new_with_window_bits(
+         level: Compression,
+         zlib_header: bool,
+@@ -252,7 +252,7 @@ impl Compress {
+     ///
+     /// This constructor is only available when the `zlib` feature is used.
+     /// Other backends currently do not support gzip headers for Compress.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn new_gzip(level: Compression, window_bits: u8) -> Compress {
+         assert!(
+             window_bits > 8 && window_bits < 16,
+@@ -278,7 +278,7 @@ impl Compress {
+     /// Specifies the compression dictionary to use.
+     ///
+     /// Returns the Adler-32 checksum of the dictionary.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, CompressError> {
+         let stream = &mut *self.inner.inner.stream_wrapper;
+         stream.msg = std::ptr::null_mut();
+@@ -311,7 +311,7 @@ impl Compress {
+     /// the compression of the available input data before changing the
+     /// compression level. Flushing the stream before calling this method
+     /// ensures that the function will succeed on the first call.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn set_level(&mut self, level: Compression) -> Result<(), CompressError> {
+         use libc::c_int;
+         let stream = &mut *self.inner.inner.stream_wrapper;
+@@ -398,7 +398,7 @@ impl Decompress {
+     ///
+     /// This constructor is only available when the `zlib` feature is used.
+     /// Other backends currently do not support custom window bits.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn new_with_window_bits(zlib_header: bool, window_bits: u8) -> Decompress {
+         assert!(
+             window_bits > 8 && window_bits < 16,
+@@ -423,7 +423,7 @@ impl Decompress {
+     ///
+     /// This constructor is only available when the `zlib` feature is used.
+     /// Other backends currently do not support gzip headers for Decompress.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn new_gzip(window_bits: u8) -> Decompress {
+         assert!(
+             window_bits > 8 && window_bits < 16,
+@@ -513,7 +513,7 @@ impl Decompress {
+     }
+ 
+     /// Specifies the decompression dictionary to use.
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, DecompressError> {
+         let stream = &mut *self.inner.inner.stream_wrapper;
+         stream.msg = std::ptr::null_mut();
+@@ -605,7 +605,7 @@ mod tests {
+     use crate::write;
+     use crate::{Compression, Decompress, FlushDecompress};
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     use crate::{Compress, FlushCompress};
+ 
+     #[test]
+@@ -666,7 +666,7 @@ mod tests {
+         assert!(dst.starts_with(string));
+     }
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     #[test]
+     fn set_dictionary_with_zlib_header() {
+         let string = "hello, hello!".as_bytes();
+@@ -715,7 +715,7 @@ mod tests {
+         assert_eq!(&decoded[..decoder.total_out() as usize], string);
+     }
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     #[test]
+     fn set_dictionary_raw() {
+         let string = "hello, hello!".as_bytes();
+@@ -746,7 +746,7 @@ mod tests {
+         assert_eq!(&decoded[..decoder.total_out() as usize], string);
+     }
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     #[test]
+     fn test_gzip_flate() {
+         let string = "hello, hello!".as_bytes();
+@@ -772,7 +772,7 @@ mod tests {
+         assert_eq!(&decoded[..decoder.total_out() as usize], string);
+     }
+ 
+-    #[cfg(feature = "any_zlib")]
++    #[cfg(feature = "zlib")]
+     #[test]
+     fn test_error_message() {
+         let mut decoder = Decompress::new(false);
+Index: rust-flate2-1.0.22/Cargo.toml
+===================================================================
+--- rust-flate2-1.0.22.orig/Cargo.toml
++++ rust-flate2-1.0.22/Cargo.toml
+@@ -49,11 +49,10 @@ default-features = false
+ version = "0.7"
+ 
+ [features]
+-any_zlib = []
+ default = ["rust_backend"]
+ rust_backend = ["miniz_oxide"]
+ miniz-sys = ["zlib"]
+-zlib = ["any_zlib", "libz-sys"]
++zlib = ["libz-sys"]
+ [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
+ version = "0.4.0"
+ default-features = false
