@@ -1,0 +1,85 @@
+Index: toml-edit/Cargo.toml
+===================================================================
+--- toml-edit.orig/Cargo.toml
++++ toml-edit/Cargo.toml
+@@ -38,6 +38,7 @@ categories = [
+ license = "MIT/Apache-2.0"
+ repository = "https://github.com/ordian/toml_edit"
+ autobenches = false
++autotests = false
+ 
+ [package.metadata.docs.rs]
+ features = ["easy"]
+@@ -88,24 +89,59 @@ name = "visit"
+ test = true
+ 
+ [[test]]
++name = "convert"
++
++[[test]]
+ name = "decoder_compliance"
+ harness = false
+ 
+ [[test]]
++name = "decoder"
++
++[[test]]
++name = "encoder"
++
++[[test]]
+ name = "encoder_compliance"
+ harness = false
+ 
+ [[test]]
++name = "easy_decoder"
++
++[[test]]
+ name = "easy_decoder_compliance"
+ harness = false
+ 
+ [[test]]
++name = "easy_encoder"
++
++[[test]]
+ name = "easy_encoder_compliance"
+ harness = false
+ 
+ [[test]]
+-name = "test_invalid"
+-harness = false
++name = "enum_external_deserialize"
++
++[[test]]
++name = "formatter"
++
++[[test]]
++name = "macros"
++
++[[test]]
++name = "pretty"
++
++[[test]]
++name = "serde"
++
++[[test]]
++name = "test_edit"
++
++[[test]]
++name = "test_parse"
++
++[[test]]
++name = "test_valid"
+ 
+ [dependencies.combine]
+ version = "4.6.3"
+@@ -129,10 +165,6 @@ optional = true
+ [dev-dependencies.serde_json]
+ version = "1.0.44"
+ 
+-[dev-dependencies.snapbox]
+-version = "0.2.9"
+-features = ["harness"]
+-
+ [dev-dependencies.toml]
+ version = "0.5"
+ 

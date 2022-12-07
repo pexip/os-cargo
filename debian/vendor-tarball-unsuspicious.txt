@@ -2,11 +2,7 @@
 # "suspicious files" scanner. DO NOT ADD STUFF HERE WITHOUT UNDERSTANDING WHY.
 
 # docs
-clap/SPONSORS.md
-failure/book/src/bail-and-ensure.md
-failure/CODE_OF_CONDUCT.md
 */CHANGELOG.md
-*/CONTRIBUTORS.md
 */LICENSE
 */LICENSE.md
 */README.md
@@ -14,21 +10,28 @@ failure/CODE_OF_CONDUCT.md
 
 # test data
 bstr/src/unicode/data/*Test.txt
+combine/benches/data.json
+combine/benches/http-requests.txt
+content_inspector/testdata/*
 flate2/tests/
-idna/tests/punycode_tests.json
-idna/tests/IdnaTest.txt
 idna/tests/IdnaTestV2.txt
+idna/tests/punycode_tests.json
 im-rc/proptest-regressions/
 itertools/examples/iris.data
-openssl/test/
 memchr/src/tests/x86_64-soft_float.json
-miniz_oxide/tests/test_data/*
-regex/src/testdata/basic.dat
-regex/tests/
+openssl/test/
 regex-automata/data/fowler-tests/*
 regex-automata/data/tests/fowler/*
-schannel/test/*
-toml/tests/
+regex/src/testdata/basic.dat
+regex/tests/
+schannel/test/identity.p12
+schannel/test/key.key
+schannel/test/self-signed.badssl.com.cer
+schannel/test/cert.der
+schannel/test/cert.pem
+schannel/test/key_wrong_header.pem
+toml_edit/tests/fixtures/*
+unicode-ident/tests/fst/*.fst
 url/tests/*.json
 vcpkg/test-data/*/installed/vcpkg/updates/*
 vte/tests/demo.vte
@@ -38,27 +41,59 @@ bstr/src/unicode/fsm/*.dfa
 regex-syntax/src/unicode_tables/*.rs
 
 # "verylongtext" but OK source code, manually audited:
-cloudabi/cloudabi.rs
 git2/src/cred.rs
+kstring/benches/clone.rs
 libz-sys/src/smoke.c
-proptest/src/regex-contrib/crates_regex.rs
+miniz_oxide/Readme.md
 openssl-sys/build/expando.c
-rustc-demangle/src/legacy.rs
-rustc-demangle/src/lib.rs
-termion/logo.svg
+serde_json/tests/lexical/parse.rs
 tinyvec/LICENSE-MIT.md
 unicode-normalization/src/stream_safe.rs
 vcpkg/notes.md
 walkdir/compare/nftw.c
 winapi/src/lib.rs
 
-# other misc OK, manually audited:
-backtrace-sys/src/android-api.c
-vte/foos/large_vim_scroll.recording
-
 memchr/scripts/make-byte-frequency-table
 idna/src/make_uts46_mapping_table.py
 walkdir/compare/walk.py
-strsim/dev
 unicode-normalization/scripts/unicode.py
 unicode-width/scripts/unicode.py
+
+# false positive (Dyalog APL transfer)
+clap/examples/tutorial_*/*.md
+clap/examples/*.md
+
+# false positive (Algol68)
+aho-corasick/src/nfa.rs
+clap/src/derive.rs
+combine/src/parser/choice.rs
+combine/src/parser/mod.rs
+combine/src/parser/range.rs
+combine/src/parser/token.rs
+combine/src/stream/mod.rs
+combine/src/stream/position.rs
+env_logger-0.7.1/src/fmt/writer/mod.rs
+env_logger/src/fmt/writer/mod.rs
+flate2/src/mem.rs
+flate2/src/zio.rs
+miniz_oxide/src/deflate/mod.rs
+miniz_oxide/src/inflate/mod.rs
+openssl/src/cms.rs
+openssl/src/envelope.rs
+os_info/src/matcher.rs
+proc-macro2/src/parse.rs
+regex-automata/src/regex.rs
+semver/src/parse.rs
+snapbox/src/substitutions.rs
+syn/src/attr.rs
+syn/src/custom_punctuation.rs
+syn/src/group.rs
+syn/src/pat.rs
+syn/src/path.rs
+syn/src/punctuated.rs
+syn/src/stmt.rs
+syn/src/token.rs
+syn/src/ty.rs
+toml_edit/src/parser/errors.rs
+url/src/parser.rs
+yansi/src/tests.rs

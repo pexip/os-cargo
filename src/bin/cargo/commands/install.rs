@@ -1,14 +1,20 @@
 use crate::command_prelude::*;
 
-use cargo::core::{GitReference, SourceId};
+use cargo::core::{GitReference, SourceId, Workspace};
 use cargo::ops;
 use cargo::util::IntoUrl;
+
+use cargo_util::paths;
 
 pub fn cli() -> App {
     subcommand("install")
         .about("Install a Rust binary. Default location is $HOME/.cargo/bin")
-        .arg(opt("quiet", "No output printed to stdout").short("q"))
-        .arg(Arg::with_name("crate").empty_values(false).multiple(true))
+        .arg_quiet()
+        .arg(
+            Arg::new("crate")
+                .forbid_empty_values(true)
+                .multiple_values(true),
+        )
         .arg(
             opt("version", "Specify a version to install")
                 .alias("vers")
@@ -45,7 +51,7 @@ pub fn cli() -> App {
             "list all installed packages and their versions",
         ))
         .arg_jobs()
-        .arg(opt("force", "Force overwriting existing crates or binaries").short("f"))
+        .arg(opt("force", "Force overwriting existing crates or binaries").short('f'))
         .arg(opt("no-track", "Do not save tracking information"))
         .arg_features()
         .arg_profile("Install artifacts with the specified profile")
@@ -71,21 +77,32 @@ pub fn cli() -> App {
                 .requires("crate")
                 .conflicts_with_all(&["git", "path", "index"]),
         )
+        .arg_message_format()
+        .arg_timings()
         .after_help("Run `cargo help install` for more detailed information.\n")
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
-    if let Some(path) = args.value_of_path("path", config) {
+pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
+    let path = args.value_of_path("path", config);
+    if let Some(path) = &path {
         config.reload_rooted_at(path)?;
     } else {
         // TODO: Consider calling set_search_stop_path(home).
         config.reload_rooted_at(config.home().clone().into_path_unlocked())?;
     }
 
+    // In general, we try to avoid normalizing paths in Cargo,
+    // but in these particular cases we need it to fix rust-lang/cargo#10283.
+    // (Handle `SourceId::for_path` and `Workspace::new`,
+    // but not `Config::reload_rooted_at` which is always cwd)
+    let path = path.map(|p| paths::normalize_path(&p));
+
+    let version = args.value_of("version");
     let krates = args
         .values_of("crate")
         .unwrap_or_default()
-        .collect::<Vec<_>>();
+        .map(|k| resolve_crate(k, version))
+        .collect::<crate::CargoResult<Vec<_>>>()?;
 
     let mut from_cwd = false;
 
@@ -101,8 +118,8 @@ pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
             GitReference::DefaultBranch
         };
         SourceId::for_git(&url, gitref)?
-    } else if let Some(path) = args.value_of_path("path", config) {
-        SourceId::for_path(&path)?
+    } else if let Some(path) = &path {
+        SourceId::for_path(path)?
     } else if krates.is_empty() {
         from_cwd = true;
         SourceId::for_path(config.cwd())?
@@ -114,15 +131,19 @@ pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
         SourceId::crates_io(config)?
     };
 
-    let version = args.value_of("version");
     let root = args.value_of("root");
 
     // We only provide workspace information for local crate installation from
     // one of the following sources:
     // - From current working directory (only work for edition 2015).
-    // - From a specific local file path.
-    let workspace = if from_cwd || args.is_present("path") {
+    // - From a specific local file path (from `--path` arg).
+    //
+    // This workspace information is for emitting helpful messages from
+    // `ArgMatchesExt::compile_options` and won't affect the actual compilation.
+    let workspace = if from_cwd {
         args.workspace(config).ok()
+    } else if let Some(path) = &path {
+        Workspace::new(&path.join("Cargo.toml"), config).ok()
     } else {
         None
     };
@@ -146,11 +167,28 @@ pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
             krates,
             source,
             from_cwd,
-            version,
             &compile_opts,
             args.is_present("force"),
             args.is_present("no-track"),
         )?;
     }
     Ok(())
+}
+
+fn resolve_crate<'k>(
+    mut krate: &'k str,
+    mut version: Option<&'k str>,
+) -> crate::CargoResult<(&'k str, Option<&'k str>)> {
+    if let Some((k, v)) = krate.split_once('@') {
+        if version.is_some() {
+            anyhow::bail!("cannot specify both `@{v}` and `--version`");
+        }
+        if k.is_empty() {
+            // by convention, arguments starting with `@` are response files
+            anyhow::bail!("missing crate name for `@{v}`");
+        }
+        krate = k;
+        version = Some(v);
+    }
+    Ok((krate, version))
 }

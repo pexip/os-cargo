@@ -73,7 +73,6 @@ rustflags = ["…", "…"]        # custom flags to pass to all compiler invocat
 rustdocflags = ["…", "…"]     # custom flags to pass to rustdoc
 incremental = true            # whether or not to enable incremental compilation
 dep-info-basedir = "…"        # path for the base directory for targets in depfiles
-pipelining = true             # rustc pipelining
 
 [doc]
 browser = "chromium"          # browser to use with `cargo doc --open`,
@@ -86,6 +85,9 @@ ENV_VAR_NAME = "value"
 ENV_VAR_NAME_2 = { value = "value", force = true }
 # Value is relative to .cargo directory containing `config.toml`, make absolute
 ENV_VAR_NAME_3 = { value = "relative/path", relative = true }
+
+[future-incompat-report]
+frequency = 'always' # when to display a notification about a future incompat report
 
 [cargo-new]
 vcs = "none"              # VCS to use ('git', 'hg', 'pijul', 'fossil', 'none')
@@ -109,7 +111,7 @@ root = "/some/path"         # `cargo install` destination directory
 [net]
 retry = 2                   # network retries
 git-fetch-with-cli = true   # use the `git` executable for git operations
-offline = false             # do not access the network
+offline = true              # do not access the network
 
 [patch.<registry>]
 # Same keys as for [patch] in Cargo.toml
@@ -168,6 +170,7 @@ metadata_key1 = "value"
 metadata_key2 = "value"
 
 [term]
+quiet = false          # whether cargo output is quiet
 verbose = false        # whether cargo provides verbose output
 color = 'auto'         # whether cargo colorizes output
 progress.when = 'auto' # whether cargo shows progress bar
@@ -360,18 +363,19 @@ Can be overridden with the `--target-dir` CLI option.
 ##### `build.rustflags`
 * Type: string or array of strings
 * Default: none
-* Environment: `CARGO_BUILD_RUSTFLAGS` or `RUSTFLAGS`
+* Environment: `CARGO_BUILD_RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` or `RUSTFLAGS`
 
 Extra command-line flags to pass to `rustc`. The value may be a array of
 strings or a space-separated string.
 
-There are three mutually exclusive sources of extra flags. They are checked in
+There are four mutually exclusive sources of extra flags. They are checked in
 order, with the first one being used:
 
-1. `RUSTFLAGS` environment variable.
-2. All matching `target.<triple>.rustflags` and `target.<cfg>.rustflags`
+1. `CARGO_ENCODED_RUSTFLAGS` environment variable.
+2. `RUSTFLAGS` environment variable.
+3. All matching `target.<triple>.rustflags` and `target.<cfg>.rustflags`
    config entries joined together.
-3. `build.rustflags` config value.
+4. `build.rustflags` config value.
 
 Additional flags may also be passed with the [`cargo rustc`] command.
 
@@ -384,7 +388,7 @@ you have args that you do not want to pass to build scripts or proc macros and
 are building for the host, pass `--target` with the host triple.
 
 It is not recommended to pass in flags that Cargo itself usually manages. For
-example, the flags driven by [profiles] are best handled by setting the
+example, the flags driven by [profiles](profiles.md) are best handled by setting the
 appropriate profile setting.
 
 > **Caution**: Due to the low-level nature of passing flags directly to the
@@ -396,16 +400,17 @@ appropriate profile setting.
 ##### `build.rustdocflags`
 * Type: string or array of strings
 * Default: none
-* Environment: `CARGO_BUILD_RUSTDOCFLAGS` or `RUSTDOCFLAGS`
+* Environment: `CARGO_BUILD_RUSTDOCFLAGS` or `CARGO_ENCODED_RUSTDOCFLAGS` or `RUSTDOCFLAGS`
 
 Extra command-line flags to pass to `rustdoc`. The value may be a array of
 strings or a space-separated string.
 
-There are two mutually exclusive sources of extra flags. They are checked in
+There are three mutually exclusive sources of extra flags. They are checked in
 order, with the first one being used:
 
-1. `RUSTDOCFLAGS` environment variable.
-2. `build.rustdocflags` config value.
+1. `CARGO_ENCODED_RUSTDOCFLAGS` environment variable.
+2. `RUSTDOCFLAGS` environment variable.
+3. `build.rustdocflags` config value.
 
 Additional flags may also be passed with the [`cargo rustdoc`] command.
 
@@ -415,7 +420,7 @@ Additional flags may also be passed with the [`cargo rustdoc`] command.
 * Environment: `CARGO_BUILD_INCREMENTAL` or `CARGO_INCREMENTAL`
 
 Whether or not to perform [incremental compilation]. The default if not set is
-to use the value from the [profile]. Otherwise this overrides the setting of
+to use the value from the [profile](profiles.md#incremental). Otherwise this overrides the setting of
 all profiles.
 
 The `CARGO_INCREMENTAL` environment variable can be set to `1` to force enable
@@ -437,12 +442,8 @@ The setting itself is a config-relative path. So, for example, a value of
 directory.
 
 ##### `build.pipelining`
-* Type: boolean
-* Default: true
-* Environment: `CARGO_BUILD_PIPELINING`
 
-Controls whether or not build pipelining is used. This allows Cargo to
-schedule overlapping invocations of `rustc` in parallel when possible.
+This option is deprecated and unused. Cargo always has pipelining enabled.
 
 #### `[doc]`
 
@@ -450,7 +451,7 @@ The `[doc]` table defines options for the [`cargo doc`] command.
 
 ##### `doc.browser`
 
-* Type: string or array of strings ([program path and args])
+* Type: string or array of strings ([program path with args])
 * Default: `BROWSER` environment variable, or, if that is missing,
   opening the link in a system specific way
 
@@ -503,6 +504,20 @@ absolute path.
 TMPDIR = { value = "/home/tmp", force = true }
 OPENSSL_DIR = { value = "vendor/openssl", relative = true }
 ```
+
+### `[future-incompat-report]`
+
+The `[future-incompat-report]` table controls setting for [future incompat reporting](future-incompat-report.md)
+
+#### `future-incompat-report.frequency`
+* Type: string
+* Default: "always"
+* Environment: `CARGO_FUTURE_INCOMPAT_REPORT_FREQUENCY`
+
+Controls how often we display a notification to the terminal when a future incompat report is available. Possible values:
+
+* `always` (default): Always display a notification when a command (e.g. `cargo build`) produces a future incompat report
+* `never`: Never display a notification
 
 #### `[http]`
 
@@ -611,6 +626,9 @@ The `[install]` table defines defaults for the [`cargo install`] command.
 
 Sets the path to the root directory for installing executables for [`cargo
 install`]. Executables go into a `bin` directory underneath the root.
+
+To track information of installed executables, some extra files, such as
+`.crates.toml` and `.crates2.json`, are also created under this root.
 
 The default if not specified is Cargo's home directory (default `.cargo` in
 your home directory).
@@ -934,7 +952,7 @@ Specifies the linker which is passed to `rustc` (via [`-C linker`]) when the
 `<triple>` is being compiled for. By default, the linker is not overridden.
 
 ##### `target.<triple>.runner`
-* Type: string or array of strings ([program path and args])
+* Type: string or array of strings ([program path with args])
 * Default: none
 * Environment: `CARGO_TARGET_<triple>_RUNNER`
 
@@ -988,6 +1006,16 @@ metadata_key2 = "value"
 #### `[term]`
 
 The `[term]` table controls terminal output and interaction.
+
+##### `term.quiet`
+* Type: boolean
+* Default: false
+* Environment: `CARGO_TERM_QUIET`
+
+Controls whether or not log messages are displayed by Cargo.
+
+Specifying the `--quiet` flag will override and force quiet output.
+Specifying the `--verbose` flag will override and disable quiet output.
 
 ##### `term.verbose`
 * Type: boolean
@@ -1048,9 +1076,8 @@ Sets the width for progress bar.
 [override a build script]: build-scripts.md#overriding-build-scripts
 [toml]: https://toml.io/
 [incremental compilation]: profiles.md#incremental
-[profile]: profiles.md
 [program path with args]: #executable-paths-with-arguments
-[libcurl format]: https://ec.haxx.se/usingcurl-proxies.html
+[libcurl format]: https://everything.curl.dev/libcurl/proxies#proxy-types
 [source replacement]: source-replacement.md
 [revision]: https://git-scm.com/docs/gitrevisions
 [registries]: registries.md

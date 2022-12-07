@@ -1,0 +1,17 @@
+Index: combine/Cargo.toml
+===================================================================
+--- combine.orig/Cargo.toml
++++ combine/Cargo.toml
+@@ -109,10 +109,10 @@ package = "futures"
+ version = "1.0"
+ 
+ [dev-dependencies.quick-error]
+-version = "1.0"
++version = "2.0"
+ 
+ [dev-dependencies.quickcheck]
+-version = "0.6"
++version = "1"
+ 
+ [dev-dependencies.tokio-dep]
+ version = "1"

@@ -1,0 +1,24 @@
+These two tests fail on armel when using rustc 1.61 or 1.62 built with LLVM 14,
+the should start working again with rustc 1.63. Temporarily disabling them
+since rustc >= 1.63 requires cargo >= 0.60 to build.
+
+diff --git a/tests/testsuite/lto.rs b/tests/testsuite/lto.rs
+index ebbeba0b5..e8bd03d6b 100644
+--- a/tests/testsuite/lto.rs
++++ b/tests/testsuite/lto.rs
+@@ -625,6 +625,7 @@ fn dylib() {
+ }
+ 
+ #[cargo_test]
++#[cfg(not(target_arch = "arm"))]
+ fn test_profile() {
+     Package::new("bar", "0.0.1")
+         .file("src/lib.rs", "pub fn foo() -> i32 { 123 } ")
+@@ -677,6 +678,7 @@ fn test_profile() {
+ }
+ 
+ #[cargo_test]
++#[cfg(not(target_arch = "arm"))]
+ fn doctest() {
+     let p = project()
+         .file(

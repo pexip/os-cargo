@@ -30,13 +30,16 @@ rm -rf tmp.crate-copyright""" % repo, shell=True).decode("utf-8")
 		else:
 			first_year = "20XX"
 			last_year = this_year
+
+		authors = data["package"].get("authors", ["UNKNOWN AUTHORS"])
+
 		print("""Files: {0}
 Copyright: {1}
 License: {2}
 Comment: see {3}
 """.format(
 		os.path.join(crate, "*"),
-		"\n           ".join("%s-%s %s" % (first_year, last_year, a.replace(" <>", "")) for a in data ["package"]["authors"]),
+		"\n           ".join("%s-%s %s" % (first_year, last_year, a.replace(" <>", "")) for a in authors),
 		data["package"].get("license", "???").replace("/", " or "),
 		repo or "???"
 	))

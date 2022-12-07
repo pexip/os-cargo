@@ -1,0 +1,45 @@
+Index: im-rc/Cargo.toml
+===================================================================
+--- im-rc.orig/Cargo.toml
++++ im-rc/Cargo.toml
+@@ -37,9 +37,9 @@ all-features = true
+ [lib]
+ path = "./src/lib.rs"
+ 
+-[dependencies.arbitrary]
+-version = "1.1"
+-optional = true
++#[dependencies.arbitrary]
++#version = "1.1"
++#optional = true
+ 
+ [dependencies.bitmaps]
+ version = "2"
+@@ -62,9 +62,9 @@ version = "0.6"
+ version = "1"
+ optional = true
+ 
+-[dependencies.refpool]
+-version = "0.4"
+-optional = true
++#[dependencies.refpool]
++#version = "0.4"
++#optional = true
+ 
+ [dependencies.serde]
+ version = "1"
+@@ -106,10 +106,10 @@ version = "0.9"
+ 
+ [features]
+ debug = []
+-pool = [
+-    "refpool",
+-    "sized-chunks/refpool",
+-]
++#pool = [
++#    "refpool",
++#    "sized-chunks/refpool",
++#]
+ 
+ [badges.travis-ci]
+ repository = "bodil/im-rs"

@@ -4,10 +4,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-changed=curl");
     let host = env::var("HOST").unwrap();
     let target = env::var("TARGET").unwrap();
     let windows = target.contains("windows");
+
+    if cfg!(feature = "mesalink") {
+        println!("cargo:warning=MesaLink support has been removed as of curl 7.82.0, will use default TLS backend instead.");
+    }
 
     // This feature trumps all others, and is largely set by rustbuild to force
     // usage of the system library to ensure that we're always building an
@@ -73,6 +76,7 @@ fn main() {
         "curlver.h",
         "easy.h",
         "options.h",
+        "header.h",
         "mprintf.h",
         "multi.h",
         "stdcheaders.h",
@@ -117,7 +121,6 @@ fn main() {
         .define("CURL_DISABLE_IMAP", None)
         .define("CURL_DISABLE_LDAP", None)
         .define("CURL_DISABLE_LDAPS", None)
-        .define("CURL_DISABLE_NTLM", None)
         .define("CURL_DISABLE_POP3", None)
         .define("CURL_DISABLE_RTSP", None)
         .define("CURL_DISABLE_SMB", None)
@@ -160,12 +163,10 @@ fn main() {
         .file("curl/lib/hash.c")
         .file("curl/lib/hmac.c")
         .file("curl/lib/hostasyn.c")
-        .file("curl/lib/hostcheck.c")
         .file("curl/lib/hostip.c")
         .file("curl/lib/hostip6.c")
         .file("curl/lib/hsts.c")
         .file("curl/lib/http.c")
-        .file("curl/lib/http2.c")
         .file("curl/lib/http_aws_sigv4.c")
         .file("curl/lib/http_chunks.c")
         .file("curl/lib/http_digest.c")
@@ -207,14 +208,30 @@ fn main() {
         .file("curl/lib/version.c")
         .file("curl/lib/vauth/digest.c")
         .file("curl/lib/vauth/vauth.c")
+        .file("curl/lib/vtls/hostcheck.c")
         .file("curl/lib/vtls/keylog.c")
         .file("curl/lib/vtls/vtls.c")
         .file("curl/lib/warnless.c")
         .file("curl/lib/wildcard.c")
+        .file("curl/lib/timediff.c")
         .define("HAVE_GETADDRINFO", None)
         .define("HAVE_GETPEERNAME", None)
         .define("HAVE_GETSOCKNAME", None)
         .warnings(false);
+
+    if cfg!(feature = "ntlm") {
+        cfg.file("curl/lib/curl_des.c")
+            .file("curl/lib/curl_endian.c")
+            .file("curl/lib/curl_gethostname.c")
+            .file("curl/lib/curl_ntlm_core.c")
+            .file("curl/lib/curl_ntlm_wb.c")
+            .file("curl/lib/http_ntlm.c")
+            .file("curl/lib/md4.c")
+            .file("curl/lib/vauth/ntlm.c")
+            .file("curl/lib/vauth/ntlm_sspi.c");
+    } else {
+        cfg.define("CURL_DISABLE_NTLM", None);
+    }
 
     if cfg!(feature = "protocol-ftp") {
         cfg.file("curl/lib/curl_fnmatch.c")
@@ -227,7 +244,9 @@ fn main() {
 
     if cfg!(feature = "http2") {
         cfg.define("USE_NGHTTP2", None)
-            .define("NGHTTP2_STATICLIB", None);
+            .define("NGHTTP2_STATICLIB", None)
+            .file("curl/lib/h2h3.c")
+            .file("curl/lib/http2.c");
 
         println!("cargo:rustc-cfg=link_libnghttp2");
         if let Some(path) = env::var_os("DEP_NGHTTP2_ROOT") {
@@ -249,19 +268,10 @@ fn main() {
 
     // Configure TLS backend. Since Cargo does not support mutually exclusive
     // features, make sure we only compile one vtls.
-    if cfg!(feature = "mesalink") {
-        cfg.define("USE_MESALINK", None)
-            .file("curl/lib/vtls/mesalink.c");
-
-        if let Some(path) = env::var_os("DEP_MESALINK_INCLUDE") {
-            cfg.include(path);
-        }
-
-        if windows {
-            cfg.define("HAVE_WINDOWS", None);
-        } else {
-            cfg.define("HAVE_UNIX", None);
-        }
+    if cfg!(feature = "rustls") {
+        cfg.define("USE_RUSTLS", None)
+            .file("curl/lib/vtls/rustls.c")
+            .include(env::var_os("DEP_RUSTLS_FFI_INCLUDE").unwrap());
     } else if cfg!(feature = "ssl") {
         if windows {
             // For windows, spnego feature is auto on in case ssl feature is on.
@@ -269,17 +279,17 @@ fn main() {
             cfg.define("USE_WINDOWS_SSPI", None)
                 .define("USE_SCHANNEL", None)
                 .file("curl/lib/http_negotiate.c")
-                .file("curl/lib/x509asn1.c")
                 .file("curl/lib/curl_sspi.c")
                 .file("curl/lib/socks_sspi.c")
                 .file("curl/lib/vauth/spnego_sspi.c")
                 .file("curl/lib/vauth/vauth.c")
                 .file("curl/lib/vtls/schannel.c")
-                .file("curl/lib/vtls/schannel_verify.c");
+                .file("curl/lib/vtls/schannel_verify.c")
+                .file("curl/lib/vtls/x509asn1.c");
         } else if target.contains("-apple-") {
             cfg.define("USE_SECTRANSP", None)
-                .file("curl/lib/x509asn1.c")
-                .file("curl/lib/vtls/sectransp.c");
+                .file("curl/lib/vtls/sectransp.c")
+                .file("curl/lib/vtls/x509asn1.c");
             if xcode_major_version().map_or(true, |v| v >= 9) {
                 // On earlier Xcode versions (<9), defining HAVE_BUILTIN_AVAILABLE
                 // would cause __bultin_available() to fail to compile due to
@@ -498,14 +508,17 @@ fn try_pkg_config() -> bool {
 }
 
 fn xcode_major_version() -> Option<u8> {
-    let output = Command::new("xcodebuild").arg("-version").output().ok()?;
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        println!("xcode version: {}", stdout);
-        let mut words = stdout.split_whitespace();
-        if words.next()? == "Xcode" {
-            let version = words.next()?;
-            return version[..version.find('.')?].parse().ok();
+    let status = Command::new("xcode-select").arg("-p").status().ok()?;
+    if status.success() {
+        let output = Command::new("xcodebuild").arg("-version").output().ok()?;
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            println!("xcode version: {}", stdout);
+            let mut words = stdout.split_whitespace();
+            if words.next()? == "Xcode" {
+                let version = words.next()?;
+                return version[..version.find('.')?].parse().ok();
+            }
         }
     }
     println!("unable to determine Xcode version, assuming >= 9");
@@ -538,7 +551,9 @@ fn curl_config_reports_http2() -> bool {
 }
 
 fn macos_link_search_path() -> Option<String> {
-    let output = Command::new("clang")
+    let output = cc::Build::new()
+        .get_compiler()
+        .to_command()
         .arg("--print-search-dirs")
         .output()
         .ok()?;
@@ -552,8 +567,10 @@ fn macos_link_search_path() -> Option<String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
         if line.contains("libraries: =") {
-            let path = line.split('=').skip(1).next()?;
-            return Some(format!("{}/lib/darwin", path));
+            let path = line.split('=').nth(1)?;
+            if !path.is_empty() {
+                return Some(format!("{}/lib/darwin", path));
+            }
         }
     }
 

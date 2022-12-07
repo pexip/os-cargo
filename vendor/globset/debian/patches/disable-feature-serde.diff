@@ -2,23 +2,20 @@ Index: globset/Cargo.toml
 ===================================================================
 --- globset.orig/Cargo.toml
 +++ globset/Cargo.toml
-@@ -45,9 +45,9 @@ version = "1.1.5"
- features = ["perf", "std"]
+@@ -59,10 +59,6 @@ features = [
+ ]
  default-features = false
  
 -[dependencies.serde]
 -version = "1.0.104"
 -optional = true
-+#[dependencies.serde]
-+#version = "1.0.104"
-+#optional = true
+-
  [dev-dependencies.glob]
  version = "0.3.0"
  
-@@ -58,5 +58,5 @@ version = "1"
- version = "1.0.45"
+@@ -74,5 +70,4 @@ version = "1.0.45"
  
  [features]
+ default = ["log"]
 -serde1 = ["serde"]
-+#serde1 = ["serde"]
  simd-accel = []

@@ -10,6 +10,7 @@ pub(crate) enum ErrorKind {
     Overflow(Position),
     EmptySegment(Position),
     IllegalCharacter(Position),
+    WildcardNotTheOnlyComparator(char),
     UnexpectedAfterWildcard,
     ExcessiveComparators,
 }
@@ -36,15 +37,26 @@ impl Display for Error {
             ErrorKind::UnexpectedChar(pos, ch) => {
                 write!(
                     formatter,
-                    "unexpected character {:?} while parsing {}",
-                    ch, pos,
+                    "unexpected character {} while parsing {}",
+                    QuotedChar(*ch),
+                    pos,
                 )
             }
             ErrorKind::UnexpectedCharAfter(pos, ch) => {
-                write!(formatter, "unexpected character {:?} after {}", ch, pos)
+                write!(
+                    formatter,
+                    "unexpected character {} after {}",
+                    QuotedChar(*ch),
+                    pos,
+                )
             }
             ErrorKind::ExpectedCommaFound(pos, ch) => {
-                write!(formatter, "expected comma after {}, found {:?}", pos, ch)
+                write!(
+                    formatter,
+                    "expected comma after {}, found {}",
+                    pos,
+                    QuotedChar(*ch),
+                )
             }
             ErrorKind::LeadingZero(pos) => {
                 write!(formatter, "invalid leading zero in {}", pos)
@@ -57,6 +69,13 @@ impl Display for Error {
             }
             ErrorKind::IllegalCharacter(pos) => {
                 write!(formatter, "unexpected character in {}", pos)
+            }
+            ErrorKind::WildcardNotTheOnlyComparator(ch) => {
+                write!(
+                    formatter,
+                    "wildcard req ({}) must be the only comparator in the version req",
+                    ch,
+                )
             }
             ErrorKind::UnexpectedAfterWildcard => {
                 formatter.write_str("unexpected character after wildcard in version req")
@@ -86,5 +105,20 @@ impl Debug for Error {
         Display::fmt(self, formatter)?;
         formatter.write_str("\")")?;
         Ok(())
+    }
+}
+
+struct QuotedChar(char);
+
+impl Display for QuotedChar {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        // Standard library versions prior to https://github.com/rust-lang/rust/pull/95345
+        // print character 0 as '\u{0}'. We prefer '\0' to keep error messages
+        // the same across all supported Rust versions.
+        if self.0 == '\0' {
+            formatter.write_str("'\\0'")
+        } else {
+            write!(formatter, "{:?}", self.0)
+        }
     }
 }

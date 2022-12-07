@@ -13,6 +13,7 @@ use winapi::shared::ws2ipdef::SOCKADDR_IN6_LH_u;
 ///
 /// `SockAddr`s may be constructed directly to and from the standard library
 /// [`SocketAddr`], [`SocketAddrV4`], and [`SocketAddrV6`] types.
+#[derive(Clone)]
 pub struct SockAddr {
     storage: sockaddr_storage,
     len: socklen_t,
@@ -224,7 +225,7 @@ impl From<SocketAddrV4> for SockAddr {
         let sockaddr_in = sockaddr_in {
             sin_family: AF_INET as sa_family_t,
             sin_port: addr.port().to_be(),
-            sin_addr: crate::sys::to_in_addr(&addr.ip()),
+            sin_addr: crate::sys::to_in_addr(addr.ip()),
             sin_zero: Default::default(),
             #[cfg(any(
                 target_os = "dragonfly",

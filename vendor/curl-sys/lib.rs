@@ -6,10 +6,10 @@
 extern crate libnghttp2_sys;
 #[cfg(link_libz)]
 extern crate libz_sys;
-#[cfg(feature = "mesalink")]
-extern crate mesalink;
 #[cfg(link_openssl)]
 extern crate openssl_sys;
+#[cfg(feature = "rustls")]
+extern crate rustls_ffi;
 
 use libc::c_ulong;
 use libc::{c_char, c_double, c_int, c_long, c_short, c_uint, c_void, size_t, time_t};
@@ -49,20 +49,20 @@ pub const CURL_SOCKET_BAD: curl_socket_t = !0;
 
 pub enum curl_httppost {
     // Note that this changed in some versions of libcurl, so we currently don't
-// bind the fields as they're apparently not stable.
-// pub next: *mut curl_httppost,
-// pub name: *mut c_char,
-// pub namelength: c_long,
-// pub contents: *mut c_char,
-// pub contentslength: c_long,
-// pub buffer: *mut c_char,
-// pub bufferlength: c_long,
-// pub contenttype: *mut c_char,
-// pub contentheader: *mut curl_slist,
-// pub more: *mut curl_httppost,
-// pub flags: c_long,
-// pub showfilename: *mut c_char,
-// pub userp: *mut c_void,
+    // bind the fields as they're apparently not stable.
+    // pub next: *mut curl_httppost,
+    // pub name: *mut c_char,
+    // pub namelength: c_long,
+    // pub contents: *mut c_char,
+    // pub contentslength: c_long,
+    // pub buffer: *mut c_char,
+    // pub bufferlength: c_long,
+    // pub contenttype: *mut c_char,
+    // pub contentheader: *mut curl_slist,
+    // pub more: *mut curl_httppost,
+    // pub flags: c_long,
+    // pub showfilename: *mut c_char,
+    // pub userp: *mut c_void,
 }
 
 // pub const HTTPPOST_FILENAME: c_long = 1 << 0;
@@ -377,6 +377,7 @@ pub const CURLOPTTYPE_OBJECTPOINT: CURLoption = 10_000;
 pub const CURLOPTTYPE_FUNCTIONPOINT: CURLoption = 20_000;
 pub const CURLOPTTYPE_OFF_T: CURLoption = 30_000;
 pub const CURLOPTTYPE_BLOB: CURLoption = 40_000;
+const CURLOPTTYPE_VALUES: CURLoption = CURLOPTTYPE_LONG;
 
 pub const CURLOPT_FILE: CURLoption = CURLOPTTYPE_OBJECTPOINT + 1;
 pub const CURLOPT_URL: CURLoption = CURLOPTTYPE_OBJECTPOINT + 2;
@@ -592,10 +593,22 @@ pub const CURLOPT_PIPEWAIT: CURLoption = CURLOPTTYPE_LONG + 237;
 pub const CURLOPT_CONNECT_TO: CURLoption = CURLOPTTYPE_OBJECTPOINT + 243;
 pub const CURLOPT_PROXY_CAINFO: CURLoption = CURLOPTTYPE_OBJECTPOINT + 246;
 pub const CURLOPT_PROXY_CAPATH: CURLoption = CURLOPTTYPE_OBJECTPOINT + 247;
+pub const CURLOPT_PROXY_SSL_VERIFYPEER: CURLoption = CURLOPTTYPE_LONG + 248;
+pub const CURLOPT_PROXY_SSL_VERIFYHOST: CURLoption = CURLOPTTYPE_LONG + 249;
+pub const CURLOPT_PROXY_SSLVERSION: CURLoption = CURLOPTTYPE_VALUES + 250;
 pub const CURLOPT_PROXY_SSLCERT: CURLoption = CURLOPTTYPE_OBJECTPOINT + 254;
+pub const CURLOPT_PROXY_SSLCERTTYPE: CURLoption = CURLOPTTYPE_OBJECTPOINT + 255;
 pub const CURLOPT_PROXY_SSLKEY: CURLoption = CURLOPTTYPE_OBJECTPOINT + 256;
+pub const CURLOPT_PROXY_SSLKEYTYPE: CURLoption = CURLOPTTYPE_OBJECTPOINT + 257;
+pub const CURLOPT_PROXY_KEYPASSWD: CURLoption = CURLOPTTYPE_OBJECTPOINT + 258;
+pub const CURLOPT_PROXY_SSL_CIPHER_LIST: CURLoption = CURLOPTTYPE_OBJECTPOINT + 259;
+pub const CURLOPT_PROXY_CRLFILE: CURLoption = CURLOPTTYPE_OBJECTPOINT + 260;
+pub const CURLOPT_PROXY_SSL_OPTIONS: CURLoption = CURLOPTTYPE_LONG + 261;
 
+pub const CURLOPT_DOH_URL: CURLoption = CURLOPTTYPE_OBJECTPOINT + 279;
 pub const CURLOPT_UPLOAD_BUFFERSIZE: CURLoption = CURLOPTTYPE_LONG + 280;
+
+pub const CURLOPT_HTTP09_ALLOWED: CURLoption = CURLOPTTYPE_LONG + 285;
 
 pub const CURLOPT_MAXAGE_CONN: CURLoption = CURLOPTTYPE_LONG + 288;
 
@@ -605,7 +618,16 @@ pub const CURLOPT_PROXY_SSLCERT_BLOB: CURLoption = CURLOPTTYPE_BLOB + 293;
 pub const CURLOPT_PROXY_SSLKEY_BLOB: CURLoption = CURLOPTTYPE_BLOB + 294;
 pub const CURLOPT_ISSUERCERT_BLOB: CURLoption = CURLOPTTYPE_BLOB + 295;
 
+pub const CURLOPT_PROXY_ISSUERCERT: CURLoption = CURLOPTTYPE_OBJECTPOINT + 296;
+pub const CURLOPT_PROXY_ISSUERCERT_BLOB: CURLoption = CURLOPTTYPE_BLOB + 297;
+
 pub const CURLOPT_AWS_SIGV4: CURLoption = CURLOPTTYPE_OBJECTPOINT + 305;
+
+pub const CURLOPT_DOH_SSL_VERIFYPEER: CURLoption = CURLOPTTYPE_LONG + 306;
+pub const CURLOPT_DOH_SSL_VERIFYHOST: CURLoption = CURLOPTTYPE_LONG + 307;
+pub const CURLOPT_DOH_SSL_VERIFYSTATUS: CURLoption = CURLOPTTYPE_LONG + 308;
+pub const CURLOPT_CAINFO_BLOB: CURLoption = CURLOPTTYPE_BLOB + 309;
+pub const CURLOPT_PROXY_CAINFO_BLOB: CURLoption = CURLOPTTYPE_BLOB + 310;
 
 pub const CURL_IPRESOLVE_WHATEVER: c_int = 0;
 pub const CURL_IPRESOLVE_V4: c_int = 1;
@@ -1079,6 +1101,19 @@ extern "C" {
         timeout_ms: c_int,
         ret: *mut c_int,
     ) -> CURLMcode;
+
+    #[cfg(feature = "poll_7_68_0")]
+    pub fn curl_multi_poll(
+        multi_handle: *mut CURLM,
+        extra_fds: *mut curl_waitfd,
+        extra_nfds: c_uint,
+        timeout_ms: c_int,
+        ret: *mut c_int,
+    ) -> CURLMcode;
+
+    #[cfg(feature = "poll_7_68_0")]
+    pub fn curl_multi_wakeup(multi_handle: *mut CURLM) -> CURLMcode;
+
     pub fn curl_multi_perform(multi_handle: *mut CURLM, running_handles: *mut c_int) -> CURLMcode;
     pub fn curl_multi_cleanup(multi_handle: *mut CURLM) -> CURLMcode;
     pub fn curl_multi_info_read(

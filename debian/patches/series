@@ -1,10 +1,8 @@
-0001-Change-test-to-not-trigger-emoji-error.patch
-0002-Remove-eacces-test.patch
-
 2002_disable-net-tests.patch
 
-2110-use-mfpu-on-armhf.patch
-2111-curl-no-rebuild.patch
-
-2112-handle-4-siphasher-algorithms.patch
 2200-workaround-x32-test.patch
+0001-CVE-2022-36113-avoid-unpacking-.cargo-ok-from-the-cr.patch
+0001-CVE-2022-36114-limit-the-maximum-unpacked-size-of-a-.patch
+disable-fs-specific-test.patch
+0003-tests-add-missing-cross-disabled-checks.patch
+disable_arm_lto_tests.patch

@@ -5,7 +5,7 @@
 // and other linkers will return an error.
 
 use cargo_test_support::registry::Package;
-use cargo_test_support::{basic_bin_manifest, basic_manifest, project};
+use cargo_test_support::{basic_bin_manifest, basic_lib_manifest, basic_manifest, project};
 
 #[cargo_test]
 fn build_script_extra_link_arg_bin() {
@@ -277,5 +277,108 @@ fn link_arg_transitive_not_allowed() {
 ",
         )
         .with_stderr_does_not_contain("--bogus")
+        .run();
+}
+
+#[cargo_test]
+fn link_arg_with_doctest() {
+    let p = project()
+        .file(
+            "src/lib.rs",
+            r#"
+                //! ```
+                //! let x = 5;
+                //! assert_eq!(x, 5);
+                //! ```
+            "#,
+        )
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo:rustc-link-arg=--this-is-a-bogus-flag");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("test --doc -v")
+        .masquerade_as_nightly_cargo()
+        .without_status()
+        .with_stderr_contains(
+            "[RUNNING] `rustdoc [..]--crate-name foo [..]-C link-arg=--this-is-a-bogus-flag[..]",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn build_script_extra_link_arg_tests() {
+    let p = project()
+        .file("Cargo.toml", &basic_lib_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("tests/test_foo.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo:rustc-link-arg-tests=--this-is-a-bogus-flag");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("test -v")
+        .without_status()
+        .with_stderr_contains(
+            "[RUNNING] `rustc --crate-name test_foo [..]-C link-arg=--this-is-a-bogus-flag[..]",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn build_script_extra_link_arg_benches() {
+    let p = project()
+        .file("Cargo.toml", &basic_lib_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("benches/bench_foo.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo:rustc-link-arg-benches=--this-is-a-bogus-flag");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("bench -v")
+        .without_status()
+        .with_stderr_contains(
+            "[RUNNING] `rustc --crate-name bench_foo [..]-C link-arg=--this-is-a-bogus-flag[..]",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn build_script_extra_link_arg_examples() {
+    let p = project()
+        .file("Cargo.toml", &basic_lib_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("examples/example_foo.rs", "fn main() {}")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    println!("cargo:rustc-link-arg-examples=--this-is-a-bogus-flag");
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("build -v --examples")
+        .without_status()
+        .with_stderr_contains(
+            "[RUNNING] `rustc --crate-name example_foo [..]-C link-arg=--this-is-a-bogus-flag[..]",
+        )
         .run();
 }

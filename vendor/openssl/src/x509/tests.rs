@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::asn1::Asn1Time;
 use crate::bn::{BigNum, MsbOption};
 use crate::hash::MessageDigest;
@@ -39,6 +41,9 @@ fn test_debug() {
     let cert = include_bytes!("../../test/cert.pem");
     let cert = X509::from_pem(cert).unwrap();
     let debugged = format!("{:#?}", cert);
+    #[cfg(boringssl)]
+    assert!(debugged.contains(r#"serial_number: "8771f7bdee982fa5""#));
+    #[cfg(not(boringssl))]
     assert!(debugged.contains(r#"serial_number: "8771F7BDEE982FA5""#));
     assert!(debugged.contains(r#"signature_algorithm: sha256WithRSAEncryption"#));
     assert!(debugged.contains(r#"countryName = "AU""#));
@@ -280,7 +285,7 @@ fn x509_req_builder() {
     let name = name.build();
 
     let mut builder = X509Req::builder().unwrap();
-    builder.set_version(2).unwrap();
+    builder.set_version(0).unwrap();
     builder.set_subject_name(&name).unwrap();
     builder.set_pubkey(&pkey).unwrap();
 
@@ -452,4 +457,89 @@ fn x509_ref_version_no_version_set() {
         0, actual_version,
         "Default certificate version is incorrect",
     );
+}
+
+#[test]
+fn test_save_subject_der() {
+    let cert = include_bytes!("../../test/cert.pem");
+    let cert = X509::from_pem(cert).unwrap();
+
+    let der = cert.subject_name().to_der().unwrap();
+    println!("der: {:?}", der);
+    assert!(!der.is_empty());
+}
+
+#[test]
+fn test_load_subject_der() {
+    // The subject from ../../test/cert.pem
+    const SUBJECT_DER: &[u8] = &[
+        48, 90, 49, 11, 48, 9, 6, 3, 85, 4, 6, 19, 2, 65, 85, 49, 19, 48, 17, 6, 3, 85, 4, 8, 12,
+        10, 83, 111, 109, 101, 45, 83, 116, 97, 116, 101, 49, 33, 48, 31, 6, 3, 85, 4, 10, 12, 24,
+        73, 110, 116, 101, 114, 110, 101, 116, 32, 87, 105, 100, 103, 105, 116, 115, 32, 80, 116,
+        121, 32, 76, 116, 100, 49, 19, 48, 17, 6, 3, 85, 4, 3, 12, 10, 102, 111, 111, 98, 97, 114,
+        46, 99, 111, 109,
+    ];
+    X509Name::from_der(SUBJECT_DER).unwrap();
+}
+
+#[test]
+fn test_convert_to_text() {
+    let cert = include_bytes!("../../test/cert.pem");
+    let cert = X509::from_pem(cert).unwrap();
+
+    const SUBSTRINGS: &[&str] = &[
+        "Certificate:\n",
+        "Serial Number:",
+        "Signature Algorithm:",
+        "Issuer: C=AU, ST=Some-State, O=Internet Widgits Pty Ltd\n",
+        "Subject: C=AU, ST=Some-State, O=Internet Widgits Pty Ltd, CN=foobar.com\n",
+        "Subject Public Key Info:",
+    ];
+
+    let text = String::from_utf8(cert.to_text().unwrap()).unwrap();
+
+    for substring in SUBSTRINGS {
+        assert!(
+            text.contains(substring),
+            "{:?} not found inside {}",
+            substring,
+            text
+        );
+    }
+}
+
+#[test]
+fn test_convert_req_to_text() {
+    let csr = include_bytes!("../../test/csr.pem");
+    let csr = X509Req::from_pem(csr).unwrap();
+
+    const SUBSTRINGS: &[&str] = &[
+        "Certificate Request:\n",
+        "Version:",
+        "Subject: C=AU, ST=Some-State, O=Internet Widgits Pty Ltd, CN=foobar.com\n",
+        "Subject Public Key Info:",
+        "Signature Algorithm:",
+    ];
+
+    let text = String::from_utf8(csr.to_text().unwrap()).unwrap();
+
+    for substring in SUBSTRINGS {
+        assert!(
+            text.contains(substring),
+            "{:?} not found inside {}",
+            substring,
+            text
+        );
+    }
+}
+
+#[test]
+fn test_name_cmp() {
+    let cert = include_bytes!("../../test/cert.pem");
+    let cert = X509::from_pem(cert).unwrap();
+
+    let subject = cert.subject_name();
+    let issuer = cert.issuer_name();
+    assert_eq!(Ordering::Equal, subject.try_cmp(subject).unwrap());
+    assert_eq!(Ordering::Greater, subject.try_cmp(issuer).unwrap());
 }

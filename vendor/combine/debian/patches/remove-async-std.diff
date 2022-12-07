@@ -1,0 +1,14 @@
+Index: combine/Cargo.toml
+===================================================================
+--- combine.orig/Cargo.toml
++++ combine/Cargo.toml
+@@ -108,9 +108,6 @@ features = ["codec"]
+ optional = true
+ default-features = false
+ 
+-[dev-dependencies.async-std]
+-version = "1"
+-
+ [dev-dependencies.bytes]
+ version = "1"
+ 

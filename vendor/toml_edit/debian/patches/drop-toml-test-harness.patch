@@ -1,0 +1,49 @@
+Index: toml-edit/Cargo.toml
+===================================================================
+--- toml-edit.orig/Cargo.toml
++++ toml-edit/Cargo.toml
+@@ -92,34 +92,6 @@ test = true
+ name = "convert"
+ 
+ [[test]]
+-name = "decoder_compliance"
+-harness = false
+-
+-[[test]]
+-name = "decoder"
+-
+-[[test]]
+-name = "encoder"
+-
+-[[test]]
+-name = "encoder_compliance"
+-harness = false
+-
+-[[test]]
+-name = "easy_decoder"
+-
+-[[test]]
+-name = "easy_decoder_compliance"
+-harness = false
+-
+-[[test]]
+-name = "easy_encoder"
+-
+-[[test]]
+-name = "easy_encoder_compliance"
+-harness = false
+-
+-[[test]]
+ name = "enum_external_deserialize"
+ 
+ [[test]]
+@@ -169,9 +141,6 @@ version = "1.0.44"
+ [dev-dependencies.toml]
+ version = "0.5"
+ 
+-[dev-dependencies.toml-test-harness]
+-version = "0.3"
+-
+ [features]
+ default = []
+ easy = ["serde"]

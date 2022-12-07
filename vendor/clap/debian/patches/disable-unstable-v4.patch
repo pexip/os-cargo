@@ -1,0 +1,15 @@
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -439,10 +439,6 @@ unicode = [
+ ]
+ unstable-grouped = []
+ unstable-replace = []
+-unstable-v4 = [
+-    "clap_derive/unstable-v4",
+-    "deprecated",
+-]
+ wrap_help = [
+     "terminal_size",
+     "textwrap/terminal_size",

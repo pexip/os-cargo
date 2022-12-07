@@ -2,9 +2,9 @@ Index: flate2/Cargo.toml
 ===================================================================
 --- flate2.orig/Cargo.toml
 +++ flate2/Cargo.toml
-@@ -25,10 +25,6 @@ repository = "https://github.com/rust-la
- [dependencies.cfg-if]
- version = "1.0.0"
+@@ -39,10 +39,6 @@ categories = [
+ license = "MIT OR Apache-2.0"
+ repository = "https://github.com/rust-lang/flate2-rs"
  
 -[dependencies.cloudflare-zlib-sys]
 -version = "0.3.0"
@@ -13,11 +13,14 @@ Index: flate2/Cargo.toml
  [dependencies.crc32fast]
  version = "1.2.0"
  
-@@ -54,7 +50,6 @@ version = "0.7"
+@@ -69,10 +65,6 @@ version = "0.8"
  
  [features]
  any_zlib = []
--cloudflare_zlib = ["any_zlib", "cloudflare-zlib-sys"]
+-cloudflare_zlib = [
+-    "any_zlib",
+-    "cloudflare-zlib-sys",
+-]
  default = ["rust_backend"]
+ miniz-sys = ["rust_backend"]
  rust_backend = ["miniz_oxide"]
- miniz-sys = ["zlib"]

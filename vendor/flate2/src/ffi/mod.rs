@@ -35,15 +35,15 @@ pub trait DeflateBackend: Backend {
 }
 
 // Default to Rust implementation unless explicitly opted in to a different backend.
-cfg_if::cfg_if! {
-    if #[cfg(any(feature = "miniz-sys", feature = "zlib"))] {
-        mod c;
-        pub use self::c::*;
-    } else {
-        mod rust;
-        pub use self::rust::*;
-    }
-}
+#[cfg(feature = "zlib")]
+mod c;
+#[cfg(feature = "zlib")]
+pub use self::c::*;
+
+#[cfg(not(feature = "zlib"))]
+mod rust;
+#[cfg(not(feature = "zlib"))]
+pub use self::rust::*;
 
 impl std::fmt::Debug for ErrorMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

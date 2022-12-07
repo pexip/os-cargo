@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use lazycell::LazyCell;
-use log::info;
+use log::debug;
 
 use super::{BuildContext, CompileKind, Context, FileFlavor, Layout};
 use crate::core::compiler::{CompileMode, CompileTarget, CrateType, FileType, Unit};
@@ -191,7 +191,9 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
     /// Returns the directory where the artifacts for the given unit are
     /// initially created.
     pub fn out_dir(&self, unit: &Unit) -> PathBuf {
-        if unit.mode.is_doc() {
+        // Docscrape units need to have doc/ set as the out_dir so sources for reverse-dependencies
+        // will be put into doc/ and not into deps/ where the *.examples files are stored.
+        if unit.mode.is_doc() || unit.mode.is_doc_scrape() {
             self.layout(unit.kind).doc().to_path_buf()
         } else if unit.mode.is_doc_test() {
             panic!("doc tests do not have an out dir");
@@ -199,6 +201,8 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
             self.build_script_dir(unit)
         } else if unit.target.is_example() {
             self.layout(unit.kind).examples().to_path_buf()
+        } else if unit.artifact.is_true() {
+            self.artifact_dir(unit)
         } else {
             self.deps_dir(unit).to_path_buf()
         }
@@ -285,6 +289,30 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         self.layout(CompileKind::Host).build().join(dir)
     }
 
+    /// Returns the directory for compiled artifacts files.
+    /// `/path/to/target/{debug,release}/deps/artifact/KIND/PKG-HASH`
+    fn artifact_dir(&self, unit: &Unit) -> PathBuf {
+        assert!(self.metas.contains_key(unit));
+        assert!(unit.artifact.is_true());
+        let dir = self.pkg_dir(unit);
+        let kind = match unit.target.kind() {
+            TargetKind::Bin => "bin",
+            TargetKind::Lib(lib_kinds) => match lib_kinds.as_slice() {
+                &[CrateType::Cdylib] => "cdylib",
+                &[CrateType::Staticlib] => "staticlib",
+                invalid => unreachable!(
+                    "BUG: unexpected artifact library type(s): {:?} - these should have been split",
+                    invalid
+                ),
+            },
+            invalid => unreachable!(
+                "BUG: {:?} are not supposed to be used as artifacts",
+                invalid
+            ),
+        };
+        self.layout(unit.kind).artifact().join(dir).join(kind)
+    }
+
     /// Returns the directory where information about running a build script
     /// is stored.
     /// `/path/to/target/{debug,release}/build/PKG-HASH`
@@ -352,7 +380,12 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         if unit.mode != CompileMode::Build || file_type.flavor == FileFlavor::Rmeta {
             return None;
         }
-        // Only uplift:
+
+        // Artifact dependencies are never uplifted.
+        if unit.artifact.is_true() {
+            return None;
+        }
+
         // - Binaries: The user always wants to see these, even if they are
         //   implicitly built (for example for integration tests).
         // - dylibs: This ensures that the dynamic linker pulls in all the
@@ -417,12 +450,23 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
                 // but Cargo does not know about that.
                 vec![]
             }
+            CompileMode::Docscrape => {
+                let path = self
+                    .deps_dir(unit)
+                    .join(format!("{}.examples", unit.buildkey()));
+                vec![OutputFile {
+                    path,
+                    hardlink: None,
+                    export_path: None,
+                    flavor: FileFlavor::Normal,
+                }]
+            }
             CompileMode::Test
             | CompileMode::Build
             | CompileMode::Bench
             | CompileMode::Check { .. } => self.calc_outputs_rustc(unit, bcx)?,
         };
-        info!("Target filenames: {:?}", ret);
+        debug!("Target filenames: {:?}", ret);
 
         Ok(Arc::new(ret))
     }

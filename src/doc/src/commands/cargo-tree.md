@@ -249,6 +249,7 @@ for more details.
 
 <dl>
 
+<dt class="option-term" id="option-cargo-tree--F"><a class="option-anchor" href="#option-cargo-tree--F"></a><code>-F</code> <em>features</em></dt>
 <dt class="option-term" id="option-cargo-tree---features"><a class="option-anchor" href="#option-cargo-tree---features"></a><code>--features</code> <em>features</em></dt>
 <dd class="option-desc">Space or comma separated list of features to activate. Features of workspace
 members may be enabled with <code>package-name/feature-name</code> syntax. This flag may
@@ -280,7 +281,9 @@ May also be specified with the <code>term.verbose</code>
 
 <dt class="option-term" id="option-cargo-tree--q"><a class="option-anchor" href="#option-cargo-tree--q"></a><code>-q</code></dt>
 <dt class="option-term" id="option-cargo-tree---quiet"><a class="option-anchor" href="#option-cargo-tree---quiet"></a><code>--quiet</code></dt>
-<dd class="option-desc">No output printed to stdout.</dd>
+<dd class="option-desc">Do not print cargo log messages.
+May also be specified with the <code>term.quiet</code>
+<a href="../reference/config.html">config value</a>.</dd>
 
 
 <dt class="option-term" id="option-cargo-tree---color"><a class="option-anchor" href="#option-cargo-tree---color"></a><code>--color</code> <em>when</em></dt>

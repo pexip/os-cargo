@@ -1,0 +1,33 @@
+Description: Don't fail the benches if no specialized implementation is available.
+Author: Peter Michael Green <plugwash@debian.org>
+
+--- rust-crc32fast-1.3.2.orig/benches/bench.rs
++++ rust-crc32fast-1.3.2/benches/bench.rs
+@@ -25,7 +25,10 @@ fn bench_kilobyte_baseline(b: &mut Bench
+ }
+ 
+ fn bench_kilobyte_specialized(b: &mut Bencher) {
+-    bench(b, 1024, Hasher::internal_new_specialized(0, 0).unwrap())
++    let hasher = Hasher::internal_new_specialized(0, 0);
++    if let Some(hasher) = hasher {
++	bench(b, 1024, hasher)
++    }
+ }
+ 
+ fn bench_megabyte_baseline(b: &mut Bencher) {
+@@ -33,11 +36,10 @@ fn bench_megabyte_baseline(b: &mut Bench
+ }
+ 
+ fn bench_megabyte_specialized(b: &mut Bencher) {
+-    bench(
+-        b,
+-        1024 * 1024,
+-        Hasher::internal_new_specialized(0, 0).unwrap(),
+-    )
++    let hasher = Hasher::internal_new_specialized(0, 0);
++    if let Some(hasher) = hasher {
++        bench(b, 1024 * 1024, hasher)
++    }
+ }
+ 
+ benchmark_group!(

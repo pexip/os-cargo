@@ -3,9 +3,11 @@ Description: remove compiler-builtins feature.
  feature packages.
 Author: Peter Michael Green <plugwash@debian.org>
 
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -32,10 +32,6 @@
+Index: miniz-oxide/Cargo.toml
+===================================================================
+--- miniz-oxide.orig/Cargo.toml
++++ miniz-oxide/Cargo.toml
+@@ -42,10 +42,6 @@ name = "miniz_oxide"
  version = "1.0"
  default-features = false
  
@@ -13,6 +15,6 @@ Author: Peter Michael Green <plugwash@debian.org>
 -version = "0.1.2"
 -optional = true
 -
- [build-dependencies.autocfg]
- version = "1.0"
- 
+ [dependencies.simd-adler32]
+ version = "0.3"
+ optional = true

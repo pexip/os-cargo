@@ -1,0 +1,29 @@
+Author: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+Subject: Drop rustc-rayon feature
+
+I believe the rustc-rayon feature is only useful for building the
+rustc compiler (it was added in indexmap 1.7.1), and my understanding
+is that rustc in debian is *not* built from debcargo-produced crates.
+
+So rather than intrdoucing an additional feature-related binary
+package, which would cause a trip through the NEW queue, i'm just
+stripping it out.
+
+Another approach that avoids the new binary package, if it turns out
+that stripping this feature causes problems, would be to add
+collapse_features=true to debian/debcargo.toml.
+
+
+--- indexmap/Cargo.toml
++++ indexmap/Cargo.toml
+@@ -53,10 +53,6 @@
+ version = "1.4.1"
+ optional = true
+ 
+-[dependencies.rustc-rayon]
+-version = "0.4"
+-optional = true
+-
+ [dependencies.serde]
+ version = "1.0"
+ optional = true

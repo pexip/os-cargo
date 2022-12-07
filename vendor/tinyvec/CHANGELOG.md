@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.0
+
+* [i509VCB](https://github.com/i509VCB) added the `try_` functions for fallable reallocation.
+  [pr 158](https://github.com/Lokathor/tinyvec/pull/158)
+* [ajtribick](https://github.com/ajtribick) added more error impls to `TryFromSliceError`.
+  [pr 160](https://github.com/Lokathor/tinyvec/pull/160)
+* The `std` feature now automatically enables the `alloc` feature as well.
+
+## 1.5.1
+
+* [madsmtm](https://github.com/madsmtm) fixed an error with the `alloc` feature on very old rustc versions.
+  [pr 154](https://github.com/Lokathor/tinyvec/pull/154)
+
 ## 1.5.0
 
 * [eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) added an impl for [std::io::Write](https://doc.rust-lang.org/std/io/trait.Write.html) to `TinyVec` when the element type is `u8`.

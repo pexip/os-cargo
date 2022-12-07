@@ -13,11 +13,16 @@ limit to the number of versions which can be published, however.
 First things first, you’ll need an account on [crates.io] to acquire
 an API token. To do so, [visit the home page][crates.io] and log in via a GitHub
 account (required for now). After this, visit your [Account
-Settings](https://crates.io/me) page and run the [`cargo login`] command
-specified.
+Settings](https://crates.io/me) page and run the [`cargo login`] command.
 
 ```console
-$ cargo login abcdefghijklmnopqrstuvwxyz012345
+$ cargo login
+```
+
+Then at the prompt put in the token specified.
+```console
+please paste the API Token found on https://crates.io/me below
+abcdefghijklmnopqrstuvwxyz012345
 ```
 
 This command will inform Cargo of your API token and store it locally in your
@@ -119,11 +124,9 @@ And that’s it, you’ve now published your first crate!
 
 ### Publishing a new version of an existing crate
 
-In order to release a new version, change the `version` value specified in
-your `Cargo.toml` manifest. Keep in mind [the semver
-rules](manifest.md#the-version-field), and consult [RFC 1105] for
-what constitutes a semver-breaking change. Then run [`cargo publish`] as
-described above to upload the new version.
+In order to release a new version, change [the `version` value](manifest.md#the-version-field) specified in your `Cargo.toml` manifest.
+Keep in mind [the SemVer rules](semver.md) which provide guidelines on what is a compatible change.
+Then run [`cargo publish`] as described above to upload the new version.
 
 ### Managing a crates.io-based crate
 
@@ -139,8 +142,8 @@ etc.). For situations such as this, Cargo supports a “yank” of a version of 
 crate.
 
 ```console
-$ cargo yank --vers 1.0.1
-$ cargo yank --vers 1.0.1 --undo
+$ cargo yank --version 1.0.1
+$ cargo yank --version 1.0.1 --undo
 ```
 
 A yank **does not** delete any code. This feature is not intended for deleting
@@ -255,7 +258,6 @@ listed in the "Organization access" list with a green check mark. If there's
 a button labeled `Grant` or `Request`, you should grant the access or
 request the org owner to do so.
 
-[RFC 1105]: https://github.com/rust-lang/rfcs/blob/master/text/1105-api-evolution.md
 [Rust API Guidelines]: https://rust-lang.github.io/api-guidelines/
 [`cargo login`]: ../commands/cargo-login.md
 [`cargo package`]: ../commands/cargo-package.md

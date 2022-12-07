@@ -308,3 +308,13 @@ fn range_version_full() {
         .probe("escape")
         .unwrap();
 }
+
+#[test]
+fn rpath() {
+    let _g = LOCK.lock();
+    reset();
+    let lib = find("rpath").unwrap();
+    assert!(lib
+        .ld_args
+        .contains(&vec!["-rpath".to_string(), "/usr/local/lib".to_string(),]));
+}

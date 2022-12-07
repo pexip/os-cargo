@@ -16,6 +16,7 @@ use lazycell::LazyCell;
 use log::{debug, warn};
 use semver::Version;
 use serde::Serialize;
+use toml_edit::easy as toml;
 
 use crate::core::compiler::{CompileKind, RustcTargetData};
 use crate::core::dependency::DepKind;
@@ -102,6 +103,7 @@ pub struct SerializedPackage {
     #[serde(skip_serializing_if = "Option::is_none")]
     metabuild: Option<Vec<String>>,
     default_run: Option<String>,
+    rust_version: Option<String>,
 }
 
 impl Package {
@@ -198,7 +200,7 @@ impl Package {
             .manifest()
             .original()
             .prepare_for_publish(ws, self.root())?;
-        let toml = toml::to_string(&manifest)?;
+        let toml = toml::to_string_pretty(&manifest)?;
         Ok(format!("{}\n{}", MANIFEST_PREAMBLE, toml))
     }
 
@@ -207,7 +209,7 @@ impl Package {
         self.targets().iter().any(|t| t.is_example() || t.is_bin())
     }
 
-    pub fn serialized(&self, config: &Config) -> SerializedPackage {
+    pub fn serialized(&self) -> SerializedPackage {
         let summary = self.manifest().summary();
         let package_id = summary.package_id();
         let manmeta = self.manifest().metadata();
@@ -221,27 +223,19 @@ impl Package {
             .filter(|t| t.src_path().is_path())
             .cloned()
             .collect();
-        let features = if config.cli_unstable().namespaced_features {
-            // Convert Vec<FeatureValue> to Vec<InternedString>
-            summary
-                .features()
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        *k,
-                        v.iter()
-                            .map(|fv| InternedString::new(&fv.to_string()))
-                            .collect(),
-                    )
-                })
-                .collect()
-        } else {
-            self.manifest()
-                .original()
-                .features()
-                .cloned()
-                .unwrap_or_default()
-        };
+        // Convert Vec<FeatureValue> to Vec<InternedString>
+        let features = summary
+            .features()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    *k,
+                    v.iter()
+                        .map(|fv| InternedString::new(&fv.to_string()))
+                        .collect(),
+                )
+            })
+            .collect();
 
         SerializedPackage {
             name: package_id.name(),
@@ -268,6 +262,7 @@ impl Package {
             metabuild: self.manifest().metabuild().cloned(),
             publish: self.publish().as_ref().cloned(),
             default_run: self.manifest().default_run().map(|s| s.to_owned()),
+            rust_version: self.rust_version().map(|s| s.to_owned()),
         }
     }
 }
@@ -410,13 +405,6 @@ impl<'cfg> PackageSet<'cfg> {
     ) -> CargoResult<PackageSet<'cfg>> {
         // We've enabled the `http2` feature of `curl` in Cargo, so treat
         // failures here as fatal as it would indicate a build-time problem.
-        //
-        // Note that the multiplexing support is pretty new so we're having it
-        // off-by-default temporarily.
-        //
-        // Also note that pipelining is disabled as curl authors have indicated
-        // that it's buggy, and we've empirically seen that it's buggy with HTTP
-        // proxies.
         let mut multi = Multi::new();
         let multiplexing = config.http_config()?.multiplexing.unwrap_or(true);
         multi
@@ -524,7 +512,7 @@ impl<'cfg> PackageSet<'cfg> {
                 target_data,
                 force_all_targets,
             );
-            for pkg_id in filtered_deps {
+            for (pkg_id, _dep) in filtered_deps {
                 collect_used_deps(
                     used,
                     resolve,
@@ -558,20 +546,22 @@ impl<'cfg> PackageSet<'cfg> {
         Ok(())
     }
 
-    /// Check if there are any dependency packages that do not have any libs.
-    pub(crate) fn no_lib_pkgs(
+    /// Check if there are any dependency packages that violate artifact constraints
+    /// to instantly abort, or that do not have any libs which results in warnings.
+    pub(crate) fn warn_no_lib_packages_and_artifact_libs_overlapping_deps(
         &self,
+        ws: &Workspace<'cfg>,
         resolve: &Resolve,
         root_ids: &[PackageId],
         has_dev_units: HasDevUnits,
         requested_kinds: &[CompileKind],
         target_data: &RustcTargetData<'_>,
         force_all_targets: ForceAllTargets,
-    ) -> BTreeMap<PackageId, Vec<&Package>> {
-        root_ids
+    ) -> CargoResult<()> {
+        let no_lib_pkgs: BTreeMap<PackageId, Vec<(&Package, &HashSet<Dependency>)>> = root_ids
             .iter()
             .map(|&root_id| {
-                let pkgs = PackageSet::filter_deps(
+                let dep_pkgs_to_deps: Vec<_> = PackageSet::filter_deps(
                     root_id,
                     resolve,
                     has_dev_units,
@@ -579,21 +569,37 @@ impl<'cfg> PackageSet<'cfg> {
                     target_data,
                     force_all_targets,
                 )
-                .filter_map(|package_id| {
-                    if let Ok(dep_pkg) = self.get_one(package_id) {
-                        if !dep_pkg.targets().iter().any(|t| t.is_lib()) {
-                            Some(dep_pkg)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
                 .collect();
-                (root_id, pkgs)
+
+                let dep_pkgs_and_deps = dep_pkgs_to_deps
+                    .into_iter()
+                    .filter(|(_id, deps)| deps.iter().any(|dep| dep.maybe_lib()))
+                    .filter_map(|(dep_package_id, deps)| {
+                        self.get_one(dep_package_id).ok().and_then(|dep_pkg| {
+                            (!dep_pkg.targets().iter().any(|t| t.is_lib())).then(|| (dep_pkg, deps))
+                        })
+                    })
+                    .collect();
+                (root_id, dep_pkgs_and_deps)
             })
-            .collect()
+            .collect();
+
+        for (pkg_id, dep_pkgs) in no_lib_pkgs {
+            for (_dep_pkg_without_lib_target, deps) in dep_pkgs {
+                for dep in deps.iter().filter(|dep| {
+                    dep.artifact()
+                        .map(|artifact| artifact.is_lib())
+                        .unwrap_or(true)
+                }) {
+                    ws.config().shell().warn(&format!(
+                        "{} ignoring invalid dependency `{}` which is missing a lib target",
+                        pkg_id,
+                        dep.name_in_toml(),
+                    ))?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn filter_deps<'a>(
@@ -603,7 +609,7 @@ impl<'cfg> PackageSet<'cfg> {
         requested_kinds: &'a [CompileKind],
         target_data: &'a RustcTargetData<'_>,
         force_all_targets: ForceAllTargets,
-    ) -> impl Iterator<Item = PackageId> + 'a {
+    ) -> impl Iterator<Item = (PackageId, &'a HashSet<Dependency>)> + 'a {
         resolve
             .deps(pkg_id)
             .filter(move |&(_id, deps)| {
@@ -623,7 +629,6 @@ impl<'cfg> PackageSet<'cfg> {
                     true
                 })
             })
-            .map(|(pkg_id, _)| pkg_id)
             .into_iter()
     }
 
@@ -688,7 +693,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
             return Ok(Some(pkg));
         }
 
-        // Ask the original source fo this `PackageId` for the corresponding
+        // Ask the original source for this `PackageId` for the corresponding
         // package. That may immediately come back and tell us that the package
         // is ready, or it could tell us that it needs to be downloaded.
         let mut sources = self.set.sources.borrow_mut();
@@ -745,7 +750,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         // initiate dozens of connections to crates.io, but rather only one.
         // Once the main one is opened we realized that pipelining is possible
         // and multiplexing is possible with static.crates.io. All in all this
-        // reduces the number of connections done to a more manageable state.
+        // reduces the number of connections down to a more manageable state.
         try_old_curl!(handle.pipewait(true), "pipewait");
 
         handle.write_function(move |buf| {
@@ -988,11 +993,9 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                 break Ok(pair);
             }
             assert!(!self.pending.is_empty());
-            let timeout = self
-                .set
-                .multi
-                .get_timeout()?
-                .unwrap_or_else(|| Duration::new(5, 0));
+            let min_timeout = Duration::new(1, 0);
+            let timeout = self.set.multi.get_timeout()?.unwrap_or(min_timeout);
+            let timeout = timeout.min(min_timeout);
             self.set
                 .multi
                 .wait(&mut [], timeout)
@@ -1004,7 +1007,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         let dl = &self.pending[&token].0;
         dl.total.set(total);
         let now = Instant::now();
-        if cur != dl.current.get() {
+        if cur > dl.current.get() {
             let delta = cur - dl.current.get();
             let threshold = self.next_speed_check_bytes_threshold.get();
 

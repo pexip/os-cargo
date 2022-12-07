@@ -1,5 +1,7 @@
---- rust-curl-0.4.33/tests/protocols.rs	2020-07-18 02:50:13.000000000 +0000
-+++ curl/tests/protocols.rs	2020-12-07 02:56:44.334196826 +0000
+Index: curl/tests/protocols.rs
+===================================================================
+--- curl.orig/tests/protocols.rs
++++ curl/tests/protocols.rs
 @@ -1,13 +1,3 @@
 -#[cfg(all(feature = "static-curl", not(feature = "protocol-ftp")))]
 -#[test]

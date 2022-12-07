@@ -1,0 +1,40 @@
+Index: unicode-normalization/benches/bench.rs
+===================================================================
+--- unicode-normalization.orig/benches/bench.rs
++++ unicode-normalization/benches/bench.rs
+@@ -81,7 +81,7 @@ fn bench_nfd_ascii(b: &mut Bencher) {
+     b.iter(|| ASCII.nfd().count());
+ }
+ 
+-#[bench]
++/*#[bench]
+ fn bench_nfc_long(b: &mut Bencher) {
+     let long = fs::read_to_string("benches/long.txt").unwrap();
+     b.iter(|| long.nfc().count());
+@@ -91,7 +91,7 @@ fn bench_nfc_long(b: &mut Bencher) {
+ fn bench_nfd_long(b: &mut Bencher) {
+     let long = fs::read_to_string("benches/long.txt").unwrap();
+     b.iter(|| long.nfd().count());
+-}
++}*/
+ 
+ #[bench]
+ fn bench_nfkc_ascii(b: &mut Bencher) {
+@@ -103,7 +103,7 @@ fn bench_nfkd_ascii(b: &mut Bencher) {
+     b.iter(|| ASCII.nfkd().count());
+ }
+ 
+-#[bench]
++/*#[bench]
+ fn bench_nfkc_long(b: &mut Bencher) {
+     let long = fs::read_to_string("benches/long.txt").unwrap();
+     b.iter(|| long.nfkc().count());
+@@ -113,7 +113,7 @@ fn bench_nfkc_long(b: &mut Bencher) {
+ fn bench_nfkd_long(b: &mut Bencher) {
+     let long = fs::read_to_string("benches/long.txt").unwrap();
+     b.iter(|| long.nfkd().count());
+-}
++}*/
+ 
+ #[bench]
+ fn bench_streamsafe_ascii(b: &mut Bencher) {

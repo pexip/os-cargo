@@ -14,7 +14,7 @@ filter_description="$2"
 shift 2 # everything else is args to suspicious-source
 
 # Remove tiny files 4 bytes or less
-find . -size -4c -delete
+find . -size -4c -type f -delete
 # Remove non-suspicious files, warning on patterns that match nothing
 echo "Excluding (i.e. removing) whitelisted files..."
 grep -v '^#' "$whitelist" | xargs  -I% sh -c 'rm -r ./% || true'

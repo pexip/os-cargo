@@ -7,7 +7,6 @@ use std::str;
 /// fake free method, since SRTP_PROTECTION_PROFILE is static
 unsafe fn free(_profile: *mut ffi::SRTP_PROTECTION_PROFILE) {}
 
-#[allow(unused_unsafe)]
 foreign_type_and_impl_send_sync! {
     type CType = ffi::SRTP_PROTECTION_PROFILE;
     fn drop = free;
@@ -37,12 +36,16 @@ impl SrtpProtectionProfileRef {
 pub struct SrtpProfileId(c_ulong);
 
 impl SrtpProfileId {
-    pub const SRTP_AES128_CM_SHA1_80: SrtpProfileId = SrtpProfileId(ffi::SRTP_AES128_CM_SHA1_80);
-    pub const SRTP_AES128_CM_SHA1_32: SrtpProfileId = SrtpProfileId(ffi::SRTP_AES128_CM_SHA1_32);
-    pub const SRTP_AES128_F8_SHA1_80: SrtpProfileId = SrtpProfileId(ffi::SRTP_AES128_F8_SHA1_80);
-    pub const SRTP_AES128_F8_SHA1_32: SrtpProfileId = SrtpProfileId(ffi::SRTP_AES128_F8_SHA1_32);
-    pub const SRTP_NULL_SHA1_80: SrtpProfileId = SrtpProfileId(ffi::SRTP_NULL_SHA1_80);
-    pub const SRTP_NULL_SHA1_32: SrtpProfileId = SrtpProfileId(ffi::SRTP_NULL_SHA1_32);
+    pub const SRTP_AES128_CM_SHA1_80: SrtpProfileId =
+        SrtpProfileId(ffi::SRTP_AES128_CM_SHA1_80 as c_ulong);
+    pub const SRTP_AES128_CM_SHA1_32: SrtpProfileId =
+        SrtpProfileId(ffi::SRTP_AES128_CM_SHA1_32 as c_ulong);
+    pub const SRTP_AES128_F8_SHA1_80: SrtpProfileId =
+        SrtpProfileId(ffi::SRTP_AES128_F8_SHA1_80 as c_ulong);
+    pub const SRTP_AES128_F8_SHA1_32: SrtpProfileId =
+        SrtpProfileId(ffi::SRTP_AES128_F8_SHA1_32 as c_ulong);
+    pub const SRTP_NULL_SHA1_80: SrtpProfileId = SrtpProfileId(ffi::SRTP_NULL_SHA1_80 as c_ulong);
+    pub const SRTP_NULL_SHA1_32: SrtpProfileId = SrtpProfileId(ffi::SRTP_NULL_SHA1_32 as c_ulong);
     #[cfg(ossl110)]
     pub const SRTP_AEAD_AES_128_GCM: SrtpProfileId = SrtpProfileId(ffi::SRTP_AEAD_AES_128_GCM);
     #[cfg(ossl110)]

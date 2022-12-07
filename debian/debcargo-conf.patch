@@ -7,10 +7,11 @@ so we further patch them here. The reasons are as follows:
   even un-re-written ones that were published to crates.io. The patch below
   rewrites our existing patches so they work against the un-re-written ones.
 
-- our patch to miniz_oxide replaces the adler dep for the adler32 dep. This
-  interferes with our primitive logic in debian-cargo-vendor, so we have to
-  undo that here.
+- unicode-normalization, vte: have dependency relaxation that applies, but
+  doesn't match the vendored copy
 
+diff --git a/src/commoncrypto-sys/debian/patches/no-clippy.patch b/src/commoncrypto-sys/debian/patches/no-clippy.patch
+index 3e4c8850e..93789f3b8 100644
 --- a/src/commoncrypto-sys/debian/patches/no-clippy.patch
 +++ b/src/commoncrypto-sys/debian/patches/no-clippy.patch
 @@ -1,17 +1,16 @@
@@ -42,6 +43,8 @@ so we further patch them here. The reasons are as follows:
 +-
 + [dev-dependencies]
 + hex = "0.2"
+diff --git a/src/commoncrypto/debian/patches/no-clippy.patch b/src/commoncrypto/debian/patches/no-clippy.patch
+index 38d9c9255..b21a7cae5 100644
 --- a/src/commoncrypto/debian/patches/no-clippy.patch
 +++ b/src/commoncrypto/debian/patches/no-clippy.patch
 @@ -1,17 +1,16 @@
@@ -73,9 +76,189 @@ so we further patch them here. The reasons are as follows:
 +-
 + [dev-dependencies]
 + hex = "0.2"
---- a/src/miniz_oxide/debian/patches/series
-+++ b/src/miniz_oxide/debian/patches/series
-@@ -1,3 +1,2 @@
- remove-rustc-dep-of-std-etc.patch
- remove-compiler-builtins.patch
--use-adler32.patch
+diff --git a/src/unicode-normalization/debian/patches/series b/src/unicode-normalization/debian/patches/series
+index 2c1db10bd..39fe7a4da 100644
+--- a/src/unicode-normalization/debian/patches/series
++++ b/src/unicode-normalization/debian/patches/series
+@@ -1,2 +1 @@
+ disable-tests-missing-testdata.patch
+-switch-back-to-smallvec.patch
+diff --git a/src/unicode-normalization/debian/patches/switch-back-to-smallvec.patch b/src/unicode-normalization/debian/patches/switch-back-to-smallvec.patch
+deleted file mode 100644
+index 06e816ca7..000000000
+--- a/src/unicode-normalization/debian/patches/switch-back-to-smallvec.patch
++++ /dev/null
+@@ -1,134 +0,0 @@
+-This patch switches back to using smallvec as we do not have tinyvec in Debian.
+-It is based on a revert of upstream commit d6abe8e5148c2c513cb65f487a037c7600de2498
+-adapted by Peter Michael Green for use in the Debian package.
+-
+-Index: unicode-normalization/src/decompose.rs
+-===================================================================
+---- unicode-normalization.orig/src/decompose.rs
+-+++ unicode-normalization/src/decompose.rs
+-@@ -10,7 +10,7 @@
+- use core::fmt::{self, Write};
+- use core::iter::Fuse;
+- use core::ops::Range;
+--use tinyvec::TinyVec;
+-+use smallvec::SmallVec;
+- 
+- #[derive(Clone)]
+- enum DecompositionType {
+-@@ -32,7 +32,7 @@ pub struct Decompositions<I> {
+-     // 2) "Ready" characters which are sorted and ready to emit on demand;
+-     // 3) A "pending" block which stills needs more characters for us to be able
+-     //    to sort in canonical order and is not safe to emit.
+--    buffer: TinyVec<[(u8, char); 4]>,
+-+    buffer: SmallVec<[(u8, char); 4]>,
+-     ready: Range<usize>,
+- }
+- 
+-@@ -41,7 +41,7 @@ pub fn new_canonical<I: Iterator<Item =
+-     Decompositions {
+-         kind: self::DecompositionType::Canonical,
+-         iter: iter.fuse(),
+--        buffer: TinyVec::new(),
+-+        buffer: SmallVec::new(),
+-         ready: 0..0,
+-     }
+- }
+-@@ -51,7 +51,7 @@ pub fn new_compatible<I: Iterator<Item =
+-     Decompositions {
+-         kind: self::DecompositionType::Compatible,
+-         iter: iter.fuse(),
+--        buffer: TinyVec::new(),
+-+        buffer: SmallVec::new(),
+-         ready: 0..0,
+-     }
+- }
+-Index: unicode-normalization/src/lib.rs
+-===================================================================
+---- unicode-normalization.orig/src/lib.rs
+-+++ unicode-normalization/src/lib.rs
+-@@ -50,7 +50,7 @@ extern crate alloc;
+- #[cfg(feature = "std")]
+- extern crate core;
+- 
+--extern crate tinyvec;
+-+extern crate smallvec;
+- 
+- pub use crate::decompose::Decompositions;
+- pub use crate::quick_check::{
+-Index: unicode-normalization/src/recompose.rs
+-===================================================================
+---- unicode-normalization.orig/src/recompose.rs
+-+++ unicode-normalization/src/recompose.rs
+-@@ -10,7 +10,7 @@
+- 
+- use crate::decompose::Decompositions;
+- use core::fmt::{self, Write};
+--use tinyvec::TinyVec;
+-+use smallvec::SmallVec;
+- 
+- #[derive(Clone)]
+- enum RecompositionState {
+-@@ -24,7 +24,7 @@ enum RecompositionState {
+- pub struct Recompositions<I> {
+-     iter: Decompositions<I>,
+-     state: RecompositionState,
+--    buffer: TinyVec<[char; 4]>,
+-+    buffer: SmallVec<[char; 4]>,
+-     composee: Option<char>,
+-     last_ccc: Option<u8>,
+- }
+-@@ -34,7 +34,7 @@ pub fn new_canonical<I: Iterator<Item =
+-     Recompositions {
+-         iter: super::decompose::new_canonical(iter),
+-         state: self::RecompositionState::Composing,
+--        buffer: TinyVec::new(),
+-+        buffer: SmallVec::new(),
+-         composee: None,
+-         last_ccc: None,
+-     }
+-@@ -45,7 +45,7 @@ pub fn new_compatible<I: Iterator<Item =
+-     Recompositions {
+-         iter: super::decompose::new_compatible(iter),
+-         state: self::RecompositionState::Composing,
+--        buffer: TinyVec::new(),
+-+        buffer: SmallVec::new(),
+-         composee: None,
+-         last_ccc: None,
+-     }
+-Index: unicode-normalization/Cargo.toml
+-===================================================================
+---- unicode-normalization.orig/Cargo.toml
+-+++ unicode-normalization/Cargo.toml
+-@@ -43,9 +43,8 @@ keywords = [
+- license = "MIT/Apache-2.0"
+- repository = "https://github.com/unicode-rs/unicode-normalization"
+- 
+--[dependencies.tinyvec]
+-+[dependencies.smallvec]
+- version = "1"
+--features = ["alloc"]
+- 
+- [features]
+- default = ["std"]
+-Index: unicode-normalization/src/replace.rs
+-===================================================================
+---- unicode-normalization.orig/src/replace.rs
+-+++ unicode-normalization/src/replace.rs
+-@@ -8,7 +8,7 @@
+- // option. This file may not be copied, modified, or distributed
+- // except according to those terms.
+- use core::fmt::{self, Write};
+--use tinyvec::ArrayVec;
+-+use smallvec::SmallVec;
+- 
+- /// External iterator for replacements for a string's characters.
+- #[derive(Clone)]
+-@@ -36,7 +36,7 @@ impl<I: Iterator<Item = char>> Iterator
+-         match self.iter.next() {
+-             Some(ch) => {
+-                 // At this time, the longest replacement sequence has length 2.
+--                let mut buffer = ArrayVec::<[char; 2]>::new();
+-+                let mut buffer = SmallVec::<[char; 2]>::new();
+-                 super::char::decompose_cjk_compat_variants(ch, |d| buffer.push(d));
+-                 self.buffer = buffer.get(1).copied();
+-                 Some(buffer[0])
+diff --git a/src/vte/debian/patches/arrayvec.diff b/src/vte/debian/patches/arrayvec.diff
+deleted file mode 100644
+index 1923f9577..000000000
+--- a/src/vte/debian/patches/arrayvec.diff
++++ /dev/null
+@@ -1,26 +0,0 @@
+-Index: vte/Cargo.toml
+-===================================================================
+---- vte.orig/Cargo.toml
+-+++ vte/Cargo.toml
+-@@ -24,7 +24,7 @@ categories = ["parsing", "no-std"]
+- license = "Apache-2.0 OR MIT"
+- repository = "https://github.com/alacritty/vte"
+- [dependencies.arrayvec]
+--version = "0.5.1"
+-+version = "0.7"
+- optional = true
+- default-features = false
+- 
+-Index: vte/src/lib.rs
+-===================================================================
+---- vte.orig/src/lib.rs
+-+++ vte/src/lib.rs
+-@@ -78,7 +78,7 @@ pub struct Parser {
+-     params: Params,
+-     param: u16,
+-     #[cfg(feature = "no_std")]
+--    osc_raw: ArrayVec<[u8; MAX_OSC_RAW]>,
+-+    osc_raw: ArrayVec<u8, MAX_OSC_RAW>,
+-     #[cfg(not(feature = "no_std"))]
+-     osc_raw: Vec<u8>,
+-     osc_params: [(usize, usize); MAX_OSC_PARAMS],
+diff --git a/src/vte/debian/patches/series b/src/vte/debian/patches/series
+index 011b1a629..203bdd762 100644
+--- a/src/vte/debian/patches/series
++++ b/src/vte/debian/patches/series
+@@ -1,2 +1 @@
+ 00-remove-nightly-feature
+-arrayvec.diff

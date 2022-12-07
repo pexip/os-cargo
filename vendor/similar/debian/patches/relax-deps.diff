@@ -1,0 +1,17 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 0500164..2399b58 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -101,10 +101,10 @@ optional = true
+ version = "0.15.0"
+ 
+ [dev-dependencies.insta]
+-version = "1.10.0"
++version = "1.5.2"
+ 
+ [dev-dependencies.serde_json]
+-version = "1.0.68"
++version = "1.0.82"
+ 
+ [features]
+ bytes = [

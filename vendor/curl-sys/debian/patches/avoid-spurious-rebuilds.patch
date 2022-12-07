@@ -1,0 +1,14 @@
+Since we excluded the "curl" source code directory, this check is no longer
+applicable and would always lead to rebuilds since the file is non-existent.
+Index: curl-sys/build.rs
+===================================================================
+--- curl-sys.orig/build.rs
++++ curl-sys/build.rs
+@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
+ use std::process::Command;
+ 
+ fn main() {
+-    println!("cargo:rerun-if-changed=curl");
+     let host = env::var("HOST").unwrap();
+     let target = env::var("TARGET").unwrap();
+     let windows = target.contains("windows");

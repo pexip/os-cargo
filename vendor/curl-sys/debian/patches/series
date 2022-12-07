@@ -1,3 +1,4 @@
-disable-mesalink.patch
+avoid-spurious-rebuilds.patch
 disable-vendor.patch
 disable-libz-sys.patch
+disable-rustls.patch

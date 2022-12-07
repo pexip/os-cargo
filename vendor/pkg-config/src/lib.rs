@@ -91,6 +91,7 @@ pub struct Library {
     pub frameworks: Vec<String>,
     pub framework_paths: Vec<PathBuf>,
     pub include_paths: Vec<PathBuf>,
+    pub ld_args: Vec<Vec<String>>,
     pub defines: HashMap<String, Option<String>>,
     pub version: String,
     _priv: (),
@@ -112,10 +113,19 @@ pub enum Error {
     /// Contains the command and the cause.
     Command { command: String, cause: io::Error },
 
-    /// `pkg-config` did not exit sucessfully.
+    /// `pkg-config` did not exit sucessfully after probing a library.
     ///
     /// Contains the command and output.
     Failure { command: String, output: Output },
+
+    /// `pkg-config` did not exit sucessfully on the first attempt to probe a library.
+    ///
+    /// Contains the command and output.
+    ProbeFailure {
+        name: String,
+        command: String,
+        output: Output,
+    },
 
     #[doc(hidden)]
     // please don't match on this, we're likely to add more variants over time
@@ -141,8 +151,8 @@ impl fmt::Display for Error {
             } => {
                 match cause.kind() {
                     io::ErrorKind::NotFound => {
-                        let crate_name = std::env::var("CARGO_PKG_NAME");
-                        let crate_name = crate_name.as_deref().unwrap_or("sys");
+                        let crate_name =
+                            std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "sys".to_owned());
                         let instructions = if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
                             "Try `brew install pkg-config` if you have Homebrew.\n"
                         } else if cfg!(unix) {
@@ -168,28 +178,44 @@ impl fmt::Display for Error {
                     _ => write!(f, "Failed to run command `{}`, because: {}", command, cause),
                 }
             }
+            Error::ProbeFailure {
+                ref name,
+                ref command,
+                ref output,
+            } => {
+                write!(
+                    f,
+                    "`{}` did not exit successfully: {}\nerror: could not find system library '{}' required by the '{}' crate\n",
+                    command, output.status, name, env::var("CARGO_PKG_NAME").unwrap_or_default(),
+                )?;
+                format_output(output, f)
+            }
             Error::Failure {
                 ref command,
                 ref output,
             } => {
-                let stdout = str::from_utf8(&output.stdout).unwrap();
-                let stderr = str::from_utf8(&output.stderr).unwrap();
                 write!(
                     f,
                     "`{}` did not exit successfully: {}",
                     command, output.status
                 )?;
-                if !stdout.is_empty() {
-                    write!(f, "\n--- stdout\n{}", stdout)?;
-                }
-                if !stderr.is_empty() {
-                    write!(f, "\n--- stderr\n{}", stderr)?;
-                }
-                Ok(())
+                format_output(output, f)
             }
             Error::CrossCompilation | Error::__Nonexhaustive => panic!(),
         }
     }
+}
+
+fn format_output(output: &Output, f: &mut fmt::Formatter) -> fmt::Result {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.is_empty() {
+        write!(f, "\n--- stdout\n{}", stdout)?;
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.is_empty() {
+        write!(f, "\n--- stderr\n{}", stderr)?;
+    }
+    Ok(())
 }
 
 /// Deprecated in favor of the probe_library function
@@ -201,6 +227,12 @@ pub fn find_library(name: &str) -> Result<Library, String> {
 /// Simple shortcut for using all default options for finding a library.
 pub fn probe_library(name: &str) -> Result<Library, Error> {
     Config::new().probe(name)
+}
+
+#[doc(hidden)]
+#[deprecated(note = "use config.target_supported() instance method instead")]
+pub fn target_supported() -> bool {
+    Config::new().target_supported()
 }
 
 /// Run `pkg-config` to get the value of a variable from a package using
@@ -335,7 +367,14 @@ impl Config {
 
         let mut library = Library::new();
 
-        let output = run(self.command(name, &["--libs", "--cflags"]))?;
+        let output = run(self.command(name, &["--libs", "--cflags"])).map_err(|e| match e {
+            Error::Failure { command, output } => Error::ProbeFailure {
+                name: name.to_owned(),
+                command,
+                output,
+            },
+            other => other,
+        })?;
         library.parse_libs_cflags(name, &output, self);
 
         let output = run(self.command(name, &["--modversion"]))?;
@@ -344,6 +383,7 @@ impl Config {
         Ok(library)
     }
 
+    /// True if pkg-config is used for the host system, or configured for cross-compilation
     pub fn target_supported(&self) -> bool {
         let target = env::var_os("TARGET").unwrap_or_default();
         let host = env::var_os("HOST").unwrap_or_default();
@@ -506,6 +546,7 @@ impl Library {
             libs: Vec::new(),
             link_paths: Vec::new(),
             include_paths: Vec::new(),
+            ld_args: Vec::new(),
             frameworks: Vec::new(),
             framework_paths: Vec::new(),
             defines: HashMap::new(),
@@ -618,6 +659,31 @@ impl Library {
                 }
                 _ => (),
             }
+        }
+
+        let mut linker_options = words.iter().filter(|arg| arg.starts_with("-Wl,"));
+        while let Some(option) = linker_options.next() {
+            let mut pop = false;
+            let mut ld_option = vec![];
+            for subopt in option[4..].split(',') {
+                if pop {
+                    pop = false;
+                    continue;
+                }
+
+                if subopt == "-framework" {
+                    pop = true;
+                    continue;
+                }
+
+                ld_option.push(subopt);
+            }
+
+            let meta = format!("rustc-link-arg=-Wl,{}", ld_option.join(","));
+            config.print_metadata(&meta);
+
+            self.ld_args
+                .push(ld_option.into_iter().map(String::from).collect());
         }
     }
 

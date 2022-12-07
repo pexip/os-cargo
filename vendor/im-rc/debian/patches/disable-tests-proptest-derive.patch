@@ -1,0 +1,129 @@
+Index: im-rc/Cargo.toml
+===================================================================
+--- im-rc.orig/Cargo.toml
++++ im-rc/Cargo.toml
+@@ -86,9 +86,6 @@ version = "1"
+ [dev-dependencies.proptest]
+ version = "1"
+ 
+-[dev-dependencies.proptest-derive]
+-version = "0.3"
+-
+ [dev-dependencies.rand]
+ version = "0.8"
+ features = ["small_rng"]
+Index: im-rc/src/tests/hashset.rs
+===================================================================
+--- im-rc.orig/src/tests/hashset.rs
++++ im-rc/src/tests/hashset.rs
+@@ -7,15 +7,14 @@ use std::hash::Hash;
+ use crate::HashSet;
+ 
+ use proptest::proptest;
+-use proptest_derive::Arbitrary;
++//use proptest_derive::Arbitrary;
+ 
+-#[derive(Arbitrary, Debug)]
++#[derive(Debug)]
+ enum Action<A> {
+     Insert(A),
+     Remove(A),
+ }
+ 
+-#[derive(Arbitrary)]
+ struct Actions<A>(Vec<Action<A>>)
+ where
+     A: Hash + Eq + Clone;
+@@ -50,7 +49,7 @@ where
+     }
+ }
+ 
+-proptest! {
++/*proptest! {
+     #[test]
+     fn comprehensive(actions: Actions<u8>) {
+         let mut set = HashSet::new();
+@@ -82,4 +81,4 @@ proptest! {
+             assert_eq!(HashSet::from(nat.clone()), set);
+         }
+     }
+-}
++}*/
+Index: im-rc/src/tests/ordset.rs
+===================================================================
+--- im-rc.orig/src/tests/ordset.rs
++++ im-rc/src/tests/ordset.rs
+@@ -6,15 +6,13 @@ use std::fmt::{Debug, Error, Formatter,
+ use crate::OrdSet;
+ 
+ use proptest::proptest;
+-use proptest_derive::Arbitrary;
+ 
+-#[derive(Arbitrary, Debug)]
++#[derive(Debug)]
+ enum Action<A> {
+     Insert(A),
+     Remove(A),
+ }
+ 
+-#[derive(Arbitrary)]
+ struct Actions<A>(Vec<Action<A>>)
+ where
+     A: Ord + Clone;
+@@ -49,7 +47,7 @@ where
+     }
+ }
+ 
+-proptest! {
++/*proptest! {
+     #[test]
+     fn comprehensive(actions: Actions<u8>) {
+         let mut set = OrdSet::new();
+@@ -82,4 +80,4 @@ proptest! {
+             assert!(nat.iter().eq(set.iter()));
+         }
+     }
+-}
++}*/
+Index: im-rc/src/tests/vector.rs
+===================================================================
+--- im-rc.orig/src/tests/vector.rs
++++ im-rc/src/tests/vector.rs
+@@ -5,9 +5,9 @@ use std::fmt::{Debug, Error, Formatter,
+ use crate::Vector;
+ 
+ use proptest::proptest;
+-use proptest_derive::Arbitrary;
++//use proptest_derive::Arbitrary;
+ 
+-#[derive(Arbitrary, Debug)]
++#[derive(Debug)]
+ enum Action<A> {
+     PushFront(A),
+     PushBack(A),
+@@ -21,7 +21,6 @@ enum Action<A> {
+     SplitRight(usize),
+ }
+ 
+-#[derive(Arbitrary)]
+ struct Actions<A>(Vec<Action<A>>)
+ where
+     A: Clone;
+@@ -117,7 +116,7 @@ fn cap_index(len: usize, index: usize) -
+     }
+ }
+ 
+-proptest! {
++/*proptest! {
+     #[test]
+     fn comprehensive(actions: Actions<u8>) {
+         let mut vec = Vector::new();
+@@ -215,7 +214,7 @@ proptest! {
+             assert_eq!(nat.iter().cloned().collect::<Vector<_>>(), vec);
+         }
+     }
+-}
++}*/
+ 
+ #[test]
+ fn test_inserts() {

@@ -1,0 +1,4 @@
+drop-criterion.patch
+drop-pretty-assertions.patch
+drop-snapbox.patch
+drop-toml-test-harness.patch

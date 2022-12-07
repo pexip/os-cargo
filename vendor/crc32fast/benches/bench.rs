@@ -21,19 +21,25 @@ fn bench(b: &mut Bencher, size: usize, hasher_init: Hasher) {
 }
 
 fn bench_kilobyte_baseline(b: &mut Bencher) {
-    bench(b, 1024, Hasher::internal_new_baseline(0))
+    bench(b, 1024, Hasher::internal_new_baseline(0, 0))
 }
 
 fn bench_kilobyte_specialized(b: &mut Bencher) {
-    bench(b, 1024, Hasher::internal_new_specialized(0).unwrap())
+    let hasher = Hasher::internal_new_specialized(0, 0);
+    if let Some(hasher) = hasher {
+	bench(b, 1024, hasher)
+    }
 }
 
 fn bench_megabyte_baseline(b: &mut Bencher) {
-    bench(b, 1024 * 1024, Hasher::internal_new_baseline(0))
+    bench(b, 1024 * 1024, Hasher::internal_new_baseline(0, 0))
 }
 
 fn bench_megabyte_specialized(b: &mut Bencher) {
-    bench(b, 1024 * 1024, Hasher::internal_new_specialized(0).unwrap())
+    let hasher = Hasher::internal_new_specialized(0, 0);
+    if let Some(hasher) = hasher {
+        bench(b, 1024 * 1024, hasher)
+    }
 }
 
 benchmark_group!(
@@ -41,9 +47,13 @@ benchmark_group!(
     bench_kilobyte_baseline,
     bench_megabyte_baseline
 );
+#[cfg(feature = "std")]
 benchmark_group!(
     bench_specialized,
     bench_kilobyte_specialized,
     bench_megabyte_specialized
 );
+#[cfg(feature = "std")]
 benchmark_main!(bench_baseline, bench_specialized);
+#[cfg(not(feature = "std"))]
+benchmark_main!(bench_baseline);

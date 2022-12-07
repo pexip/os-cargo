@@ -1,6 +1,8 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -32,22 +32,12 @@
+Index: miniz-oxide/Cargo.toml
+===================================================================
+--- miniz-oxide.orig/Cargo.toml
++++ miniz-oxide/Cargo.toml
+@@ -42,20 +42,10 @@ name = "miniz_oxide"
  version = "1.0"
  default-features = false
  
@@ -17,9 +19,18 @@
 -version = "1.0.0"
 -optional = true
 -package = "rustc-std-workspace-core"
- [build-dependencies.autocfg]
- version = "1.0"
+-
+ [dependencies.simd-adler32]
+ version = "0.3"
+ optional = true
+@@ -63,10 +53,4 @@ default-features = false
  
  [features]
- no_extern_crate_alloc = []
--rustc-dep-of-std = ["core", "alloc", "compiler_builtins", "adler/rustc-dep-of-std"]
+ default = []
+-rustc-dep-of-std = [
+-    "core",
+-    "alloc",
+-    "compiler_builtins",
+-    "adler/rustc-dep-of-std",
+-]
+ simd = ["simd-adler32"]

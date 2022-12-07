@@ -10,6 +10,10 @@ Updating the package
    patches for yet, downgrade them by tweaking d/make_orig_multi-pre-vendor.sh
 
    e.g. cargo update -p tempfile --precise 3.1.0
+
+   You will need to have cargo-lock available
+   $ cargo install cargo-lock --features=cli
+
 2. Verify the -vendor component tarball to make sure it looks good.
    If not, edit d/make_orig_multi.sh and the surrounding files (such as patches
    and exclude files) and repeat the above until it looks good.
