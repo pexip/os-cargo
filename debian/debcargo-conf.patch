@@ -7,9 +7,296 @@ so we further patch them here. The reasons are as follows:
   even un-re-written ones that were published to crates.io. The patch below
   rewrites our existing patches so they work against the un-re-written ones.
 
-- unicode-normalization, vte: have dependency relaxation that applies, but
-  doesn't match the vendored copy
+- unicode-normalization, vte, tempfile: have dependency relaxation that applies,
+  but doesn't match the vendored copy
 
+- concolor: more recent version in debcargo-conf, can be dropped once cargo
+  upstream updates
+
+- clap: clap is v4 in debcargo-conf, patches from clap-3 temporarily patched in
+  until we update to a cargo version using clap 4.x
+
+diff --git a/src/clap/debian/patches/disable-derive-deprecated.patch b/src/clap/debian/patches/disable-derive-deprecated.patch
+new file mode 100644
+index 000000000..6ed82171f
+--- /dev/null
++++ b/src/clap/debian/patches/disable-derive-deprecated.patch
+@@ -0,0 +1,11 @@
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -418,7 +418,7 @@
++     "color",
++     "suggestions",
++ ]
++-deprecated = ["clap_derive/deprecated"]
+++deprecated = []
++ derive = [
++     "clap_derive",
++     "once_cell",
+diff --git a/src/clap/debian/patches/disable-snapbox.patch b/src/clap/debian/patches/disable-snapbox.patch
+index a6fbd083a..9335518c4 100644
+--- a/src/clap/debian/patches/disable-snapbox.patch
++++ b/src/clap/debian/patches/disable-snapbox.patch
+@@ -1,6 +1,12 @@
+ --- a/Cargo.toml
+ +++ b/Cargo.toml
+-@@ -400,3 +399,0 @@
++@@ -397,9 +397,6 @@
++ [dev-dependencies.shlex]
++ version = "1.1.0"
++ 
+ -[dev-dependencies.snapbox]
+--version = "0.4"
++-version = "0.2.9"
+ -
++ [dev-dependencies.static_assertions]
++ version = "1.1.0"
++ 
+diff --git a/src/clap/debian/patches/disable-trycmd.diff b/src/clap/debian/patches/disable-trycmd.diff
+index aeb0bbad4..053bf14f9 100644
+--- a/src/clap/debian/patches/disable-trycmd.diff
++++ b/src/clap/debian/patches/disable-trycmd.diff
+@@ -1,8 +1,11 @@
+ --- a/Cargo.toml
+ +++ b/Cargo.toml
+-@@ -413,9 +412,0 @@
++@@ -410,15 +410,6 @@
++ [dev-dependencies.trybuild]
++ version = "1.0.18"
++ 
+ -[dev-dependencies.trycmd]
+--version = "0.14.3"
++-version = "0.13"
+ -features = [
+ -    "color-auto",
+ -    "diff",
+@@ -10,3 +13,6 @@
+ -]
+ -default-features = false
+ -
++ [features]
++ cargo = ["once_cell"]
++ color = [
+diff --git a/src/clap/debian/patches/disable-unic-emoji-char.patch b/src/clap/debian/patches/disable-unic-emoji-char.patch
+deleted file mode 100644
+index 97aa25af0..000000000
+--- a/src/clap/debian/patches/disable-unic-emoji-char.patch
++++ /dev/null
+@@ -1,36 +0,0 @@
+-Index: clap/Cargo.toml
+-===================================================================
+---- clap.orig/Cargo.toml
+-+++ clap/Cargo.toml
+-@@ -408,9 +408,6 @@ version = "1.1.0"
+- [dev-dependencies.trybuild]
+- version = "1.0.71"
+- 
+--[dev-dependencies.unic-emoji-char]
+--version = "0.9.0"
+--
+- [features]
+- cargo = ["dep:once_cell"]
+- color = [
+-Index: clap/src/output/textwrap/core.rs
+-===================================================================
+---- clap.orig/src/output/textwrap/core.rs
+-+++ clap/src/output/textwrap/core.rs
+-@@ -90,7 +90,7 @@ mod tests {
+-     #[cfg(feature = "unicode")]
+-     use unicode_width::UnicodeWidthChar;
+- 
+--    #[test]
+-+    /*#[test]
+-     fn emojis_have_correct_width() {
+-         use unic_emoji_char::is_emoji;
+- 
+-@@ -129,7 +129,7 @@ mod tests {
+- 
+-         // The remaining planes contain almost no assigned code points
+-         // and thus also no emojis.
+--    }
+-+    }*/
+- 
+-     #[test]
+-     #[cfg(feature = "unicode")]
+diff --git a/src/clap/debian/patches/disable-unstable-doc.patch b/src/clap/debian/patches/disable-unstable-doc.patch
+index 00de9ce79..404f1d9cf 100644
+--- a/src/clap/debian/patches/disable-unstable-doc.patch
++++ b/src/clap/debian/patches/disable-unstable-doc.patch
+@@ -1,25 +1,38 @@
+ --- a/Cargo.toml
+ +++ b/Cargo.toml
+-@@ -39,3 +39,2 @@
++@@ -37,7 +37,6 @@
++ repository = "https://github.com/clap-rs/clap"
++ 
+  [package.metadata.docs.rs]
+ -features = ["unstable-doc"]
+  rustdoc-args = [
+-@@ -49,5 +48,2 @@
++     "--cfg",
++     "docsrs",
++@@ -47,9 +46,6 @@
++     "-Zrustdoc-scrape-examples=examples",
++ ]
+  
+ -[package.metadata.playground]
+ -features = ["unstable-doc"]
+ -
+  [package.metadata.release]
+-@@ -439,12 +435,2 @@
++ shared-version = true
++ tag-name = "v{{version}}"
++@@ -437,17 +433,6 @@
++     "textwrap/unicode-width",
++     "unicase",
+  ]
+ -unstable-doc = [
+ -    "derive",
+ -    "cargo",
+ -    "wrap_help",
++-    "yaml",
+ -    "env",
+ -    "unicode",
+--    "string",
++-    "regex",
+ -    "unstable-replace",
+ -    "unstable-grouped",
+ -]
+  unstable-grouped = []
++ unstable-replace = []
++ unstable-v4 = [
+diff --git a/src/clap/debian/patches/disable-unstable-v4.patch b/src/clap/debian/patches/disable-unstable-v4.patch
+new file mode 100644
+index 000000000..2993a959a
+--- /dev/null
++++ b/src/clap/debian/patches/disable-unstable-v4.patch
+@@ -0,0 +1,13 @@
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -435,10 +435,6 @@
++ ]
++ unstable-grouped = []
++ unstable-replace = []
++-unstable-v4 = [
++-    "clap_derive/unstable-v4",
++-    "deprecated",
++-]
++ wrap_help = [
++     "terminal_size",
++     "textwrap/terminal_size",
+diff --git a/src/clap/debian/patches/disable-unstable-v5.patch b/src/clap/debian/patches/disable-unstable-v5.patch
+deleted file mode 100644
+index 5c2a59a30..000000000
+--- a/src/clap/debian/patches/disable-unstable-v5.patch
++++ /dev/null
+@@ -1,7 +0,0 @@
+---- a/Cargo.toml
+-+++ b/Cargo.toml
+-@@ -438,4 +437,0 @@
+--unstable-v5 = [
+--    "clap_derive?/unstable-v5",
+--    "deprecated",
+--]
+diff --git a/src/clap/debian/patches/once-cell-non-optional.patch b/src/clap/debian/patches/once-cell-non-optional.patch
+new file mode 100644
+index 000000000..0e6692e81
+--- /dev/null
++++ b/src/clap/debian/patches/once-cell-non-optional.patch
+@@ -0,0 +1,29 @@
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -354,7 +354,6 @@
++ 
++ [dependencies.once_cell]
++ version = "1.12.0"
++-optional = true
++ 
++ [dependencies.regex]
++ version = "1.0"
++@@ -404,7 +403,7 @@
++ version = "1.0.18"
++ 
++ [features]
++-cargo = ["once_cell"]
+++cargo = []
++ color = [
++     "atty",
++     "termcolor",
++@@ -420,8 +419,7 @@
++ ]
++ deprecated = []
++ derive = [
++-    "clap_derive",
++-    "once_cell",
+++    "clap_derive"
++ ]
++ env = []
++ std = ["indexmap/std"]
+diff --git a/src/clap/debian/patches/revert-switch-to-is-terminal.patch b/src/clap/debian/patches/revert-switch-to-is-terminal.patch
+deleted file mode 100644
+index 425ff3aca..000000000
+--- a/src/clap/debian/patches/revert-switch-to-is-terminal.patch
++++ /dev/null
+@@ -1,44 +0,0 @@
+-Index: clap/src/output/fmt.rs
+-===================================================================
+---- clap.orig/src/output/fmt.rs
+-+++ clap/src/output/fmt.rs
+-@@ -82,9 +82,10 @@ impl std::fmt::Display for Colorizer {
+- 
+- #[cfg(feature = "color")]
+- fn is_a_tty(stream: Stream) -> bool {
+--    use is_terminal::IsTerminal;
+--    match stream {
+--        Stream::Stdout => std::io::stdout().is_terminal(),
+--        Stream::Stderr => std::io::stderr().is_terminal(),
+--    }
+-+    let stream = match stream {
+-+        Stream::Stdout => atty::Stream::Stdout,
+-+        Stream::Stderr => atty::Stream::Stderr,
+-+    };
+-+
+-+    atty::is(stream)
+- }
+-Index: clap/Cargo.toml
+-===================================================================
+---- clap.orig/Cargo.toml
+-+++ clap/Cargo.toml
+-@@ -365,8 +365,8 @@ optional = true
+- [dependencies.clap_lex]
+- version = "0.3.0"
+- 
+--[dependencies.is-terminal]
+--version = "0.4.1"
+-+[dependencies.atty]
+-+version = "0.2"
+- optional = true
+- 
+- [dependencies.once_cell]
+-@@ -414,7 +414,7 @@ version = "0.9.0"
+- [features]
+- cargo = ["dep:once_cell"]
+- color = [
+--    "dep:is-terminal",
+-+    "dep:atty",
+-     "dep:termcolor",
+- ]
+- debug = [
+diff --git a/src/clap/debian/patches/series b/src/clap/debian/patches/series
+index 137658685..47bdb2c6b 100644
+--- a/src/clap/debian/patches/series
++++ b/src/clap/debian/patches/series
+@@ -1,6 +1,6 @@
+ disable-trycmd.diff
+ disable-unstable-doc.patch
+-disable-unstable-v5.patch
++disable-unstable-v4.patch
+ disable-snapbox.patch
+-revert-switch-to-is-terminal.patch
+-disable-unic-emoji-char.patch
++disable-derive-deprecated.patch
++once-cell-non-optional.patch
 diff --git a/src/commoncrypto-sys/debian/patches/no-clippy.patch b/src/commoncrypto-sys/debian/patches/no-clippy.patch
 index 3e4c8850e..93789f3b8 100644
 --- a/src/commoncrypto-sys/debian/patches/no-clippy.patch
@@ -76,6 +363,21 @@ index 38d9c9255..b21a7cae5 100644
 +-
 + [dev-dependencies]
 + hex = "0.2"
+diff --git a/src/concolor/debian/patches/series b/src/concolor/debian/patches/series
+index cdf075927..942673b44 100644
+--- a/src/concolor/debian/patches/series
++++ b/src/concolor/debian/patches/series
+@@ -1,2 +1,2 @@
+ avoid-doctest-breakage.patch
+-switch-back-to-atty.patch
++#switch-back-to-atty.patch
+diff --git a/src/tempfile/debian/patches/series b/src/tempfile/debian/patches/series
+index 75abb7f14..2378a84ba 100644
+--- a/src/tempfile/debian/patches/series
++++ b/src/tempfile/debian/patches/series
+@@ -1 +1 @@
+-relax-dep.diff
++#relax-dep.diff
 diff --git a/src/unicode-normalization/debian/patches/series b/src/unicode-normalization/debian/patches/series
 index 2c1db10bd..39fe7a4da 100644
 --- a/src/unicode-normalization/debian/patches/series

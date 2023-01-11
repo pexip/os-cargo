@@ -1,20 +1,12 @@
 --- a/tests/it.rs
 +++ b/tests/it.rs
-@@ -393,7 +393,7 @@
-         );
-     }
+@@ -395,3 +395,3 @@
  
 -    #[test]
 +    /*#[test]
      #[cfg_attr(miri, ignore)] // miri doesn't support processes
-     fn reentrant_init() {
-         let examples_dir = {
-@@ -420,7 +420,7 @@
-                 let _ = self.child.kill();
-             }
+@@ -422,3 +422,3 @@
          }
 -    }
 +    }*/
  
-     #[test]
-     fn lazy_new() {

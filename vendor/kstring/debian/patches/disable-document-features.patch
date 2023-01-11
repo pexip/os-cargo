@@ -1,0 +1,15 @@
+Index: kstring/Cargo.toml
+===================================================================
+--- kstring.orig/Cargo.toml
++++ kstring/Cargo.toml
+@@ -57,10 +57,6 @@ search = "<!-- next-url -->"
+ [profile.release]
+ debug = 1
+ 
+-[dependencies.document-features]
+-version = "0.2"
+-optional = true
+-
+ [dependencies.serde]
+ version = "1.0"
+ optional = true

@@ -2,9 +2,9 @@ Index: combine/Cargo.toml
 ===================================================================
 --- combine.orig/Cargo.toml
 +++ combine/Cargo.toml
-@@ -58,16 +58,6 @@ name = "readme"
- [[example]]
- name = "ini"
+@@ -66,16 +66,6 @@ required-features = [
+     "futures-io-03",
+ ]
  
 -[[bench]]
 -name = "json"
@@ -19,7 +19,7 @@ Index: combine/Cargo.toml
  [dependencies.bytes]
  version = "1"
  optional = true
-@@ -111,10 +101,6 @@ default-features = false
+@@ -119,10 +109,6 @@ default-features = false
  [dev-dependencies.bytes]
  version = "1"
  

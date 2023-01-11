@@ -1,8 +1,6 @@
-Index: textwrap/Cargo.toml
-===================================================================
---- textwrap.orig/Cargo.toml
-+++ textwrap/Cargo.toml
-@@ -44,11 +44,6 @@ resolver = "2"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -43,20 +43,10 @@
  all-features = true
  
  [[example]]
@@ -14,9 +12,6 @@ Index: textwrap/Cargo.toml
  name = "termwidth"
  path = "examples/termwidth.rs"
  required-features = ["terminal_size"]
-@@ -68,11 +63,6 @@ name = "unfill"
- path = "benches/unfill.rs"
- harness = false
  
 -[dependencies.hyphenation]
 -version = "0.8.4"

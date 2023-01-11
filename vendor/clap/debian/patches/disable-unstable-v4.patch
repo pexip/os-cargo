@@ -1,8 +1,6 @@
-Index: clap/Cargo.toml
-===================================================================
---- clap.orig/Cargo.toml
-+++ clap/Cargo.toml
-@@ -439,10 +439,6 @@ unicode = [
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -435,10 +435,6 @@
  ]
  unstable-grouped = []
  unstable-replace = []

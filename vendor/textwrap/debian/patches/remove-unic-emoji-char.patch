@@ -1,9 +1,7 @@
-Index: textwrap/Cargo.toml
-===================================================================
---- textwrap.orig/Cargo.toml
-+++ textwrap/Cargo.toml
-@@ -59,9 +59,6 @@ optional = true
- version = "0.1.9"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -58,9 +58,6 @@
+ version = "0.1.10"
  optional = true
  
 -[dev-dependencies.unic-emoji-char]
@@ -12,11 +10,9 @@ Index: textwrap/Cargo.toml
  [dev-dependencies.version-sync]
  version = "0.9.4"
  
-Index: textwrap/src/core.rs
-===================================================================
---- textwrap.orig/src/core.rs
-+++ textwrap/src/core.rs
-@@ -358,7 +358,7 @@ mod tests {
+--- a/src/core.rs
++++ b/src/core.rs
+@@ -358,7 +358,7 @@
          assert_eq!(chars.next(), Some('H'));
      }
  
@@ -25,7 +21,7 @@ Index: textwrap/src/core.rs
      fn emojis_have_correct_width() {
          use unic_emoji_char::is_emoji;
  
-@@ -397,7 +397,7 @@ mod tests {
+@@ -397,7 +397,7 @@
  
          // The remaining planes contain almost no assigned code points
          // and thus also no emojis.

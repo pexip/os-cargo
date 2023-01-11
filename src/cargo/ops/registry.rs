@@ -48,13 +48,13 @@ pub enum RegistryConfig {
 impl RegistryConfig {
     /// Returns `true` if the credential is [`None`].
     ///
-    /// [`None`]: Credential::None
+    /// [`None`]: Self::None
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
     /// Returns `true` if the credential is [`Token`].
     ///
-    /// [`Token`]: Credential::Token
+    /// [`Token`]: Self::Token
     pub fn is_token(&self) -> bool {
         matches!(self, Self::Token(..))
     }
@@ -80,7 +80,7 @@ pub struct PublishOpts<'cfg> {
     pub index: Option<String>,
     pub verify: bool,
     pub allow_dirty: bool,
-    pub jobs: Option<u32>,
+    pub jobs: Option<i32>,
     pub keep_going: bool,
     pub to_publish: ops::Packages,
     pub targets: Vec<String>,
@@ -531,6 +531,13 @@ fn registry(
         None
     };
     let handle = http_handle(config)?;
+    // Workaround for the sparse+https://index.crates.io replacement index. Use the non-replaced
+    // source_id so that the original (github) url is used when publishing a crate.
+    let sid = if sid.is_default_registry() {
+        SourceId::crates_io(config)?
+    } else {
+        sid
+    };
     Ok((Registry::new_handle(api_host, token, handle), reg_cfg, sid))
 }
 

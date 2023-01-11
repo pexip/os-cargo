@@ -231,11 +231,11 @@ s_no_extra_traits! {
 
     pub struct sockaddr_storage {
         pub ss_family: sa_family_t,
-        __ss_align: ::size_t,
         #[cfg(target_pointer_width = "32")]
-        __ss_pad2: [u8; 128 - 2 * 4],
+        __ss_pad2: [u8; 128 - 2 - 4],
         #[cfg(target_pointer_width = "64")]
-        __ss_pad2: [u8; 128 - 2 * 8],
+        __ss_pad2: [u8; 128 - 2 - 8],
+        __ss_align: ::size_t,
     }
 
     pub struct utsname {
@@ -1614,6 +1614,14 @@ safe_f! {
 
     pub {const} fn IPTOS_ECN(x: u8) -> u8 {
         x & ::IPTOS_ECN_MASK
+    }
+
+    #[allow(ellipsis_inclusive_range_patterns)]
+    pub {const} fn KERNEL_VERSION(a: u32, b: u32, c: u32) -> u32 {
+        ((a << 16) + (b << 8)) + match c {
+            0 ... 255 => c,
+            _ => 255,
+        }
     }
 }
 

@@ -15,9 +15,5 @@
 # Drop the "vendored" feature since we patch it out of debcargo
 sed -i /vendored/d Cargo.toml
 
-# cargo 0.57 can't download the newest libgit2-sys version
-cargo update -p git2 --precise 0.14.2
-cargo update -p libgit2-sys --precise 0.13.2+1.4.2
-
 # avoid pulling in windows-sys for now
 cargo update -p schannel --precise 0.1.19

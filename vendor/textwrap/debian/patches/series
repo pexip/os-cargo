@@ -2,4 +2,3 @@ disable-hyphenation.diff
 remove-leftovers.patch
 remove-unic-emoji-char.patch
 remove-version-sync.patch
-relax-dep.patch

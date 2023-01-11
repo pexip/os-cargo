@@ -1,0 +1,33 @@
+Index: once-cell/Cargo.toml
+===================================================================
+--- once-cell.orig/Cargo.toml
++++ once-cell/Cargo.toml
+@@ -71,20 +71,20 @@ required-features = ["std"]
+ #optional = true
+ #package = "atomic-polyfill"
+ 
+-[dependencies.critical_section]
+-version = "1"
+-optional = true
+-package = "critical-section"
++#[dependencies.critical_section]
++#version = "1"
++#optional = true
++#package = "critical-section"
+ 
+ [dependencies.parking_lot_core]
+ version = "0.9.3"
+ optional = true
+ default_features = false
+ 
+-[dev-dependencies.critical_section]
+-version = "1.1.1"
+-features = ["std"]
+-package = "critical-section"
++#[dev-dependencies.critical_section]
++#version = "1.1.1"
++#features = ["std"]
++#package = "critical-section"
+ 
+ [dev-dependencies.crossbeam-utils]
+ version = "0.8.7"

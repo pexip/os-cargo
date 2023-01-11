@@ -1,15 +1,31 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -65,9 +65,9 @@
+Index: once-cell/Cargo.toml
+===================================================================
+--- once-cell.orig/Cargo.toml
++++ once-cell/Cargo.toml
+@@ -66,10 +66,10 @@ required-features = ["std"]
  name = "test_synchronization"
  required-features = ["std"]
  
--[dependencies.atomic-polyfill]
+-[dependencies.atomic_polyfill]
 -version = "1"
 -optional = true
-+#[dependencies.atomic-polyfill]
+-package = "atomic-polyfill"
++#[dependencies.atomic_polyfill]
 +#version = "1"
 +#optional = true
++#package = "atomic-polyfill"
  
- [dependencies.parking_lot_core]
- version = "0.9.3"
+ [dependencies.critical_section]
+ version = "1"
+@@ -97,11 +97,6 @@ version = "1.2.0"
+ 
+ [features]
+ alloc = ["race"]
+-atomic-polyfill = ["critical-section"]
+-critical-section = [
+-    "critical_section",
+-    "atomic_polyfill",
+-]
+ default = ["std"]
+ parking_lot = ["parking_lot_core"]
+ race = []

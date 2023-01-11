@@ -1,8 +1,6 @@
-Index: clap/Cargo.toml
-===================================================================
---- clap.orig/Cargo.toml
-+++ clap/Cargo.toml
-@@ -438,7 +438,7 @@ default = [
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -418,7 +418,7 @@
      "color",
      "suggestions",
  ]

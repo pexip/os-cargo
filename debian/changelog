@@ -1,3 +1,33 @@
+cargo (0.66.0+ds1-1) unstable; urgency=medium
+
+  [ Fabian Grünbichler ]
+  * fix CVE-2022-46176 (Thanks Peter Green!)
+  * repack vendored sources with required libgit2-sys/git2/git2-curl versions
+  * update unsuspicious files
+
+ -- Fabian Gruenbichler <debian@fabian.gruenbichler.email>  Wed, 11 Jan 2023 18:55:09 +0100
+
+cargo (0.66.0-1) unstable; urgency=medium
+
+  * new upstream version 0.66
+
+  [ Blair Noctis ]
+  * Update debcargo-conf.patch, unapply tempfile patch to match vendored
+  * Refresh patches and remove upstream applied CVE patches
+  * Patch test macro to work around qemu vfork bug when command not found
+
+  [ Fabian Grünbichler ]
+  * no longer pin git2/libgit2-sys
+  * update debcargo-conf.patch (concolor, clap)
+  * update unsuspicious files
+  * d/control: depend on rustc 1.63
+  * drop armel workaround
+
+  [ Rob Shearman ]
+  * d/control: update minimum cargo, rustc and libstd-rust-dev versions
+
+ -- Fabian Gruenbichler <debian@fabian.gruenbichler.email>  Sun, 08 Jan 2023 16:38:30 +0100
+
 cargo (0.63.1-3) unstable; urgency=medium
 
   * workaround armel breakage

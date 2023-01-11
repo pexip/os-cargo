@@ -10,9 +10,9 @@ Priority: optional
 Build-Depends:
  debhelper (>= 12~),
  dpkg-dev (>= 1.17.14),
- cargo:native    (>= 0.17.0),
- rustc:native    (>= 1.16),
- libstd-rust-dev (>= 1.16),
+ cargo:native    (>= 0.56.0),
+ rustc:native    (>= 1.63),
+ libstd-rust-dev (>= 1.63),
  pkg-config,
  bash-completion,
  python3:native,

@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.36"
 name = "serde_ignored"
-version = "0.1.5"
+version = "0.1.7"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Find out about keys that are ignored when deserializing data"
 readme = "README.md"
@@ -30,6 +30,9 @@ repository = "https://github.com/dtolnay/serde-ignored"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+doc-scrape-examples = false
 
 [dependencies.serde]
 version = "1.0"
