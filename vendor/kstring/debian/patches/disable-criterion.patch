@@ -1,0 +1,35 @@
+Index: kstring/Cargo.toml
+===================================================================
+--- kstring.orig/Cargo.toml
++++ kstring/Cargo.toml
+@@ -22,6 +22,7 @@ keywords = ["serde", "serialization", "s
+ categories = ["data-structures", "text-processing"]
+ license = "MIT OR Apache-2.0"
+ repository = "https://github.com/cobalt-org/kstring"
++autobenches = false
+ [package.metadata.docs.rs]
+ all-features = true
+ [[package.metadata.release.pre-release-replacements]]
+@@ -56,13 +57,6 @@ search = "<!-- next-url -->"
+ [profile.release]
+ debug = 1
+ 
+-[[bench]]
+-name = "clone"
+-harness = false
+-
+-[[bench]]
+-name = "access"
+-harness = false
+ [dependencies.document-features]
+ version = "0.2"
+ optional = true
+@@ -73,8 +67,6 @@ optional = true
+ 
+ [dependencies.static_assertions]
+ version = "1.1.0"
+-[dev-dependencies.criterion]
+-version = "0.3"
+ 
+ [dev-dependencies.proptest]
+ version = "1.0.0"

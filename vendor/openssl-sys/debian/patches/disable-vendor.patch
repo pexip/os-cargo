@@ -1,47 +1,49 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -30,14 +30,11 @@
+Index: openssl-sys/Cargo.toml
+===================================================================
+--- openssl-sys.orig/Cargo.toml
++++ openssl-sys/Cargo.toml
+@@ -47,16 +47,11 @@ optional = true
  [build-dependencies.cc]
  version = "1.0"
  
 -[build-dependencies.openssl-src]
--version = "111.0.1"
+-version = "111"
 -optional = true
 -
  [build-dependencies.pkg-config]
  version = "0.3.9"
  
  [features]
- vendored = ["openssl-src"]
-+openssl-src = []
+ unstable_boringssl = ["bssl-sys"]
+-vendored = ["openssl-src"]
+ 
  [target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
  version = "0.2.8"
---- a/build/main.rs
-+++ b/build/main.rs
-@@ -2,7 +2,7 @@
- 
- extern crate autocfg;
- extern crate cc;
--#[cfg(feature = "vendored")]
-+#[cfg(feature = "vendored_debian_disabled")]
- extern crate openssl_src;
- extern crate pkg_config;
- #[cfg(target_env = "msvc")]
-@@ -16,7 +16,7 @@
+Index: openssl-sys/build/main.rs
+===================================================================
+--- openssl-sys.orig/build/main.rs
++++ openssl-sys/build/main.rs
+@@ -17,8 +17,6 @@ use std::path::{Path, PathBuf};
  mod cfgs;
  
  mod find_normal;
 -#[cfg(feature = "vendored")]
-+#[cfg(feature = "vendored_debian_disabled")]
- mod find_vendored;
+-mod find_vendored;
+ #[cfg(feature = "bindgen")]
+ mod run_bindgen;
  
- enum Version {
-@@ -44,7 +44,7 @@
+@@ -49,14 +47,6 @@ fn env(name: &str) -> Option<OsString> {
  }
  
- fn find_openssl(target: &str) -> (PathBuf, PathBuf) {
+ fn find_openssl(target: &str) -> (Vec<PathBuf>, PathBuf) {
 -    #[cfg(feature = "vendored")]
-+    #[cfg(feature = "vendored_debian_disabled")]
-     {
-         // vendor if the feature is present, unless
-         // OPENSSL_NO_VENDOR exists and isn't `0`
+-    {
+-        // vendor if the feature is present, unless
+-        // OPENSSL_NO_VENDOR exists and isn't `0`
+-        if env("OPENSSL_NO_VENDOR").map_or(true, |s| s == "0") {
+-            return find_vendored::get_openssl(target);
+-        }
+-    }
+     find_normal::get_openssl(target)
+ }
+ 

@@ -1065,7 +1065,12 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  expected an equals, found eof at line 1 column 5
+  TOML parse error at line 1, column 5
+    |
+  1 | asdf
+    |     ^
+  Unexpected end of input
+  Expected `.` or `=`
      Created binary (application) `bar` package
 ",
         )
@@ -1216,7 +1221,7 @@ fn workspace_in_git() {
 }
 
 #[cargo_test]
-fn lockfile_can_specify_nonexistant_members() {
+fn lockfile_can_specify_nonexistent_members() {
     let p = project()
         .file(
             "Cargo.toml",

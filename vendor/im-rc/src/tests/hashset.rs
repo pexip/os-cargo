@@ -7,15 +7,14 @@ use std::hash::Hash;
 use crate::HashSet;
 
 use proptest::proptest;
-use proptest_derive::Arbitrary;
+//use proptest_derive::Arbitrary;
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug)]
 enum Action<A> {
     Insert(A),
     Remove(A),
 }
 
-#[derive(Arbitrary)]
 struct Actions<A>(Vec<Action<A>>)
 where
     A: Hash + Eq + Clone;
@@ -50,7 +49,7 @@ where
     }
 }
 
-proptest! {
+/*proptest! {
     #[test]
     fn comprehensive(actions: Actions<u8>) {
         let mut set = HashSet::new();
@@ -82,4 +81,4 @@ proptest! {
             assert_eq!(HashSet::from(nat.clone()), set);
         }
     }
-}
+}*/

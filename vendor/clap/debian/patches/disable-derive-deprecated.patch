@@ -1,0 +1,13 @@
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -438,7 +438,7 @@ default = [
+     "color",
+     "suggestions",
+ ]
+-deprecated = ["clap_derive/deprecated"]
++deprecated = []
+ derive = [
+     "clap_derive",
+     "once_cell",

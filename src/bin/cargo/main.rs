@@ -1,7 +1,5 @@
 #![warn(rust_2018_idioms)] // while we're getting used to 2018
 #![allow(clippy::all)]
-#![warn(clippy::needless_borrow)]
-#![warn(clippy::redundant_clone)]
 
 use cargo::core::shell::Shell;
 use cargo::util::toml::StringOrVec;
@@ -116,7 +114,7 @@ fn list_commands(config: &Config) -> BTreeMap<String, CommandInfo> {
         commands.insert(
             cmd.get_name().to_string(),
             CommandInfo::BuiltIn {
-                about: cmd.p.meta.about.map(|s| s.to_string()),
+                about: cmd.get_about().map(|s| s.to_string()),
             },
         );
     }
@@ -144,15 +142,27 @@ fn list_commands(config: &Config) -> BTreeMap<String, CommandInfo> {
         }
     }
 
+    // `help` is special, so it needs to be inserted separately.
+    commands.insert(
+        "help".to_string(),
+        CommandInfo::BuiltIn {
+            about: Some("Displays help for a cargo subcommand".to_string()),
+        },
+    );
+
     commands
 }
 
-fn execute_external_subcommand(config: &Config, cmd: &str, args: &[&str]) -> CliResult {
+fn find_external_subcommand(config: &Config, cmd: &str) -> Option<PathBuf> {
     let command_exe = format!("cargo-{}{}", cmd, env::consts::EXE_SUFFIX);
-    let path = search_directories(config)
+    search_directories(config)
         .iter()
         .map(|dir| dir.join(&command_exe))
-        .find(|file| is_executable(file));
+        .find(|file| is_executable(file))
+}
+
+fn execute_external_subcommand(config: &Config, cmd: &str, args: &[&str]) -> CliResult {
+    let path = find_external_subcommand(config, cmd);
     let command = match path {
         Some(command) => command,
         None => {

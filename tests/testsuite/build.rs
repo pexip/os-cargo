@@ -198,7 +198,12 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  invalid TOML value, did you mean to use a quoted string? at line 3 column 23
+  TOML parse error at line 3, column 23
+    |
+  3 |                 foo = bar
+    |                       ^
+  Unexpected `b`
+  Expected quoted string
 ",
         )
         .run();
@@ -218,7 +223,12 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  invalid TOML value, did you mean to use a quoted string? at line 1 column 5
+  TOML parse error at line 1, column 5
+    |
+  1 | a = bar
+    |     ^
+  Unexpected `b`
+  Expected quoted string
 ",
         )
         .run();
@@ -637,7 +647,7 @@ fn cargo_compile_with_warnings_in_the_root_package() {
         .build();
 
     p.cargo("build")
-        .with_stderr_contains("[..]function is never used: `dead`[..]")
+        .with_stderr_contains("[WARNING] [..]dead[..]")
         .run();
 }
 
@@ -676,7 +686,7 @@ fn cargo_compile_with_warnings_in_a_dep_package() {
         .build();
 
     p.cargo("build")
-        .with_stderr_contains("[..]function is never used: `dead`[..]")
+        .with_stderr_contains("[WARNING] [..]dead[..]")
         .run();
 
     assert!(p.bin("foo").is_file());
@@ -1634,6 +1644,186 @@ fn many_crate_types_correct() {
 }
 
 #[cargo_test]
+fn set_both_dylib_and_cdylib_crate_types() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+
+                name = "foo"
+                version = "0.5.0"
+                authors = ["wycats@example.com"]
+
+                [lib]
+
+                name = "foo"
+                crate_type = ["cdylib", "dylib"]
+            "#,
+        )
+        .file("src/lib.rs", "pub fn foo() {}")
+        .build();
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr(
+            "\
+error: failed to parse manifest at `[..]`
+
+Caused by:
+  library `foo` cannot set the crate type of both `dylib` and `cdylib`
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn dev_dependencies_conflicting_warning() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                edition = "2018"
+
+                [dev-dependencies]
+                a = {path = "a"}
+                [dev_dependencies]
+                a = {path = "a"}
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file(
+            "a/Cargo.toml",
+            r#"
+                [package]
+                name = "a"
+                version = "0.0.1"
+            "#,
+        )
+        .file("a/src/lib.rs", "")
+        .build();
+    p.cargo("build")
+        .with_stderr_contains(
+"[WARNING] conflicting between `dev-dependencies` and `dev_dependencies` in the `foo` package.\n
+        `dev_dependencies` is ignored and not recommended for use in the future"
+        )
+        .run();
+}
+
+#[cargo_test]
+fn build_dependencies_conflicting_warning() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                edition = "2018"
+
+                [build-dependencies]
+                a = {path = "a"}
+                [build_dependencies]
+                a = {path = "a"}
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file(
+            "a/Cargo.toml",
+            r#"
+                [package]
+                name = "a"
+                version = "0.0.1"
+            "#,
+        )
+        .file("a/src/lib.rs", "")
+        .build();
+    p.cargo("build")
+        .with_stderr_contains(
+"[WARNING] conflicting between `build-dependencies` and `build_dependencies` in the `foo` package.\n
+        `build_dependencies` is ignored and not recommended for use in the future"
+        )
+        .run();
+}
+
+#[cargo_test]
+fn lib_crate_types_conflicting_warning() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "foo"
+                version = "0.5.0"
+                authors = ["wycats@example.com"]
+
+                [lib]
+                name = "foo"
+                crate-type = ["rlib", "dylib"]
+                crate_type = ["staticlib", "dylib"]
+            "#,
+        )
+        .file("src/lib.rs", "pub fn foo() {}")
+        .build();
+    p.cargo("build")
+        .with_stderr_contains(
+"[WARNING] conflicting between `crate-type` and `crate_type` in the `foo` library target.\n
+        `crate_type` is ignored and not recommended for use in the future",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn examples_crate_types_conflicting_warning() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "foo"
+                version = "0.5.0"
+                authors = ["wycats@example.com"]
+
+                [[example]]
+                name = "ex"
+                path = "examples/ex.rs"
+                crate-type = ["rlib", "dylib"]
+                crate_type = ["proc_macro"]
+                [[example]]
+                name = "goodbye"
+                path = "examples/ex-goodbye.rs"
+                crate-type = ["rlib", "dylib"]
+                crate_type = ["rlib", "staticlib"]
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file(
+            "examples/ex.rs",
+            r#"
+                fn main() { println!("ex"); }
+            "#,
+        )
+        .file(
+            "examples/ex-goodbye.rs",
+            r#"
+                fn main() { println!("goodbye"); }
+            "#,
+        )
+        .build();
+    p.cargo("build")
+        .with_stderr_contains(
+            "\
+[WARNING] conflicting between `crate-type` and `crate_type` in the `ex` example target.\n
+        `crate_type` is ignored and not recommended for use in the future
+[WARNING] conflicting between `crate-type` and `crate_type` in the `goodbye` example target.\n
+        `crate_type` is ignored and not recommended for use in the future",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn self_dependency() {
     let p = project()
         .file(
@@ -1668,7 +1858,7 @@ package `test v0.0.0 ([CWD])`
 }
 
 #[cargo_test]
-/// Make sure broken symlinks don't break the build
+/// Make sure broken and loop symlinks don't break the build
 ///
 /// This test requires you to be able to make symlinks.
 /// For windows, this may require you to enable developer mode.
@@ -1681,9 +1871,17 @@ fn ignore_broken_symlinks() {
         .file("Cargo.toml", &basic_bin_manifest("foo"))
         .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
         .symlink("Notafile", "bar")
+        // To hit the symlink directory, we need a build script
+        // to trigger a full scan of package files.
+        .file("build.rs", &main_file(r#""build script""#, &[]))
+        .symlink_dir("a/b", "a/b/c/d/foo")
         .build();
 
-    p.cargo("build").run();
+    p.cargo("build")
+        .with_stderr_contains(
+            "[WARNING] File system loop found: [..]/a/b/c/d/foo points to an ancestor [..]/a/b",
+        )
+        .run();
     assert!(p.bin("foo").is_file());
 
     p.process(&p.bin("foo")).with_stdout("i am foo\n").run();
@@ -1707,11 +1905,6 @@ Caused by:
 
 #[cargo_test]
 fn lto_build() {
-    // FIXME: currently this hits a linker bug on 32-bit MSVC
-    if cfg!(all(target_env = "msvc", target_pointer_width = "32")) {
-        return;
-    }
-
     let p = project()
         .file(
             "Cargo.toml",
@@ -1765,6 +1958,25 @@ fn verbose_build() {
 fn verbose_release_build() {
     let p = project().file("src/lib.rs", "").build();
     p.cargo("build -v --release")
+        .with_stderr(
+            "\
+[COMPILING] foo v0.0.1 ([CWD])
+[RUNNING] `rustc --crate-name foo src/lib.rs [..]--crate-type lib \
+        --emit=[..]link[..]\
+        -C opt-level=3[..]\
+        -C metadata=[..] \
+        --out-dir [..] \
+        -L dependency=[CWD]/target/release/deps`
+[FINISHED] release [optimized] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn verbose_release_build_short() {
+    let p = project().file("src/lib.rs", "").build();
+    p.cargo("build -v -r")
         .with_stderr(
             "\
 [COMPILING] foo v0.0.1 ([CWD])
@@ -1900,6 +2112,40 @@ fn explicit_examples() {
 }
 
 #[cargo_test]
+fn non_existing_test() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [lib]
+                name = "foo"
+                path = "src/lib.rs"
+
+                [[test]]
+                name = "hello"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("build --tests -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `hello` test at `tests/hello.rs` or `tests/hello/main.rs`. \
+  Please specify test.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn non_existing_example() {
     let p = project()
         .file(
@@ -1908,7 +2154,6 @@ fn non_existing_example() {
                 [package]
                 name = "foo"
                 version = "1.0.0"
-                authors = []
 
                 [lib]
                 name = "foo"
@@ -1921,14 +2166,49 @@ fn non_existing_example() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("test -v")
+    p.cargo("build --examples -v")
         .with_status(101)
         .with_stderr(
             "\
 [ERROR] failed to parse manifest at `[..]`
 
 Caused by:
-  can't find `hello` example, specify example.path",
+  can't find `hello` example at `examples/hello.rs` or `examples/hello/main.rs`. \
+  Please specify example.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn non_existing_benchmark() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [lib]
+                name = "foo"
+                path = "src/lib.rs"
+
+                [[bench]]
+                name = "hello"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("build --benches -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `hello` bench at `benches/hello.rs` or `benches/hello/main.rs`. \
+  Please specify bench.path if you want to use a non-default path.",
         )
         .run();
 }
@@ -1948,7 +2228,184 @@ fn non_existing_binary() {
 [ERROR] failed to parse manifest at `[..]`
 
 Caused by:
-  can't find `foo` bin, specify bin.path",
+  can't find `foo` bin at `src/bin/foo.rs` or `src/bin/foo/main.rs`. \
+  Please specify bin.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn commonly_wrong_path_of_test() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [lib]
+                name = "foo"
+                path = "src/lib.rs"
+
+                [[test]]
+                name = "foo"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("test/foo.rs", "")
+        .build();
+
+    p.cargo("build --tests -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `foo` test at default paths, but found a file at `test/foo.rs`.
+  Perhaps rename the file to `tests/foo.rs` for target auto-discovery, \
+  or specify test.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn commonly_wrong_path_of_example() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [lib]
+                name = "foo"
+                path = "src/lib.rs"
+
+                [[example]]
+                name = "foo"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("example/foo.rs", "")
+        .build();
+
+    p.cargo("build --examples -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `foo` example at default paths, but found a file at `example/foo.rs`.
+  Perhaps rename the file to `examples/foo.rs` for target auto-discovery, \
+  or specify example.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn commonly_wrong_path_of_benchmark() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "1.0.0"
+
+                [lib]
+                name = "foo"
+                path = "src/lib.rs"
+
+                [[bench]]
+                name = "foo"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .file("bench/foo.rs", "")
+        .build();
+
+    p.cargo("build --benches -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `foo` bench at default paths, but found a file at `bench/foo.rs`.
+  Perhaps rename the file to `benches/foo.rs` for target auto-discovery, \
+  or specify bench.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn commonly_wrong_path_binary() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("src/bins/foo.rs", "")
+        .build();
+
+    p.cargo("build -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `foo` bin at default paths, but found a file at `src/bins/foo.rs`.
+  Perhaps rename the file to `src/bin/foo.rs` for target auto-discovery, \
+  or specify bin.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn commonly_wrong_path_subdir_binary() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("src/bins/foo/main.rs", "")
+        .build();
+
+    p.cargo("build -v")
+        .with_status(101)
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  can't find `foo` bin at default paths, but found a file at `src/bins/foo/main.rs`.
+  Perhaps rename the file to `src/bin/foo/main.rs` for target auto-discovery, \
+  or specify bin.path if you want to use a non-default path.",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn found_multiple_target_files() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/lib.rs", "")
+        .file("src/bin/foo.rs", "")
+        .file("src/bin/foo/main.rs", "")
+        .build();
+
+    p.cargo("build -v")
+        .with_status(101)
+        // Don't assert the inferred paths since the order is non-deterministic.
+        .with_stderr(
+            "\
+[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  cannot infer path for `foo` bin
+  Cargo doesn't know which to use because multiple target files found \
+  at `src/bin/foo[..].rs` and `src/bin/foo[..].rs`.",
         )
         .run();
 }
@@ -2473,7 +2930,12 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  expected an equals, found an identifier at line 1 column 6
+  TOML parse error at line 1, column 6
+    |
+  1 | this is not valid toml
+    |      ^
+  Unexpected `i`
+  Expected `.` or `=`
 ",
         )
         .run();
@@ -2521,6 +2983,88 @@ fn cargo_platform_specific_dependency() {
         .build();
 
     p.cargo("build").run();
+
+    assert!(p.bin("foo").is_file());
+    p.cargo("test").run();
+}
+
+#[cargo_test]
+fn cargo_platform_specific_dependency_build_dependencies_conflicting_warning() {
+    let host = rustc_host();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                    [project]
+                    name = "foo"
+                    version = "0.5.0"
+                    authors = ["wycats@example.com"]
+                    build = "build.rs"
+
+                    [target.{host}.build-dependencies]
+                    build = {{ path = "build" }}
+                    [target.{host}.build_dependencies]
+                    build = {{ path = "build" }}
+                "#,
+                host = host
+            ),
+        )
+        .file("src/main.rs", "fn main() { }")
+        .file(
+            "build.rs",
+            "extern crate build; fn main() { build::build(); }",
+        )
+        .file("build/Cargo.toml", &basic_manifest("build", "0.5.0"))
+        .file("build/src/lib.rs", "pub fn build() {}")
+        .build();
+
+    p.cargo("build")
+        .with_stderr_contains(
+        format!("[WARNING] conflicting between `build-dependencies` and `build_dependencies` in the `{}` platform target.\n
+        `build_dependencies` is ignored and not recommended for use in the future", host)
+        )
+        .run();
+
+    assert!(p.bin("foo").is_file());
+}
+
+#[cargo_test]
+fn cargo_platform_specific_dependency_dev_dependencies_conflicting_warning() {
+    let host = rustc_host();
+    let p = project()
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                    [project]
+                    name = "foo"
+                    version = "0.5.0"
+                    authors = ["wycats@example.com"]
+
+                    [target.{host}.dev-dependencies]
+                    dev = {{ path = "dev" }}
+                    [target.{host}.dev_dependencies]
+                    dev = {{ path = "dev" }}
+                "#,
+                host = host
+            ),
+        )
+        .file("src/main.rs", "fn main() { }")
+        .file(
+            "tests/foo.rs",
+            "extern crate dev; #[test] fn foo() { dev::dev() }",
+        )
+        .file("dev/Cargo.toml", &basic_manifest("dev", "0.5.0"))
+        .file("dev/src/lib.rs", "pub fn dev() {}")
+        .build();
+
+    p.cargo("build")
+        .with_stderr_contains(
+        format!("[WARNING] conflicting between `dev-dependencies` and `dev_dependencies` in the `{}` platform target.\n
+        `dev_dependencies` is ignored and not recommended for use in the future", host)
+        )
+        .run();
 
     assert!(p.bin("foo").is_file());
     p.cargo("test").run();
@@ -4227,6 +4771,54 @@ fn cdylib_final_outputs() {
 }
 
 #[cargo_test]
+// NOTE: Windows MSVC and wasm32-unknown-emscripten do not use metadata. Skip them.
+// See <https://github.com/rust-lang/cargo/issues/9325#issuecomment-1030662699>
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+fn no_dep_info_collision_when_cdylib_and_bin_coexist() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "1.0.0"
+
+            [lib]
+            crate-type = ["cdylib"]
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("build -v")
+        .with_stderr_unordered(
+            "\
+[COMPILING] foo v1.0.0 ([CWD])
+[RUNNING] `rustc [..] --crate-type bin [..] -C metadata=[..]`
+[RUNNING] `rustc [..] --crate-type cdylib [..] -C metadata=[..]`
+[FINISHED] [..]
+",
+        )
+        .run();
+
+    let deps_dir = p.target_debug_dir().join("deps");
+    assert!(deps_dir.join("foo.d").exists());
+    let dep_info_count = deps_dir
+        .read_dir()
+        .unwrap()
+        .filter(|e| {
+            let filename = e.as_ref().unwrap().file_name();
+            let filename = filename.to_str().unwrap();
+            filename.starts_with("foo") && filename.ends_with(".d")
+        })
+        .count();
+    // cdylib -> foo.d
+    // bin -> foo-<meta>.d
+    assert_eq!(dep_info_count, 2);
+}
+
+#[cargo_test]
 fn deterministic_cfg_flags() {
     // This bug is non-deterministic.
 
@@ -4319,7 +4911,7 @@ fn no_bin_in_src_with_lib() {
 [ERROR] failed to parse manifest at `[..]`
 
 Caused by:
-  can't find `foo` bin, specify bin.path",
+  can't find `foo` bin at `src/bin/foo.rs` or `src/bin/foo/main.rs`. [..]",
         )
         .run();
 }
@@ -4496,7 +5088,7 @@ fn same_metadata_different_directory() {
 }
 
 #[cargo_test]
-fn building_a_dependent_crate_witout_bin_should_fail() {
+fn building_a_dependent_crate_without_bin_should_fail() {
     Package::new("testless", "0.1.0")
         .file(
             "Cargo.toml",
@@ -4529,14 +5121,15 @@ fn building_a_dependent_crate_witout_bin_should_fail() {
 
     p.cargo("build")
         .with_status(101)
-        .with_stderr_contains("[..]can't find `a_bin` bin, specify bin.path")
+        .with_stderr_contains(
+            "[..]can't find `a_bin` bin at `src/bin/a_bin.rs` or `src/bin/a_bin/main.rs`[..]",
+        )
         .run();
 }
 
 #[cargo_test]
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn uplift_dsym_of_bin_on_mac() {
-    use cargo_test_support::paths::is_symlink;
     let p = project()
         .file("src/main.rs", "fn main() { panic!(); }")
         .file("src/bin/b.rs", "fn main() { panic!(); }")
@@ -4549,7 +5142,7 @@ fn uplift_dsym_of_bin_on_mac() {
         .run();
     assert!(p.target_debug_dir().join("foo.dSYM").is_dir());
     assert!(p.target_debug_dir().join("b.dSYM").is_dir());
-    assert!(is_symlink(&p.target_debug_dir().join("b.dSYM")));
+    assert!(p.target_debug_dir().join("b.dSYM").is_symlink());
     assert!(p.target_debug_dir().join("examples/c.dSYM").is_dir());
     assert!(!p.target_debug_dir().join("c.dSYM").exists());
     assert!(!p.target_debug_dir().join("d.dSYM").exists());
@@ -4558,7 +5151,6 @@ fn uplift_dsym_of_bin_on_mac() {
 #[cargo_test]
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn uplift_dsym_of_bin_on_mac_when_broken_link_exists() {
-    use cargo_test_support::paths::is_symlink;
     let p = project()
         .file("src/main.rs", "fn main() { panic!(); }")
         .build();
@@ -4577,7 +5169,7 @@ fn uplift_dsym_of_bin_on_mac_when_broken_link_exists() {
             .join("foo-baaaaaadbaaaaaad.dSYM"),
         &dsym,
     );
-    assert!(is_symlink(&dsym));
+    assert!(dsym.is_symlink());
     assert!(!dsym.exists());
 
     p.cargo("build").enable_mac_dsym().run();
@@ -5013,12 +5605,8 @@ fn tricky_pipelining() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    foo.cargo("build -p bar")
-        .env("CARGO_BUILD_PIPELINING", "true")
-        .run();
-    foo.cargo("build -p foo")
-        .env("CARGO_BUILD_PIPELINING", "true")
-        .run();
+    foo.cargo("build -p bar").run();
+    foo.cargo("build -p foo").run();
 }
 
 #[cargo_test]
@@ -5040,7 +5628,6 @@ fn pipelining_works() {
         .build();
 
     foo.cargo("build")
-        .env("CARGO_BUILD_PIPELINING", "true")
         .with_stdout("")
         .with_stderr(
             "\
@@ -5103,7 +5690,6 @@ fn pipelining_big_graph() {
         .file("b30/src/lib.rs", "")
         .build();
     foo.cargo("build -p foo")
-        .env("CARGO_BUILD_PIPELINING", "true")
         .with_status(101)
         .with_stderr_contains("[ERROR] could not compile `a30`[..]")
         .run();
@@ -5363,7 +5949,6 @@ fn close_output() {
 hello stderr!
 [ERROR] [..]
 [WARNING] build failed, waiting for other jobs to finish...
-[ERROR] [..]
 ",
         &stderr,
         None,

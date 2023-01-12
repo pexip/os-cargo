@@ -1,6 +1,8 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -48,7 +48,6 @@
+Index: libgit2-sys/Cargo.toml
+===================================================================
+--- libgit2-sys.orig/Cargo.toml
++++ libgit2-sys/Cargo.toml
+@@ -48,7 +48,6 @@ ssh = ["libssh2-sys"]
  ssh_key_from_memory = []
  vendored = []
  vendored-openssl = ["openssl-sys/vendored"]

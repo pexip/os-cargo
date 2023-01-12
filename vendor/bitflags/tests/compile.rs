@@ -7,13 +7,13 @@ use std::{
 
 use walkdir::WalkDir;
 
-#[test]
-fn fail() {
-    prepare_stderr_files("tests/compile-fail").unwrap();
-
-    let t = trybuild::TestCases::new();
-    t.compile_fail("tests/compile-fail/**/*.rs");
-}
+//#[test]
+//fn fail() {
+//    prepare_stderr_files("tests/compile-fail").unwrap();
+//
+//    let t = trybuild::TestCases::new();
+//    t.compile_fail("tests/compile-fail/**/*.rs");
+//}
 
 #[test]
 fn pass() {

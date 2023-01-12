@@ -935,6 +935,20 @@ impl<H> Easy2<H> {
         self.setopt_str(curl_sys::CURLOPT_PROXY_SSLCERT, &sslcert)
     }
 
+    /// Specify type of the client SSL certificate for HTTPS proxy.
+    ///
+    /// The string should be the format of your certificate. Supported formats
+    /// are "PEM" and "DER", except with Secure Transport. OpenSSL (versions
+    /// 0.9.3 and later) and Secure Transport (on iOS 5 or later, or OS X 10.7
+    /// or later) also support "P12" for PKCS#12-encoded files.
+    ///
+    /// By default this option is "PEM" and corresponds to
+    /// `CURLOPT_PROXY_SSLCERTTYPE`.
+    pub fn proxy_sslcert_type(&mut self, kind: &str) -> Result<(), Error> {
+        let kind = CString::new(kind)?;
+        self.setopt_str(curl_sys::CURLOPT_PROXY_SSLCERTTYPE, &kind)
+    }
+
     /// Set the client certificate for the proxy using an in-memory blob.
     ///
     /// The specified byte buffer should contain the binary content of the
@@ -955,7 +969,25 @@ impl<H> Easy2<H> {
         self.setopt_str(curl_sys::CURLOPT_PROXY_SSLKEY, &sslkey)
     }
 
-    /// Set the pricate key for the proxy using an in-memory blob.
+    /// Set type of the private key file for HTTPS proxy.
+    ///
+    /// The string should be the format of your private key. Supported formats
+    /// are "PEM", "DER" and "ENG".
+    ///
+    /// The format "ENG" enables you to load the private key from a crypto
+    /// engine. In this case `ssl_key` is used as an identifier passed to
+    /// the engine. You have to set the crypto engine with `ssl_engine`.
+    /// "DER" format key file currently does not work because of a bug in
+    /// OpenSSL.
+    ///
+    /// By default this option is "PEM" and corresponds to
+    /// `CURLOPT_PROXY_SSLKEYTYPE`.
+    pub fn proxy_sslkey_type(&mut self, kind: &str) -> Result<(), Error> {
+        let kind = CString::new(kind)?;
+        self.setopt_str(curl_sys::CURLOPT_PROXY_SSLKEYTYPE, &kind)
+    }
+
+    /// Set the private key for the proxy using an in-memory blob.
     ///
     /// The specified byte buffer should contain the binary content of the
     /// private key, which will be copied into the handle.
@@ -964,6 +996,19 @@ impl<H> Easy2<H> {
     /// `CURLOPT_PROXY_SSLKEY_BLOB`.
     pub fn proxy_sslkey_blob(&mut self, blob: &[u8]) -> Result<(), Error> {
         self.setopt_blob(curl_sys::CURLOPT_PROXY_SSLKEY_BLOB, blob)
+    }
+
+    /// Set passphrase to private key for HTTPS proxy.
+    ///
+    /// This will be used as the password required to use the `ssl_key`.
+    /// You never needed a pass phrase to load a certificate but you need one to
+    /// load your private key.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_KEYPASSWD`.
+    pub fn proxy_key_password(&mut self, password: &str) -> Result<(), Error> {
+        let password = CString::new(password)?;
+        self.setopt_str(curl_sys::CURLOPT_PROXY_KEYPASSWD, &password)
     }
 
     /// Indicates the type of proxy being used.
@@ -1047,6 +1092,123 @@ impl<H> Easy2<H> {
     /// `CURLOPT_DNS_CACHE_TIMEOUT`.
     pub fn dns_cache_timeout(&mut self, dur: Duration) -> Result<(), Error> {
         self.setopt_long(curl_sys::CURLOPT_DNS_CACHE_TIMEOUT, dur.as_secs() as c_long)
+    }
+
+    /// Provide the DNS-over-HTTPS URL.
+    ///
+    /// The parameter must be URL-encoded in the following format:
+    /// `https://host:port/path`. It **must** specify a HTTPS URL.
+    ///
+    /// libcurl does not validate the syntax or use this variable until the
+    /// transfer is issued. Even if you set a crazy value here, this method will
+    /// still return [`Ok`].
+    ///
+    /// curl sends `POST` requests to the given DNS-over-HTTPS URL.
+    ///
+    /// To find the DoH server itself, which might be specified using a name,
+    /// libcurl will use the default name lookup function. You can bootstrap
+    /// that by providing the address for the DoH server with
+    /// [`Easy2::resolve`].
+    ///
+    /// Disable DoH use again by setting this option to [`None`].
+    ///
+    /// By default this option is not set and corresponds to `CURLOPT_DOH_URL`.
+    pub fn doh_url(&mut self, url: Option<&str>) -> Result<(), Error> {
+        if let Some(url) = url {
+            let url = CString::new(url)?;
+            self.setopt_str(curl_sys::CURLOPT_DOH_URL, &url)
+        } else {
+            self.setopt_ptr(curl_sys::CURLOPT_DOH_URL, ptr::null())
+        }
+    }
+
+    /// This option tells curl to verify the authenticity of the DoH
+    /// (DNS-over-HTTPS) server's certificate. A value of `true` means curl
+    /// verifies; `false` means it does not.
+    ///
+    /// This option is the DoH equivalent of [`Easy2::ssl_verify_peer`] and only
+    /// affects requests to the DoH server.
+    ///
+    /// When negotiating a TLS or SSL connection, the server sends a certificate
+    /// indicating its identity. Curl verifies whether the certificate is
+    /// authentic, i.e. that you can trust that the server is who the
+    /// certificate says it is. This trust is based on a chain of digital
+    /// signatures, rooted in certification authority (CA) certificates you
+    /// supply. curl uses a default bundle of CA certificates (the path for that
+    /// is determined at build time) and you can specify alternate certificates
+    /// with the [`Easy2::cainfo`] option or the [`Easy2::capath`] option.
+    ///
+    /// When `doh_ssl_verify_peer` is enabled, and the verification fails to
+    /// prove that the certificate is authentic, the connection fails. When the
+    /// option is zero, the peer certificate verification succeeds regardless.
+    ///
+    /// Authenticating the certificate is not enough to be sure about the
+    /// server. You typically also want to ensure that the server is the server
+    /// you mean to be talking to. Use [`Easy2::doh_ssl_verify_host`] for that.
+    /// The check that the host name in the certificate is valid for the host
+    /// name you are connecting to is done independently of the
+    /// `doh_ssl_verify_peer` option.
+    ///
+    /// **WARNING:** disabling verification of the certificate allows bad guys
+    /// to man-in-the-middle the communication without you knowing it. Disabling
+    /// verification makes the communication insecure. Just having encryption on
+    /// a transfer is not enough as you cannot be sure that you are
+    /// communicating with the correct end-point.
+    ///
+    /// By default this option is set to `true` and corresponds to
+    /// `CURLOPT_DOH_SSL_VERIFYPEER`.
+    pub fn doh_ssl_verify_peer(&mut self, verify: bool) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_DOH_SSL_VERIFYPEER, verify.into())
+    }
+
+    /// Tells curl to verify the DoH (DNS-over-HTTPS) server's certificate name
+    /// fields against the host name.
+    ///
+    /// This option is the DoH equivalent of [`Easy2::ssl_verify_host`] and only
+    /// affects requests to the DoH server.
+    ///
+    /// When `doh_ssl_verify_host` is `true`, the SSL certificate provided by
+    /// the DoH server must indicate that the server name is the same as the
+    /// server name to which you meant to connect to, or the connection fails.
+    ///
+    /// Curl considers the DoH server the intended one when the Common Name
+    /// field or a Subject Alternate Name field in the certificate matches the
+    /// host name in the DoH URL to which you told Curl to connect.
+    ///
+    /// When the verify value is set to `false`, the connection succeeds
+    /// regardless of the names used in the certificate. Use that ability with
+    /// caution!
+    ///
+    /// See also [`Easy2::doh_ssl_verify_peer`] to verify the digital signature
+    /// of the DoH server certificate. If libcurl is built against NSS and
+    /// [`Easy2::doh_ssl_verify_peer`] is `false`, `doh_ssl_verify_host` is also
+    /// set to `false` and cannot be overridden.
+    ///
+    /// By default this option is set to `true` and corresponds to
+    /// `CURLOPT_DOH_SSL_VERIFYHOST`.
+    pub fn doh_ssl_verify_host(&mut self, verify: bool) -> Result<(), Error> {
+        self.setopt_long(
+            curl_sys::CURLOPT_DOH_SSL_VERIFYHOST,
+            if verify { 2 } else { 0 },
+        )
+    }
+
+    /// Pass a long as parameter set to 1 to enable or 0 to disable.
+    ///
+    /// This option determines whether libcurl verifies the status of the DoH
+    /// (DNS-over-HTTPS) server cert using the "Certificate Status Request" TLS
+    /// extension (aka. OCSP stapling).
+    ///
+    /// This option is the DoH equivalent of CURLOPT_SSL_VERIFYSTATUS and only
+    /// affects requests to the DoH server.
+    ///
+    /// Note that if this option is enabled but the server does not support the
+    /// TLS extension, the verification will fail.
+    ///
+    /// By default this option is set to `false` and corresponds to
+    /// `CURLOPT_DOH_SSL_VERIFYSTATUS`.
+    pub fn doh_ssl_verify_status(&mut self, verify: bool) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_DOH_SSL_VERIFYSTATUS, verify.into())
     }
 
     /// Specify the preferred receive buffer size, in bytes.
@@ -1343,7 +1505,7 @@ impl<H> Easy2<H> {
     /// `CURLOPT_POSTFIELDSIZE_LARGE`.
     pub fn post_field_size(&mut self, size: u64) -> Result<(), Error> {
         // Clear anything previous to ensure we don't read past a buffer
-        self.setopt_ptr(curl_sys::CURLOPT_POSTFIELDS, 0 as *const _)?;
+        self.setopt_ptr(curl_sys::CURLOPT_POSTFIELDS, ptr::null())?;
         self.setopt_off_t(
             curl_sys::CURLOPT_POSTFIELDSIZE_LARGE,
             size as curl_sys::curl_off_t,
@@ -1738,7 +1900,7 @@ impl<H> Easy2<H> {
     pub fn timeout(&mut self, timeout: Duration) -> Result<(), Error> {
         // TODO: checked arithmetic and casts
         // TODO: use CURLOPT_TIMEOUT if the timeout is too great
-        let ms = timeout.as_secs() * 1000 + (timeout.subsec_nanos() / 1_000_000) as u64;
+        let ms = timeout.as_secs() * 1000 + timeout.subsec_millis() as u64;
         self.setopt_long(curl_sys::CURLOPT_TIMEOUT_MS, ms as c_long)
     }
 
@@ -1860,7 +2022,7 @@ impl<H> Easy2<H> {
     /// By default this value is 300 seconds and corresponds to
     /// `CURLOPT_CONNECTTIMEOUT_MS`.
     pub fn connect_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        let ms = timeout.as_secs() * 1000 + (timeout.subsec_nanos() / 1_000_000) as u64;
+        let ms = timeout.as_secs() * 1000 + timeout.subsec_millis() as u64;
         self.setopt_long(curl_sys::CURLOPT_CONNECTTIMEOUT_MS, ms as c_long)
     }
 
@@ -2073,6 +2235,31 @@ impl<H> Easy2<H> {
         self.setopt_str(curl_sys::CURLOPT_KEYPASSWD, &password)
     }
 
+    /// Set the SSL Certificate Authorities using an in-memory blob.
+    ///
+    /// The specified byte buffer should contain the binary content of one
+    /// or more PEM-encoded CA certificates, which will be copied into
+    /// the handle.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_CAINFO_BLOB`.
+    pub fn ssl_cainfo_blob(&mut self, blob: &[u8]) -> Result<(), Error> {
+        self.setopt_blob(curl_sys::CURLOPT_CAINFO_BLOB, blob)
+    }
+
+    /// Set the SSL Certificate Authorities for HTTPS proxies using an in-memory
+    /// blob.
+    ///
+    /// The specified byte buffer should contain the binary content of one
+    /// or more PEM-encoded CA certificates, which will be copied into
+    /// the handle.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_CAINFO_BLOB`.
+    pub fn proxy_ssl_cainfo_blob(&mut self, blob: &[u8]) -> Result<(), Error> {
+        self.setopt_blob(curl_sys::CURLOPT_PROXY_CAINFO_BLOB, blob)
+    }
+
     /// Set the SSL engine identifier.
     ///
     /// This will be used as the identifier for the crypto engine you want to
@@ -2122,6 +2309,14 @@ impl<H> Easy2<H> {
         self.setopt_long(curl_sys::CURLOPT_SSLVERSION, version as c_long)
     }
 
+    /// Set preferred TLS/SSL version when connecting to an HTTPS proxy.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_SSLVERSION`.
+    pub fn proxy_ssl_version(&mut self, version: SslVersion) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_PROXY_SSLVERSION, version as c_long)
+    }
+
     /// Set preferred TLS/SSL version with minimum version and maximum version.
     ///
     /// By default this option is not set and corresponds to
@@ -2133,6 +2328,20 @@ impl<H> Easy2<H> {
     ) -> Result<(), Error> {
         let version = (min_version as c_long) | ((max_version as c_long) << 16);
         self.setopt_long(curl_sys::CURLOPT_SSLVERSION, version)
+    }
+
+    /// Set preferred TLS/SSL version with minimum version and maximum version
+    /// when connecting to an HTTPS proxy.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_SSLVERSION`.
+    pub fn proxy_ssl_min_max_version(
+        &mut self,
+        min_version: SslVersion,
+        max_version: SslVersion,
+    ) -> Result<(), Error> {
+        let version = (min_version as c_long) | ((max_version as c_long) << 16);
+        self.setopt_long(curl_sys::CURLOPT_PROXY_SSLVERSION, version)
     }
 
     /// Verify the certificate's name against host.
@@ -2147,6 +2356,18 @@ impl<H> Easy2<H> {
         self.setopt_long(curl_sys::CURLOPT_SSL_VERIFYHOST, val)
     }
 
+    /// Verify the certificate's name against host for HTTPS proxy.
+    ///
+    /// This should be disabled with great caution! It basically disables the
+    /// security features of SSL if it is disabled.
+    ///
+    /// By default this option is set to `true` and corresponds to
+    /// `CURLOPT_PROXY_SSL_VERIFYHOST`.
+    pub fn proxy_ssl_verify_host(&mut self, verify: bool) -> Result<(), Error> {
+        let val = if verify { 2 } else { 0 };
+        self.setopt_long(curl_sys::CURLOPT_PROXY_SSL_VERIFYHOST, val)
+    }
+
     /// Verify the peer's SSL certificate.
     ///
     /// This should be disabled with great caution! It basically disables the
@@ -2156,6 +2377,17 @@ impl<H> Easy2<H> {
     /// `CURLOPT_SSL_VERIFYPEER`.
     pub fn ssl_verify_peer(&mut self, verify: bool) -> Result<(), Error> {
         self.setopt_long(curl_sys::CURLOPT_SSL_VERIFYPEER, verify as c_long)
+    }
+
+    /// Verify the peer's SSL certificate for HTTPS proxy.
+    ///
+    /// This should be disabled with great caution! It basically disables the
+    /// security features of SSL if it is disabled.
+    ///
+    /// By default this option is set to `true` and corresponds to
+    /// `CURLOPT_PROXY_SSL_VERIFYPEER`.
+    pub fn proxy_ssl_verify_peer(&mut self, verify: bool) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_PROXY_SSL_VERIFYPEER, verify as c_long)
     }
 
     // /// Verify the certificate's status.
@@ -2197,13 +2429,32 @@ impl<H> Easy2<H> {
     /// specific branch of the tree.
     ///
     /// This option makes sense only when used in combination with the
-    /// `ssl_verify_peer` option. Otherwise, the result of the check is not
-    /// considered as failure.
+    /// [`Easy2::ssl_verify_peer`] option. Otherwise, the result of the check is
+    /// not considered as failure.
     ///
     /// By default this option is not set and corresponds to
     /// `CURLOPT_ISSUERCERT`.
     pub fn issuer_cert<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         self.setopt_path(curl_sys::CURLOPT_ISSUERCERT, path.as_ref())
+    }
+
+    /// Set the issuer SSL certificate filename for HTTPS proxies
+    ///
+    /// Specifies a file holding a CA certificate in PEM format. If the option
+    /// is set, an additional check against the peer certificate is performed to
+    /// verify the issuer is indeed the one associated with the certificate
+    /// provided by the option. This additional check is useful in multi-level
+    /// PKI where one needs to enforce that the peer certificate is from a
+    /// specific branch of the tree.
+    ///
+    /// This option makes sense only when used in combination with the
+    /// [`Easy2::proxy_ssl_verify_peer`] option. Otherwise, the result of the
+    /// check is not considered as failure.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_ISSUERCERT`.
+    pub fn proxy_issuer_cert<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        self.setopt_path(curl_sys::CURLOPT_PROXY_ISSUERCERT, path.as_ref())
     }
 
     /// Set the issuer SSL certificate using an in-memory blob.
@@ -2216,6 +2467,18 @@ impl<H> Easy2<H> {
     /// `CURLOPT_ISSUERCERT_BLOB`.
     pub fn issuer_cert_blob(&mut self, blob: &[u8]) -> Result<(), Error> {
         self.setopt_blob(curl_sys::CURLOPT_ISSUERCERT_BLOB, blob)
+    }
+
+    /// Set the issuer SSL certificate for HTTPS proxies using an in-memory blob.
+    ///
+    /// The specified byte buffer should contain the binary content of a CA
+    /// certificate in the PEM format. The certificate will be copied into the
+    /// handle.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_ISSUERCERT_BLOB`.
+    pub fn proxy_issuer_cert_blob(&mut self, blob: &[u8]) -> Result<(), Error> {
+        self.setopt_blob(curl_sys::CURLOPT_PROXY_ISSUERCERT_BLOB, blob)
     }
 
     /// Specify directory holding CA certificates
@@ -2242,7 +2505,7 @@ impl<H> Easy2<H> {
     /// the elements of the certificate chain if a CRL file is passed.
     ///
     /// This option makes sense only when used in combination with the
-    /// `ssl_verify_peer` option.
+    /// [`Easy2::ssl_verify_peer`] option.
     ///
     /// A specific error code (`is_ssl_crl_badfile`) is defined with the
     /// option. It is returned when the SSL exchange fails because the CRL file
@@ -2253,6 +2516,27 @@ impl<H> Easy2<H> {
     /// By default this option is not set and corresponds to `CURLOPT_CRLFILE`.
     pub fn crlfile<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         self.setopt_path(curl_sys::CURLOPT_CRLFILE, path.as_ref())
+    }
+
+    /// Specify a Certificate Revocation List file to use when connecting to an
+    /// HTTPS proxy.
+    ///
+    /// Names a file with the concatenation of CRL (in PEM format) to use in the
+    /// certificate validation that occurs during the SSL exchange.
+    ///
+    /// When curl is built to use NSS or GnuTLS, there is no way to influence
+    /// the use of CRL passed to help in the verification process. When libcurl
+    /// is built with OpenSSL support, X509_V_FLAG_CRL_CHECK and
+    /// X509_V_FLAG_CRL_CHECK_ALL are both set, requiring CRL check against all
+    /// the elements of the certificate chain if a CRL file is passed.
+    ///
+    /// This option makes sense only when used in combination with the
+    /// [`Easy2::proxy_ssl_verify_peer`] option.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_CRLFILE`.
+    pub fn proxy_crlfile<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        self.setopt_path(curl_sys::CURLOPT_PROXY_CRLFILE, path.as_ref())
     }
 
     /// Request SSL certificate information
@@ -2339,6 +2623,37 @@ impl<H> Easy2<H> {
         self.setopt_str(curl_sys::CURLOPT_SSL_CIPHER_LIST, &ciphers)
     }
 
+    /// Specify ciphers to use for TLS for an HTTPS proxy.
+    ///
+    /// Holds the list of ciphers to use for the SSL connection. The list must
+    /// be syntactically correct, it consists of one or more cipher strings
+    /// separated by colons. Commas or spaces are also acceptable separators
+    /// but colons are normally used, !, - and + can be used as operators.
+    ///
+    /// For OpenSSL and GnuTLS valid examples of cipher lists include 'RC4-SHA',
+    /// ´SHA1+DES´, 'TLSv1' and 'DEFAULT'. The default list is normally set when
+    /// you compile OpenSSL.
+    ///
+    /// You'll find more details about cipher lists on this URL:
+    ///
+    /// https://www.openssl.org/docs/apps/ciphers.html
+    ///
+    /// For NSS, valid examples of cipher lists include 'rsa_rc4_128_md5',
+    /// ´rsa_aes_128_sha´, etc. With NSS you don't add/remove ciphers. If one
+    /// uses this option then all known ciphers are disabled and only those
+    /// passed in are enabled.
+    ///
+    /// You'll find more details about the NSS cipher lists on this URL:
+    ///
+    /// http://git.fedorahosted.org/cgit/mod_nss.git/plain/docs/mod_nss.html#Directives
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_PROXY_SSL_CIPHER_LIST`.
+    pub fn proxy_ssl_cipher_list(&mut self, ciphers: &str) -> Result<(), Error> {
+        let ciphers = CString::new(ciphers)?;
+        self.setopt_str(curl_sys::CURLOPT_PROXY_SSL_CIPHER_LIST, &ciphers)
+    }
+
     /// Enable or disable use of the SSL session-ID cache
     ///
     /// By default all transfers are done using the cache enabled. While nothing
@@ -2360,14 +2675,14 @@ impl<H> Easy2<H> {
         self.setopt_long(curl_sys::CURLOPT_SSL_OPTIONS, bits.bits)
     }
 
-    // /// Set SSL behavior options for proxies
-    // ///
-    // /// Inform libcurl about SSL specific behaviors.
-    // ///
-    // /// This corresponds to the `CURLOPT_PROXY_SSL_OPTIONS` option.
-    // pub fn proxy_ssl_options(&mut self, bits: &SslOpt) -> Result<(), Error> {
-    //     self.setopt_long(curl_sys::CURLOPT_PROXY_SSL_OPTIONS, bits.bits)
-    // }
+    /// Set SSL behavior options for proxies
+    ///
+    /// Inform libcurl about SSL specific behaviors.
+    ///
+    /// This corresponds to the `CURLOPT_PROXY_SSL_OPTIONS` option.
+    pub fn proxy_ssl_options(&mut self, bits: &SslOpt) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_PROXY_SSL_OPTIONS, bits.bits)
+    }
 
     // /// Stores a private pointer-sized piece of data.
     // ///
@@ -2411,7 +2726,7 @@ impl<H> Easy2<H> {
     /// By default this option is not set and corresponds to
     /// `CURLOPT_EXPECT_100_TIMEOUT_MS`.
     pub fn expect_100_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        let ms = timeout.as_secs() * 1000 + (timeout.subsec_nanos() / 1_000_000) as u64;
+        let ms = timeout.as_secs() * 1000 + timeout.subsec_millis() as u64;
         self.setopt_long(curl_sys::CURLOPT_EXPECT_100_TIMEOUT_MS, ms as c_long)
     }
 
@@ -2422,15 +2737,8 @@ impl<H> Easy2<H> {
     //// This corresponds to `CURLINFO_CONDITION_UNMET` and may return an error if the
     /// option is not supported
     pub fn time_condition_unmet(&mut self) -> Result<bool, Error> {
-        self.getopt_long(curl_sys::CURLINFO_CONDITION_UNMET).map(
-            |r| {
-                if r == 0 {
-                    false
-                } else {
-                    true
-                }
-            },
-        )
+        self.getopt_long(curl_sys::CURLINFO_CONDITION_UNMET)
+            .map(|r| r != 0)
     }
 
     /// Get the last used URL
@@ -2519,6 +2827,17 @@ impl<H> Easy2<H> {
     /// option is not supported
     pub fn download_size(&mut self) -> Result<f64, Error> {
         self.getopt_double(curl_sys::CURLINFO_SIZE_DOWNLOAD)
+            .map(|r| r as f64)
+    }
+
+    /// Get the number of uploaded bytes
+    ///
+    /// Returns the total amount of bytes that were uploaded.
+    ///
+    /// This corresponds to `CURLINFO_SIZE_UPLOAD` and may return an error if the
+    /// option is not supported
+    pub fn upload_size(&mut self) -> Result<f64, Error> {
+        self.getopt_double(curl_sys::CURLINFO_SIZE_UPLOAD)
             .map(|r| r as f64)
     }
 
@@ -2811,6 +3130,17 @@ impl<H> Easy2<H> {
         self.setopt_long(curl_sys::CURLOPT_PIPEWAIT, wait as c_long)
     }
 
+    /// Allow HTTP/0.9 compliant responses
+    ///
+    /// Set allow to `true` to tell libcurl to allow HTTP/0.9 responses. A HTTP/0.9
+    /// response is a server response entirely without headers and only a body.
+    ///
+    /// By default this option is not set and corresponds to
+    /// `CURLOPT_HTTP09_ALLOWED`.
+    pub fn http_09_allowed(&mut self, allow: bool) -> Result<(), Error> {
+        self.setopt_long(curl_sys::CURLOPT_HTTP09_ALLOWED, allow as c_long)
+    }
+
     // =========================================================================
     // Other methods
 
@@ -2894,7 +3224,7 @@ impl<H> Easy2<H> {
 
     /// URL encodes a string `s`
     pub fn url_encode(&mut self, s: &[u8]) -> String {
-        if s.len() == 0 {
+        if s.is_empty() {
             return String::new();
         }
         unsafe {
@@ -2913,7 +3243,7 @@ impl<H> Easy2<H> {
 
     /// URL decodes a string `s`, returning `None` if it fails
     pub fn url_decode(&mut self, s: &str) -> Vec<u8> {
-        if s.len() == 0 {
+        if s.is_empty() {
             return Vec::new();
         }
 
@@ -3078,7 +3408,7 @@ impl<H> Easy2<H> {
 
     fn getopt_ptr(&mut self, opt: curl_sys::CURLINFO) -> Result<*const c_char, Error> {
         unsafe {
-            let mut p = 0 as *const c_char;
+            let mut p = ptr::null();
             let rc = curl_sys::curl_easy_getinfo(self.inner.handle, opt, &mut p);
             self.cvt(rc)?;
             Ok(p)

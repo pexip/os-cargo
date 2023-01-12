@@ -2,8 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use metrohash::MetroHash64;
+use tiny_keccak::Keccak;
 use std::hash::{BuildHasher, Hasher};
+use tiny_keccak::Hasher as tiny_keccak_Hasher;
 use std::marker::PhantomData;
 use typenum::{Unsigned, U64};
 
@@ -64,6 +65,34 @@ impl<N: Unsigned> Default for LolHasher<N> {
     }
 }
 
+pub(crate) struct KeccakHasher {
+    k : Keccak,
+}
+
+impl KeccakHasher {
+    fn with_seed(seed: u64) -> KeccakHasher {
+        let mut k = Keccak::v256();
+        let sb = seed.to_le_bytes();
+        k.update(&sb);
+        KeccakHasher { k }
+
+    }
+}
+
+impl Hasher for KeccakHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        self.k.update(bytes);
+    }
+
+    fn finish(&self) -> u64 {
+        let mut rb: [u8; 8] = [0;8];
+        let k = self.k.clone();
+        k.finalize(& mut rb);
+        return u64::from_le_bytes(rb);
+    }
+}
+
+
 pub(crate) struct MetroHashBuilder {
     seed: u64,
 }
@@ -79,8 +108,8 @@ impl MetroHashBuilder {
 }
 
 impl BuildHasher for MetroHashBuilder {
-    type Hasher = MetroHash64;
+    type Hasher = KeccakHasher;
     fn build_hasher(&self) -> Self::Hasher {
-        MetroHash64::with_seed(self.seed)
+        KeccakHasher::with_seed(self.seed)
     }
 }

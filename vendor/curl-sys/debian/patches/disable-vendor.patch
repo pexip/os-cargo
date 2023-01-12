@@ -2,20 +2,20 @@ Index: curl-sys/Cargo.toml
 ===================================================================
 --- curl-sys.orig/Cargo.toml
 +++ curl-sys/Cargo.toml
-@@ -51,7 +51,7 @@ protocol-ftp = []
+@@ -61,7 +61,7 @@ rustls = ["rustls-ffi"]
  spnego = []
  ssl = ["openssl-sys"]
  static-curl = []
 -static-ssl = ["openssl-sys/vendored"]
 +static-ssl = ["openssl-sys"]
  upkeep_7_62_0 = []
- zlib-ng-compat = ["libz-sys/zlib-ng", "static-curl"]
- [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
+ zlib-ng-compat = [
+     "libz-sys/zlib-ng",
 Index: curl-sys/build.rs
 ===================================================================
 --- curl-sys.orig/build.rs
 +++ curl-sys/build.rs
-@@ -19,8 +19,9 @@ fn main() {
+@@ -26,8 +26,9 @@ fn main() {
          return println!("cargo:rustc-flags=-l curl");
      }
  

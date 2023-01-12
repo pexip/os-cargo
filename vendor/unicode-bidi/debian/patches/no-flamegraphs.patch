@@ -1,9 +1,11 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -25,13 +25,6 @@
- 
+Index: unicode-bidi/Cargo.toml
+===================================================================
+--- unicode-bidi.orig/Cargo.toml
++++ unicode-bidi/Cargo.toml
+@@ -42,14 +42,6 @@ repository = "https://github.com/servo/u
  [lib]
  name = "unicode_bidi"
+ 
 -[dependencies.flame]
 -version = "0.2"
 -optional = true
@@ -11,14 +13,18 @@
 -[dependencies.flamer]
 -version = "0.4"
 -optional = true
- 
+-
  [dependencies.serde]
  version = ">=0.8, <2.0"
-@@ -44,7 +37,6 @@
- [features]
- bench_it = []
- default = ["std"]
--flame_it = ["flame", "flamer"]
+ features = ["derive"]
+@@ -65,10 +57,6 @@ default = [
+     "std",
+     "hardcoded-data",
+ ]
+-flame_it = [
+-    "flame",
+-    "flamer",
+-]
+ hardcoded-data = []
  std = []
  unstable = []
- with_serde = ["serde"]

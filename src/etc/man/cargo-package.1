@@ -67,6 +67,22 @@ fields in the manifest.
 .sp
 See \fIthe reference\fR <https://doc.rust\-lang.org/cargo/reference/publishing.html> for more details about
 packaging and publishing.
+.SS ".cargo_vcs_info.json format"
+Will generate a \fB\&.cargo_vcs_info.json\fR in the following format
+.sp
+.RS 4
+.nf
+{
+ "git": {
+   "sha1": "aac20b6e7e543e6dd4118b246c77225e3a3a1302"
+ },
+ "path_in_vcs": ""
+}
+.fi
+.RE
+.sp
+\fBpath_in_vcs\fR will be set to a repo\-relative path for packages
+in subdirectories of the version control repository.
 .SH "OPTIONS"
 .SS "Package Options"
 .sp
@@ -130,8 +146,7 @@ single quotes or double quotes around each pattern.
 .sp
 \fB\-\-target\fR \fItriple\fR
 .RS 4
-Package for the given architecture. The default is the host
-architecture. The general format of the triple is
+Package for the given architecture. The default is the host architecture. The general format of the triple is
 \fB<arch><sub>\-<vendor>\-<sys>\-<abi>\fR\&. Run \fBrustc \-\-print target\-list\fR for a
 list of supported targets.
 .sp
@@ -158,6 +173,7 @@ selected package.
 See \fIthe features documentation\fR <https://doc.rust\-lang.org/cargo/reference/features.html#command\-line\-feature\-options>
 for more details.
 .sp
+\fB\-F\fR \fIfeatures\fR, 
 \fB\-\-features\fR \fIfeatures\fR
 .RS 4
 Space or comma separated list of features to activate. Features of workspace
@@ -219,6 +235,13 @@ Number of parallel jobs to run. May also be specified with the
 \fBbuild.jobs\fR \fIconfig value\fR <https://doc.rust\-lang.org/cargo/reference/config.html>\&. Defaults to
 the number of CPUs.
 .RE
+.sp
+\fB\-\-keep\-going\fR
+.RS 4
+Build as many crates in the dependency graph as possible, rather than aborting
+the build on the first one that fails to build. Unstable, requires
+\fB\-Zunstable\-options\fR\&.
+.RE
 .SS "Display Options"
 .sp
 \fB\-v\fR, 
@@ -233,7 +256,9 @@ May also be specified with the \fBterm.verbose\fR
 \fB\-q\fR, 
 \fB\-\-quiet\fR
 .RS 4
-No output printed to stdout.
+Do not print cargo log messages.
+May also be specified with the \fBterm.quiet\fR
+\fIconfig value\fR <https://doc.rust\-lang.org/cargo/reference/config.html>\&.
 .RE
 .sp
 \fB\-\-color\fR \fIwhen\fR

@@ -3,30 +3,11 @@ Description: eliminate any_zlib
  to split the libz-sys and zlib feature packages.
 Author: Peter Michael Green <plugwash@debian.org>
 
-Index: rust-flate2-1.0.22/src/ffi/c.rs
+Index: flate2/src/ffi/c.rs
 ===================================================================
---- rust-flate2-1.0.22.orig/src/ffi/c.rs
-+++ rust-flate2-1.0.22/src/ffi/c.rs
-@@ -14,15 +14,15 @@ use crate::mem::{self, FlushDecompress,
- 
- // miniz doesn't provide any error messages, so only enable the field when we use a real zlib
- #[derive(Default)]
--pub struct ErrorMessage(#[cfg(feature = "any_zlib")] Option<&'static str>);
-+pub struct ErrorMessage(#[cfg(feature = "zlib")] Option<&'static str>);
- 
- impl ErrorMessage {
-     pub fn get(&self) -> Option<&str> {
--        #[cfg(feature = "any_zlib")]
-+        #[cfg(feature = "zlib")]
-         {
-             self.0
-         }
--        #[cfg(not(feature = "any_zlib"))]
-+        #[cfg(not(feature = "zlib"))]
-         {
-             None
-         }
-@@ -55,13 +55,13 @@ impl Default for StreamWrapper {
+--- flate2.orig/src/ffi/c.rs
++++ flate2/src/ffi/c.rs
+@@ -46,13 +46,13 @@ impl Default for StreamWrapper {
                  reserved: 0,
                  opaque: ptr::null_mut(),
                  state: ptr::null_mut(),
@@ -44,76 +25,33 @@ Index: rust-flate2-1.0.22/src/ffi/c.rs
                  zfree: Some(zfree),
              }),
          }
-@@ -157,7 +157,7 @@ pub struct Stream<D: Direction> {
- 
- impl<D: Direction> Stream<D> {
-     pub fn msg(&self) -> ErrorMessage {
--        #[cfg(feature = "any_zlib")]
-+        #[cfg(feature = "zlib")]
-         {
-             let msg = self.stream_wrapper.msg;
-             ErrorMessage(if msg.is_null() {
-@@ -167,7 +167,7 @@ impl<D: Direction> Stream<D> {
-                 std::str::from_utf8(s.to_bytes()).ok()
-             })
-         }
--        #[cfg(not(feature = "any_zlib"))]
-+        #[cfg(not(feature = "zlib"))]
-         {
-             ErrorMessage()
-         }
-@@ -252,7 +252,7 @@ impl InflateBackend for Inflate {
-         }
-     }
- 
--    #[cfg(feature = "any_zlib")]
-+    #[cfg(feature = "zlib")]
-     fn reset(&mut self, zlib_header: bool) {
-         let bits = if zlib_header {
-             MZ_DEFAULT_WINDOW_BITS
-@@ -266,7 +266,7 @@ impl InflateBackend for Inflate {
-         self.inner.total_in = 0;
-     }
- 
--    #[cfg(not(feature = "any_zlib"))]
-+    #[cfg(not(feature = "zlib"))]
-     fn reset(&mut self, zlib_header: bool) {
-         *self = Self::make(zlib_header, MZ_DEFAULT_WINDOW_BITS as u8);
-     }
-@@ -368,14 +368,14 @@ impl Backend for Deflate {
- pub use self::c_backend::*;
- 
- /// Miniz specific
--#[cfg(not(feature = "any_zlib"))]
-+#[cfg(not(feature = "zlib"))]
- mod c_backend {
-     pub use miniz_sys::*;
-     pub type AllocSize = libc::size_t;
+Index: flate2/src/ffi/mod.rs
+===================================================================
+--- flate2.orig/src/ffi/mod.rs
++++ flate2/src/ffi/mod.rs
+@@ -35,14 +35,14 @@ pub trait DeflateBackend: Backend {
  }
  
- /// Zlib specific - make zlib mimic miniz' API
+ // Default to Rust implementation unless explicitly opted in to a different backend.
 -#[cfg(feature = "any_zlib")]
 +#[cfg(feature = "zlib")]
- #[allow(bad_style)]
- mod c_backend {
-     use libc::{c_char, c_int};
-Index: rust-flate2-1.0.22/src/ffi/mod.rs
-===================================================================
---- rust-flate2-1.0.22.orig/src/ffi/mod.rs
-+++ rust-flate2-1.0.22/src/ffi/mod.rs
-@@ -36,7 +36,7 @@ pub trait DeflateBackend: Backend {
+ mod c;
+-#[cfg(feature = "any_zlib")]
++#[cfg(feature = "zlib")]
+ pub use self::c::*;
  
- // Default to Rust implementation unless explicitly opted in to a different backend.
- cfg_if::cfg_if! {
--    if #[cfg(any(feature = "miniz-sys", feature = "any_zlib"))] {
-+    if #[cfg(any(feature = "miniz-sys", feature = "zlib"))] {
-         mod c;
-         pub use self::c::*;
-     } else {
-Index: rust-flate2-1.0.22/src/mem.rs
+-#[cfg(not(feature = "any_zlib"))]
++#[cfg(not(feature = "zlib"))]
+ mod rust;
+-#[cfg(not(feature = "any_zlib"))]
++#[cfg(not(feature = "zlib"))]
+ pub use self::rust::*;
+ 
+ impl std::fmt::Debug for ErrorMessage {
+Index: flate2/src/mem.rs
 ===================================================================
---- rust-flate2-1.0.22.orig/src/mem.rs
-+++ rust-flate2-1.0.22/src/mem.rs
+--- flate2.orig/src/mem.rs
++++ flate2/src/mem.rs
 @@ -220,7 +220,7 @@ impl Compress {
      ///
      /// This constructor is only available when the `zlib` feature is used.
@@ -148,7 +86,7 @@ Index: rust-flate2-1.0.22/src/mem.rs
 -    #[cfg(feature = "any_zlib")]
 +    #[cfg(feature = "zlib")]
      pub fn set_level(&mut self, level: Compression) -> Result<(), CompressError> {
-         use libc::c_int;
+         use std::os::raw::c_int;
          let stream = &mut *self.inner.inner.stream_wrapper;
 @@ -398,7 +398,7 @@ impl Decompress {
      ///
@@ -222,20 +160,20 @@ Index: rust-flate2-1.0.22/src/mem.rs
      #[test]
      fn test_error_message() {
          let mut decoder = Decompress::new(false);
-Index: rust-flate2-1.0.22/Cargo.toml
+Index: flate2/Cargo.toml
 ===================================================================
---- rust-flate2-1.0.22.orig/Cargo.toml
-+++ rust-flate2-1.0.22/Cargo.toml
-@@ -49,11 +49,10 @@ default-features = false
- version = "0.7"
+--- flate2.orig/Cargo.toml
++++ flate2/Cargo.toml
+@@ -60,12 +60,10 @@ default-features = false
+ version = "0.8"
  
  [features]
 -any_zlib = []
  default = ["rust_backend"]
+ miniz-sys = ["rust_backend"]
  rust_backend = ["miniz_oxide"]
- miniz-sys = ["zlib"]
--zlib = ["any_zlib", "libz-sys"]
-+zlib = ["libz-sys"]
- [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
- version = "0.4.0"
- default-features = false
+ zlib = [
+-    "any_zlib",
+     "libz-sys",
+ ]
+ 

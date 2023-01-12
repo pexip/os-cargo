@@ -9,6 +9,7 @@ use anyhow::Context as _;
 use semver::Version;
 use serde::ser;
 use serde::Serialize;
+use toml_edit::easy as toml;
 use url::Url;
 
 use crate::core::compiler::{CompileKind, CrateType};
@@ -23,6 +24,15 @@ use crate::util::{short_hash, Config, Filesystem};
 pub enum EitherManifest {
     Real(Manifest),
     Virtual(VirtualManifest),
+}
+
+impl EitherManifest {
+    pub(crate) fn workspace_config(&self) -> &WorkspaceConfig {
+        match *self {
+            EitherManifest::Real(ref r) => r.workspace_config(),
+            EitherManifest::Virtual(ref v) => v.workspace_config(),
+        }
+    }
 }
 
 /// Contains all the information about a package, as loaded from a `Cargo.toml`.
@@ -259,7 +269,7 @@ struct SerializedTarget<'a> {
     /// Serialized as a list of strings for historical reasons.
     kind: &'a TargetKind,
     /// Corresponds to `--crate-type` compiler attribute.
-    /// See https://doc.rust-lang.org/reference/linkage.html
+    /// See <https://doc.rust-lang.org/reference/linkage.html>
     crate_types: Vec<CrateType>,
     name: &'a str,
     src_path: Option<&'a PathBuf>,
@@ -267,7 +277,7 @@ struct SerializedTarget<'a> {
     #[serde(rename = "required-features", skip_serializing_if = "Option::is_none")]
     required_features: Option<Vec<&'a str>>,
     /// Whether docs should be built for the target via `cargo doc`
-    /// See https://doc.rust-lang.org/cargo/commands/cargo-doc.html#target-selection
+    /// See <https://doc.rust-lang.org/cargo/commands/cargo-doc.html#target-selection>
     doc: bool,
     doctest: bool,
     /// Whether tests should be run for the target (`test` field in `Cargo.toml`)
@@ -824,6 +834,13 @@ impl Target {
     pub fn is_cdylib(&self) -> bool {
         match self.kind() {
             TargetKind::Lib(libs) => libs.iter().any(|l| *l == CrateType::Cdylib),
+            _ => false,
+        }
+    }
+
+    pub fn is_staticlib(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(libs) => libs.iter().any(|l| *l == CrateType::Staticlib),
             _ => false,
         }
     }

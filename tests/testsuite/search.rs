@@ -150,8 +150,9 @@ fn not_update() {
         paths::home().join(".cargo"),
     );
     let lock = cfg.acquire_package_cache_lock().unwrap();
-    let mut regsrc = RegistrySource::remote(sid, &HashSet::new(), &cfg);
-    regsrc.update().unwrap();
+    let mut regsrc = RegistrySource::remote(sid, &HashSet::new(), &cfg).unwrap();
+    regsrc.invalidate_cache();
+    regsrc.block_until_ready().unwrap();
     drop(lock);
 
     cargo_process("search postgres")
@@ -181,60 +182,6 @@ fn simple() {
         .run();
 }
 
-// TODO: Deprecated
-// remove once it has been decided '--host' can be safely removed
-#[cargo_test]
-fn simple_with_host() {
-    setup();
-
-    cargo_process("search postgres --host")
-        .arg(registry_url().to_string())
-        .with_stderr(
-            "\
-[WARNING] The flag '--host' is no longer valid.
-
-Previous versions of Cargo accepted this flag, but it is being
-deprecated. The flag is being renamed to 'index', as the flag
-wants the location of the index. Please use '--index' instead.
-
-This will soon become a hard error, so it's either recommended
-to update to a fixed version or contact the upstream maintainer
-about this warning.
-[UPDATING] `[CWD]/registry` index
-",
-        )
-        .with_stdout_contains(SEARCH_RESULTS)
-        .run();
-}
-
-// TODO: Deprecated
-// remove once it has been decided '--host' can be safely removed
-#[cargo_test]
-fn simple_with_index_and_host() {
-    setup();
-
-    cargo_process("search postgres --index")
-        .arg(registry_url().to_string())
-        .arg("--host")
-        .arg(registry_url().to_string())
-        .with_stderr(
-            "\
-[WARNING] The flag '--host' is no longer valid.
-
-Previous versions of Cargo accepted this flag, but it is being
-deprecated. The flag is being renamed to 'index', as the flag
-wants the location of the index. Please use '--index' instead.
-
-This will soon become a hard error, so it's either recommended
-to update to a fixed version or contact the upstream maintainer
-about this warning.
-[UPDATING] `[CWD]/registry` index
-",
-        )
-        .with_stdout_contains(SEARCH_RESULTS)
-        .run();
-}
-
 #[cargo_test]
 fn multiple_query_params() {
     setup();
@@ -242,5 +189,29 @@ fn multiple_query_params() {
     cargo_process("search postgres sql --index")
         .arg(registry_url().to_string())
         .with_stdout_contains(SEARCH_RESULTS)
+        .run();
+}
+
+#[cargo_test]
+fn ignore_quiet() {
+    setup();
+    set_cargo_config();
+
+    cargo_process("search -q postgres")
+        .with_stdout_contains(SEARCH_RESULTS)
+        .run();
+}
+
+#[cargo_test]
+fn colored_results() {
+    setup();
+    set_cargo_config();
+
+    cargo_process("search --color=never postgres")
+        .with_stdout_does_not_contain("[..]\x1b[[..]")
+        .run();
+
+    cargo_process("search --color=always postgres")
+        .with_stdout_contains("[..]\x1b[[..]")
         .run();
 }

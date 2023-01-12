@@ -176,10 +176,12 @@ fn test_integer() {
     let uusize = 1usize;
 
     let tokens = quote! {
+        1 1i32 1u256
         #ii8 #ii16 #ii32 #ii64 #ii128 #iisize
         #uu8 #uu16 #uu32 #uu64 #uu128 #uusize
     };
-    let expected = "- 1i8 - 1i16 - 1i32 - 1i64 - 1i128 - 1isize 1u8 1u16 1u32 1u64 1u128 1usize";
+    let expected =
+        "1 1i32 1u256 - 1i8 - 1i16 - 1i32 - 1i64 - 1i128 - 1isize 1u8 1u16 1u32 1u64 1u128 1usize";
     assert_eq!(expected, tokens.to_string());
 }
 
@@ -199,7 +201,7 @@ fn test_floating() {
 
 #[test]
 fn test_char() {
-    let zero = '\0';
+    let zero = '\u{1}';
     let pound = '#';
     let quote = '"';
     let apost = '\'';
@@ -209,23 +211,48 @@ fn test_char() {
     let tokens = quote! {
         #zero #pound #quote #apost #newline #heart
     };
-    let expected = "'\\u{0}' '#' '\"' '\\'' '\\n' '\u{2764}'";
+    let expected = "'\\u{1}' '#' '\"' '\\'' '\\n' '\u{2764}'";
     assert_eq!(expected, tokens.to_string());
 }
 
 #[test]
 fn test_str() {
-    let s = "\0 a 'b \" c";
+    let s = "\u{1} a 'b \" c";
     let tokens = quote!(#s);
-    let expected = "\"\\u{0} a 'b \\\" c\"";
+    let expected = "\"\\u{1} a 'b \\\" c\"";
     assert_eq!(expected, tokens.to_string());
 }
 
 #[test]
 fn test_string() {
-    let s = "\0 a 'b \" c".to_string();
+    let s = "\u{1} a 'b \" c".to_string();
     let tokens = quote!(#s);
-    let expected = "\"\\u{0} a 'b \\\" c\"";
+    let expected = "\"\\u{1} a 'b \\\" c\"";
+    assert_eq!(expected, tokens.to_string());
+}
+
+#[test]
+fn test_interpolated_literal() {
+    macro_rules! m {
+        ($literal:literal) => {
+            quote!($literal)
+        };
+    }
+
+    let tokens = m!(1);
+    let expected = "1";
+    assert_eq!(expected, tokens.to_string());
+
+    let tokens = m!(-1);
+    let expected = "- 1";
+    assert_eq!(expected, tokens.to_string());
+
+    let tokens = m!(true);
+    let expected = "true";
+    assert_eq!(expected, tokens.to_string());
+
+    let tokens = m!(-true);
+    let expected = "- true";
     assert_eq!(expected, tokens.to_string());
 }
 
@@ -235,6 +262,13 @@ fn test_ident() {
     let bar = Ident::new(&format!("Bar{}", 7), Span::call_site());
     let tokens = quote!(struct #foo; enum #bar {});
     let expected = "struct Foo ; enum Bar7 { }";
+    assert_eq!(expected, tokens.to_string());
+}
+
+#[test]
+fn test_underscore() {
+    let tokens = quote!(let _;);
+    let expected = "let _ ;";
     assert_eq!(expected, tokens.to_string());
 }
 

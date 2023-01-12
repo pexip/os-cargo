@@ -2,8 +2,10 @@
 
 use crate::error::{Error, ErrorCode, Result};
 use crate::io;
-use crate::lib::num::FpCategory;
-use crate::lib::*;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::fmt::{self, Display};
+use core::num::FpCategory;
 use serde::ser::{self, Impossible, Serialize};
 use serde::serde_if_integer128;
 
@@ -531,11 +533,8 @@ where
     where
         T: ?Sized + Serialize,
     {
-        match *self {
-            Compound::Map {
-                ref mut ser,
-                ref mut state,
-            } => {
+        match self {
+            Compound::Map { ser, state } => {
                 tri!(ser
                     .formatter
                     .begin_array_value(&mut ser.writer, *state == State::First)
@@ -669,11 +668,8 @@ where
     where
         T: ?Sized + Serialize,
     {
-        match *self {
-            Compound::Map {
-                ref mut ser,
-                ref mut state,
-            } => {
+        match self {
+            Compound::Map { ser, state } => {
                 tri!(ser
                     .formatter
                     .begin_object_key(&mut ser.writer, *state == State::First)
@@ -700,8 +696,8 @@ where
     where
         T: ?Sized + Serialize,
     {
-        match *self {
-            Compound::Map { ref mut ser, .. } => {
+        match self {
+            Compound::Map { ser, .. } => {
                 tri!(ser
                     .formatter
                     .begin_object_value(&mut ser.writer)
@@ -751,21 +747,21 @@ where
     where
         T: ?Sized + Serialize,
     {
-        match *self {
+        match self {
             Compound::Map { .. } => ser::SerializeMap::serialize_entry(self, key, value),
             #[cfg(feature = "arbitrary_precision")]
-            Compound::Number { ref mut ser, .. } => {
+            Compound::Number { ser, .. } => {
                 if key == crate::number::TOKEN {
-                    tri!(value.serialize(NumberStrEmitter(&mut *ser)));
+                    tri!(value.serialize(NumberStrEmitter(ser)));
                     Ok(())
                 } else {
                     Err(invalid_number())
                 }
             }
             #[cfg(feature = "raw_value")]
-            Compound::RawValue { ref mut ser, .. } => {
+            Compound::RawValue { ser, .. } => {
                 if key == crate::raw::TOKEN {
-                    tri!(value.serialize(RawValueStrEmitter(&mut *ser)));
+                    tri!(value.serialize(RawValueStrEmitter(ser)));
                     Ok(())
                 } else {
                     Err(invalid_raw_value())
@@ -1545,6 +1541,13 @@ impl<'a, W: io::Write, F: Formatter> ser::Serializer for RawValueStrEmitter<'a, 
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
         Err(ser::Error::custom("expected RawValue"))
+    }
+
+    fn collect_str<T>(self, value: &T) -> Result<Self::Ok>
+    where
+        T: ?Sized + Display,
+    {
+        self.serialize_str(&value.to_string())
     }
 }
 

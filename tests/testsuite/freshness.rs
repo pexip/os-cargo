@@ -596,6 +596,8 @@ fn no_rebuild_transitive_target_deps() {
 [COMPILING] b v0.0.1 ([..])
 [COMPILING] foo v0.0.1 ([..])
 [FINISHED] test [unoptimized + debuginfo] target(s) in [..]
+[EXECUTABLE] unittests src/lib.rs (target/debug/deps/foo-[..][EXE])
+[EXECUTABLE] tests/foo.rs (target/debug/deps/foo-[..][EXE])
 ",
         )
         .run();
@@ -1125,6 +1127,7 @@ fn reuse_workspace_lib() {
 [COMPILING] baz v0.1.1 ([..])
 [RUNNING] `rustc[..] --test [..]`
 [FINISHED] [..]
+[EXECUTABLE] `[..]/target/debug/deps/baz-[..][EXE]`
 ",
         )
         .run();
@@ -1253,7 +1256,7 @@ fn fingerprint_cleaner(mut dir: PathBuf, timestamp: filetime::FileTime) {
     // So a cleaner can remove files associated with a fingerprint
     // if all the files in the fingerprint's folder are older then a time stamp without
     // effecting any builds that happened since that time stamp.
-    let mut cleand = false;
+    let mut cleaned = false;
     dir.push(".fingerprint");
     for fing in fs::read_dir(&dir).unwrap() {
         let fing = fing.unwrap();
@@ -1267,12 +1270,12 @@ fn fingerprint_cleaner(mut dir: PathBuf, timestamp: filetime::FileTime) {
             println!("remove: {:?}", fing.path());
             // a real cleaner would remove the big files in deps and build as well
             // but fingerprint is sufficient for our tests
-            cleand = true;
+            cleaned = true;
         } else {
         }
     }
     assert!(
-        cleand,
+        cleaned,
         "called fingerprint_cleaner, but there was nothing to remove"
     );
 }
@@ -1376,6 +1379,7 @@ fn reuse_panic_build_dep_test() {
 [RUNNING] [..]build-script-build`
 [RUNNING] `rustc --crate-name foo src/lib.rs [..]--test[..]
 [FINISHED] [..]
+[EXECUTABLE] `[..]/target/debug/deps/foo-[..][EXE]`
 ",
         )
         .run();

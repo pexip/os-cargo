@@ -1,0 +1,68 @@
+Index: crc32fast/src/lib.rs
+===================================================================
+--- crc32fast.orig/src/lib.rs
++++ crc32fast/src/lib.rs
+@@ -51,6 +51,9 @@ extern crate cfg_if;
+ #[cfg(feature = "std")]
+ use std as core;
+ 
++#[cfg(all(test,not(feature = "std")))]
++extern crate alloc;
++
+ use core::fmt;
+ use core::hash;
+ 
+@@ -195,7 +198,8 @@ impl hash::Hasher for Hasher {
+ #[cfg(test)]
+ mod test {
+     use super::Hasher;
+-
++    #[cfg(not(feature = "std"))]
++    use alloc::vec::Vec;
+     quickcheck! {
+         fn combine(bytes_1: Vec<u8>, bytes_2: Vec<u8>) -> bool {
+             let mut hash_a = Hasher::new();
+Index: crc32fast/src/specialized/pclmulqdq.rs
+===================================================================
+--- crc32fast.orig/src/specialized/pclmulqdq.rs
++++ crc32fast/src/specialized/pclmulqdq.rs
+@@ -204,6 +204,7 @@ unsafe fn get(a: &mut &[u8]) -> arch::__
+ 
+ #[cfg(test)]
+ mod test {
++    #[cfg(feature = "std")]
+     quickcheck! {
+         fn check_against_baseline(init: u32, chunks: Vec<(Vec<u8>, usize)>) -> bool {
+             let mut baseline = super::super::super::baseline::State::new(init);
+Index: crc32fast/benches/bench.rs
+===================================================================
+--- crc32fast.orig/benches/bench.rs
++++ crc32fast/benches/bench.rs
+@@ -45,9 +45,13 @@ benchmark_group!(
+     bench_kilobyte_baseline,
+     bench_megabyte_baseline
+ );
++#[cfg(feature = "std")]
+ benchmark_group!(
+     bench_specialized,
+     bench_kilobyte_specialized,
+     bench_megabyte_specialized
+ );
++#[cfg(feature = "std")]
+ benchmark_main!(bench_baseline, bench_specialized);
++#[cfg(not(feature = "std"))]
++benchmark_main!(bench_baseline);
+Index: crc32fast/src/baseline.rs
+===================================================================
+--- crc32fast.orig/src/baseline.rs
++++ crc32fast/src/baseline.rs
+@@ -70,6 +70,9 @@ pub(crate) fn update_slow(prev: u32, buf
+ 
+ #[cfg(test)]
+ mod test {
++    #[cfg(not(feature = "std"))]
++    use alloc::vec::Vec;
++
+     #[test]
+     fn slow() {
+         assert_eq!(super::update_slow(0, b""), 0);

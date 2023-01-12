@@ -50,7 +50,7 @@
 //! improved.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io;
 use std::marker;
@@ -61,7 +61,7 @@ use anyhow::{format_err, Context as _};
 use cargo_util::ProcessBuilder;
 use crossbeam_utils::thread::Scope;
 use jobserver::{Acquired, Client, HelperThread};
-use log::{debug, info, trace};
+use log::{debug, trace};
 use semver::Version;
 
 use super::context::OutputFile;
@@ -72,11 +72,12 @@ use super::job::{
 use super::timings::Timings;
 use super::{BuildContext, BuildPlan, CompileMode, Context, Unit};
 use crate::core::compiler::future_incompat::{
-    FutureBreakageItem, FutureIncompatReportPackage, OnDiskReports,
+    self, FutureBreakageItem, FutureIncompatReportPackage,
 };
 use crate::core::resolver::ResolveBehavior;
 use crate::core::{PackageId, Shell, TargetKind};
 use crate::util::diagnostic_server::{self, DiagnosticPrinter};
+use crate::util::errors::AlreadyPrintedError;
 use crate::util::machine_message::{self, Message as _};
 use crate::util::CargoResult;
 use crate::util::{self, internal, profile};
@@ -167,6 +168,41 @@ struct DrainState<'cfg> {
     /// How many jobs we've finished
     finished: usize,
     per_package_future_incompat_reports: Vec<FutureIncompatReportPackage>,
+}
+
+pub struct ErrorsDuringDrain {
+    pub count: usize,
+}
+
+struct ErrorToHandle {
+    error: anyhow::Error,
+
+    /// This field is true for "interesting" errors and false for "mundane"
+    /// errors. If false, we print the above error only if it's the first one
+    /// encountered so far while draining the job queue.
+    ///
+    /// At most places that an error is propagated, we set this to false to
+    /// avoid scenarios where Cargo might end up spewing tons of redundant error
+    /// messages. For example if an i/o stream got closed somewhere, we don't
+    /// care about individually reporting every thread that it broke; just the
+    /// first is enough.
+    ///
+    /// The exception where print_always is true is that we do report every
+    /// instance of a rustc invocation that failed with diagnostics. This
+    /// corresponds to errors from Message::Finish.
+    print_always: bool,
+}
+
+impl<E> From<E> for ErrorToHandle
+where
+    anyhow::Error: From<E>,
+{
+    fn from(error: E) -> Self {
+        ErrorToHandle {
+            error: anyhow::Error::from(error),
+            print_always: false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -395,7 +431,8 @@ impl<'cfg> JobQueue<'cfg> {
             .filter(|dep| {
                 // Binaries aren't actually needed to *compile* tests, just to run
                 // them, so we don't include this dependency edge in the job graph.
-                !dep.unit.target.is_test() && !dep.unit.target.is_bin()
+                (!dep.unit.target.is_test() && !dep.unit.target.is_bin())
+                    || dep.unit.artifact.is_true()
             })
             .map(|dep| {
                 // Handle the case here where our `unit -> dep` dependency may
@@ -413,7 +450,7 @@ impl<'cfg> JobQueue<'cfg> {
 
         // This is somewhat tricky, but we may need to synthesize some
         // dependencies for this target if it requires full upstream
-        // compilations to have completed. If we're in pipelining mode then some
+        // compilations to have completed. Because of pipelining, some
         // dependency edges may be `Metadata` due to the above clause (as
         // opposed to everything being `All`). For example consider:
         //
@@ -612,7 +649,7 @@ impl<'cfg> DrainState<'cfg> {
         jobserver_helper: &HelperThread,
         plan: &mut BuildPlan,
         event: Message,
-    ) -> CargoResult<()> {
+    ) -> Result<(), ErrorToHandle> {
         match event {
             Message::Run(id, cmd) => {
                 cx.bcx
@@ -649,7 +686,7 @@ impl<'cfg> DrainState<'cfg> {
                     // If `id` has completely finished we remove it
                     // from the `active` map ...
                     Artifact::All => {
-                        info!("end: {:?}", id);
+                        trace!("end: {:?}", id);
                         self.finished += 1;
                         if let Some(rustc_tokens) = self.rustc_tokens.remove(&id) {
                             // This puts back the tokens that this rustc
@@ -670,18 +707,21 @@ impl<'cfg> DrainState<'cfg> {
                     // ... otherwise if it hasn't finished we leave it
                     // in there as we'll get another `Finish` later on.
                     Artifact::Metadata => {
-                        info!("end (meta): {:?}", id);
+                        trace!("end (meta): {:?}", id);
                         self.active[&id].clone()
                     }
                 };
-                info!("end ({:?}): {:?}", unit, result);
+                debug!("end ({:?}): {:?}", unit, result);
                 match result {
                     Ok(()) => self.finish(id, &unit, artifact, cx)?,
-                    Err(e) => {
+                    Err(error) => {
                         let msg = "The following warnings were emitted during compilation:";
                         self.emit_warnings(Some(msg), &unit, cx)?;
                         self.back_compat_notice(cx, &unit)?;
-                        return Err(e);
+                        return Err(ErrorToHandle {
+                            error,
+                            print_always: true,
+                        });
                     }
                 }
             }
@@ -695,7 +735,7 @@ impl<'cfg> DrainState<'cfg> {
                 self.tokens.push(token);
             }
             Message::NeedsToken(id) => {
-                log::info!("queue token request");
+                trace!("queue token request");
                 jobserver_helper.request_token();
                 let client = cx.rustc_clients[&self.active[&id]].clone();
                 self.to_send_clients
@@ -733,7 +773,7 @@ impl<'cfg> DrainState<'cfg> {
         // listen for a message with a timeout, and on timeout we run the
         // previous parts of the loop again.
         let mut events = self.messages.try_pop_all();
-        info!(
+        trace!(
             "tokens in use: {}, rustc_tokens: {:?}, waiting_rustcs: {:?} (events this tick: {})",
             self.tokens.len(),
             self.rustc_tokens
@@ -785,15 +825,16 @@ impl<'cfg> DrainState<'cfg> {
         //
         // After a job has finished we update our internal state if it was
         // successful and otherwise wait for pending work to finish if it failed
-        // and then immediately return.
-        let mut error = None;
+        // and then immediately return (or keep going, if requested by the build
+        // config).
+        let mut errors = ErrorsDuringDrain { count: 0 };
         // CAUTION! Do not use `?` or break out of the loop early. Every error
         // must be handled in such a way that the loop is still allowed to
         // drain event messages.
         loop {
-            if error.is_none() {
+            if errors.count == 0 || cx.bcx.build_config.keep_going {
                 if let Err(e) = self.spawn_work_if_possible(cx, jobserver_helper, scope) {
-                    self.handle_error(&mut cx.bcx.config.shell(), &mut error, e);
+                    self.handle_error(&mut cx.bcx.config.shell(), &mut errors, e);
                 }
             }
 
@@ -804,7 +845,7 @@ impl<'cfg> DrainState<'cfg> {
             }
 
             if let Err(e) = self.grant_rustc_token_requests() {
-                self.handle_error(&mut cx.bcx.config.shell(), &mut error, e);
+                self.handle_error(&mut cx.bcx.config.shell(), &mut errors, e);
             }
 
             // And finally, before we block waiting for the next event, drop any
@@ -814,7 +855,7 @@ impl<'cfg> DrainState<'cfg> {
             // to the jobserver itself.
             for event in self.wait_for_events() {
                 if let Err(event_err) = self.handle_event(cx, jobserver_helper, plan, event) {
-                    self.handle_error(&mut cx.bcx.config.shell(), &mut error, event_err);
+                    self.handle_error(&mut cx.bcx.config.shell(), &mut errors, event_err);
                 }
             }
         }
@@ -839,30 +880,24 @@ impl<'cfg> DrainState<'cfg> {
         }
 
         let time_elapsed = util::elapsed(cx.bcx.config.creation_time().elapsed());
-        if let Err(e) = self.timings.finished(cx.bcx, &error) {
-            if error.is_some() {
-                crate::display_error(&e, &mut cx.bcx.config.shell());
-            } else {
-                return Some(e);
-            }
+        if let Err(e) = self.timings.finished(cx, &errors.to_error()) {
+            self.handle_error(&mut cx.bcx.config.shell(), &mut errors, e);
         }
         if cx.bcx.build_config.emit_json() {
             let mut shell = cx.bcx.config.shell();
             let msg = machine_message::BuildFinished {
-                success: error.is_none(),
+                success: errors.count == 0,
             }
             .to_json_string();
             if let Err(e) = writeln!(shell.out(), "{}", msg) {
-                if error.is_some() {
-                    crate::display_error(&e.into(), &mut shell);
-                } else {
-                    return Some(e.into());
-                }
+                self.handle_error(&mut shell, &mut errors, e);
             }
         }
 
-        if let Some(e) = error {
-            Some(e)
+        if let Some(error) = errors.to_error() {
+            // Any errors up to this point have already been printed via the
+            // `display_error` inside `handle_error`.
+            Some(anyhow::Error::new(AlreadyPrintedError::new(error)))
         } else if self.queue.is_empty() && self.pending_queue.is_empty() {
             let message = format!(
                 "{} [{}] target(s) in {}",
@@ -871,7 +906,10 @@ impl<'cfg> DrainState<'cfg> {
             if !cx.bcx.build_config.build_plan {
                 // It doesn't really matter if this fails.
                 drop(cx.bcx.config.shell().status("Finished", message));
-                self.emit_future_incompat(cx.bcx);
+                future_incompat::save_and_display_report(
+                    cx.bcx,
+                    &self.per_package_future_incompat_reports,
+                );
             }
 
             None
@@ -881,91 +919,21 @@ impl<'cfg> DrainState<'cfg> {
         }
     }
 
-    fn emit_future_incompat(&mut self, bcx: &BuildContext<'_, '_>) {
-        if !bcx.config.cli_unstable().future_incompat_report {
-            return;
-        }
-        let should_display_message = match bcx.config.future_incompat_config() {
-            Ok(config) => config.should_display_message(),
-            Err(e) => {
-                crate::display_warning_with_error(
-                    "failed to read future-incompat config from disk",
-                    &e,
-                    &mut bcx.config.shell(),
-                );
-                true
-            }
-        };
-
-        if self.per_package_future_incompat_reports.is_empty() {
-            // Explicitly passing a command-line flag overrides
-            // `should_display_message` from the config file
-            if bcx.build_config.future_incompat_report {
-                drop(
-                    bcx.config
-                        .shell()
-                        .note("0 dependencies had future-incompatible warnings"),
-                );
-            }
-            return;
-        }
-
-        // Get a list of unique and sorted package name/versions.
-        let package_vers: BTreeSet<_> = self
-            .per_package_future_incompat_reports
-            .iter()
-            .map(|r| r.package_id)
-            .collect();
-        let package_vers: Vec<_> = package_vers
-            .into_iter()
-            .map(|pid| pid.to_string())
-            .collect();
-
-        if should_display_message || bcx.build_config.future_incompat_report {
-            drop(bcx.config.shell().warn(&format!(
-                "the following packages contain code that will be rejected by a future \
-                 version of Rust: {}",
-                package_vers.join(", ")
-            )));
-        }
-
-        let on_disk_reports =
-            OnDiskReports::save_report(bcx.ws, &self.per_package_future_incompat_reports);
-        let report_id = on_disk_reports.last_id();
-
-        if bcx.build_config.future_incompat_report {
-            let rendered = on_disk_reports.get_report(report_id, bcx.config).unwrap();
-            drop(bcx.config.shell().print_ansi_stderr(rendered.as_bytes()));
-            drop(bcx.config.shell().note(&format!(
-                "this report can be shown with `cargo report \
-                 future-incompatibilities -Z future-incompat-report --id {}`",
-                report_id
-            )));
-        } else if should_display_message {
-            drop(bcx.config.shell().note(&format!(
-                "to see what the problems were, use the option \
-                 `--future-incompat-report`, or run `cargo report \
-                 future-incompatibilities --id {}`",
-                report_id
-            )));
-        }
-    }
-
     fn handle_error(
         &self,
         shell: &mut Shell,
-        err_state: &mut Option<anyhow::Error>,
-        new_err: anyhow::Error,
+        err_state: &mut ErrorsDuringDrain,
+        new_err: impl Into<ErrorToHandle>,
     ) {
-        if err_state.is_some() {
-            // Already encountered one error.
-            log::warn!("{:?}", new_err);
-        } else if !self.active.is_empty() {
-            crate::display_error(&new_err, shell);
-            drop(shell.warn("build failed, waiting for other jobs to finish..."));
-            *err_state = Some(anyhow::format_err!("build failed"));
+        let new_err = new_err.into();
+        if new_err.print_always || err_state.count == 0 {
+            crate::display_error(&new_err.error, shell);
+            if err_state.count == 0 && !self.active.is_empty() {
+                drop(shell.warn("build failed, waiting for other jobs to finish..."));
+            }
+            err_state.count += 1;
         } else {
-            *err_state = Some(new_err);
+            log::warn!("{:?}", new_err.error);
         }
     }
 
@@ -973,7 +941,7 @@ impl<'cfg> DrainState<'cfg> {
     // this as often as we spin on the events receiver (at least every 500ms or
     // so).
     fn tick_progress(&mut self) {
-        // Record some timing information if `-Ztimings` is enabled, and
+        // Record some timing information if `--timings` is enabled, and
         // this'll end up being a noop if we're not recording this
         // information.
         self.timings.mark_concurrency(
@@ -998,20 +966,30 @@ impl<'cfg> DrainState<'cfg> {
 
     fn name_for_progress(&self, unit: &Unit) -> String {
         let pkg_name = unit.pkg.name();
+        let target_name = unit.target.name();
         match unit.mode {
             CompileMode::Doc { .. } => format!("{}(doc)", pkg_name),
             CompileMode::RunCustomBuild => format!("{}(build)", pkg_name),
-            _ => {
-                let annotation = match unit.target.kind() {
-                    TargetKind::Lib(_) => return pkg_name.to_string(),
-                    TargetKind::CustomBuild => return format!("{}(build.rs)", pkg_name),
-                    TargetKind::Bin => "bin",
-                    TargetKind::Test => "test",
-                    TargetKind::Bench => "bench",
-                    TargetKind::ExampleBin | TargetKind::ExampleLib(_) => "example",
-                };
-                format!("{}({})", unit.target.name(), annotation)
-            }
+            CompileMode::Test | CompileMode::Check { test: true } => match unit.target.kind() {
+                TargetKind::Lib(_) => format!("{}(test)", target_name),
+                TargetKind::CustomBuild => panic!("cannot test build script"),
+                TargetKind::Bin => format!("{}(bin test)", target_name),
+                TargetKind::Test => format!("{}(test)", target_name),
+                TargetKind::Bench => format!("{}(bench)", target_name),
+                TargetKind::ExampleBin | TargetKind::ExampleLib(_) => {
+                    format!("{}(example test)", target_name)
+                }
+            },
+            _ => match unit.target.kind() {
+                TargetKind::Lib(_) => pkg_name.to_string(),
+                TargetKind::CustomBuild => format!("{}(build.rs)", pkg_name),
+                TargetKind::Bin => format!("{}(bin)", target_name),
+                TargetKind::Test => format!("{}(test)", target_name),
+                TargetKind::Bench => format!("{}(bench)", target_name),
+                TargetKind::ExampleBin | TargetKind::ExampleLib(_) => {
+                    format!("{}(example)", target_name)
+                }
+            },
         }
     }
 
@@ -1023,7 +1001,7 @@ impl<'cfg> DrainState<'cfg> {
         let id = JobId(self.next_id);
         self.next_id = self.next_id.checked_add(1).unwrap();
 
-        info!("start {}: {:?}", id, unit);
+        debug!("start {}: {:?}", id, unit);
 
         assert!(self.active.insert(id, unit.clone()).is_none());
 
@@ -1271,5 +1249,15 @@ feature resolver. Try updating to diesel 1.4.8 to fix this error.
 ",
         )?;
         Ok(())
+    }
+}
+
+impl ErrorsDuringDrain {
+    fn to_error(&self) -> Option<anyhow::Error> {
+        match self.count {
+            0 => None,
+            1 => Some(format_err!("1 job failed")),
+            n => Some(format_err!("{} jobs failed", n)),
+        }
     }
 }

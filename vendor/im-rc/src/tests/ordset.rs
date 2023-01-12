@@ -6,15 +6,13 @@ use std::fmt::{Debug, Error, Formatter, Write};
 use crate::OrdSet;
 
 use proptest::proptest;
-use proptest_derive::Arbitrary;
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug)]
 enum Action<A> {
     Insert(A),
     Remove(A),
 }
 
-#[derive(Arbitrary)]
 struct Actions<A>(Vec<Action<A>>)
 where
     A: Ord + Clone;
@@ -49,7 +47,7 @@ where
     }
 }
 
-proptest! {
+/*proptest! {
     #[test]
     fn comprehensive(actions: Actions<u8>) {
         let mut set = OrdSet::new();
@@ -82,4 +80,4 @@ proptest! {
             assert!(nat.iter().eq(set.iter()));
         }
     }
-}
+}*/
