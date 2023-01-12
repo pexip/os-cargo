@@ -1,0 +1,19 @@
+Description: Skip using loop0 if it doesn't exist (apparently it doesn't on Debian CI)
+Author: Peter Michael Green <plugwash@debian.org>
+
+Index: tar/tests/all.rs
+===================================================================
+--- tar.orig/tests/all.rs
++++ tar/tests/all.rs
+@@ -1345,7 +1345,10 @@ fn tar_directory_containing_special_file
+     // unfortunately, block device file cannot be created by non-root users
+     // as a substitute, just test the file that exists on most Unix systems
+     t!(env::set_current_dir("/dev/"));
+-    t!(ar.append_path("loop0"));
++    // debian CI apprently doesn't have loop0, skip testing it if it doesn't exist.
++    if std::path::Path::new("loop0").exists() {
++        t!(ar.append_path("loop0"));
++    }
+     // CI systems seem to have issues with creating a chr device
+     t!(ar.append_path("null"));
+     t!(ar.finish());

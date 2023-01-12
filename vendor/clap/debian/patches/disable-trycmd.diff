@@ -1,0 +1,14 @@
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -425,9 +425,0 @@
+-[dev-dependencies.trycmd]
+-version = "0.13"
+-features = [
+-    "color-auto",
+-    "diff",
+-    "examples",
+-]
+-default-features = false
+-

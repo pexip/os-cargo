@@ -14,18 +14,6 @@ impl StripPrefixExt for str {
     }
 }
 
-#[cfg(no_from_ne_bytes)] // rustc <1.32
-pub(crate) trait FromNeBytes {
-    fn from_ne_bytes(bytes: [u8; 8]) -> Self;
-}
-
-#[cfg(no_from_ne_bytes)]
-impl FromNeBytes for u64 {
-    fn from_ne_bytes(bytes: [u8; 8]) -> Self {
-        unsafe { std::mem::transmute(bytes) }
-    }
-}
-
 pub(crate) use crate::alloc::vec::Vec;
 
 #[cfg(no_alloc_crate)] // rustc <1.36
@@ -34,7 +22,9 @@ pub(crate) mod alloc {
 
     pub mod alloc {
         use std::mem;
+        use std::process;
 
+        #[derive(Copy, Clone)]
         pub struct Layout {
             size: usize,
         }
@@ -58,6 +48,13 @@ pub(crate) mod alloc {
         pub unsafe fn dealloc(ptr: *mut u8, layout: Layout) {
             let len_u16 = (layout.size + 1) / 2;
             unsafe { Vec::from_raw_parts(ptr as *mut u16, 0, len_u16) };
+        }
+
+        pub fn handle_alloc_error(_layout: Layout) -> ! {
+            // This is unreachable because the alloc implementation above never
+            // returns null; Vec::reserve_exact would already have called std's
+            // internal handle_alloc_error.
+            process::abort();
         }
     }
 }

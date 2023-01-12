@@ -12,16 +12,23 @@
 [package]
 edition = "2018"
 name = "curl"
-version = "0.4.39"
+version = "0.4.44"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 autotests = true
 description = "Rust bindings to libcurl for making HTTP requests"
 homepage = "https://github.com/alexcrichton/curl-rust"
 documentation = "https://docs.rs/curl"
 readme = "README.md"
-categories = ["api-bindings", "web-programming::http-client"]
+categories = [
+    "api-bindings",
+    "web-programming::http-client",
+]
 license = "MIT"
 repository = "https://github.com/alexcrichton/curl-rust"
+
+[[example]]
+name = "https"
+path = "examples/https.rs"
 
 [[example]]
 name = "ssl_proxy"
@@ -36,13 +43,22 @@ required-features = ["ssl"]
 [[example]]
 name = "aws_sigv4"
 path = "examples/aws_sigv4.rs"
-required-features = ["static-curl", "ssl"]
+required-features = [
+    "static-curl",
+    "ssl",
+]
+
+[[example]]
+name = "multi-dl"
+path = "examples/multi-dl.rs"
+required-features = ["ssl"]
 
 [[test]]
 name = "atexit"
 harness = false
+
 [dependencies.curl-sys]
-version = "0.4.49"
+version = "0.4.56"
 default-features = false
 
 [dependencies.libc]
@@ -50,6 +66,7 @@ version = "0.2.42"
 
 [dependencies.socket2]
 version = "0.4.0"
+
 [dev-dependencies.anyhow]
 version = "1.0.31"
 
@@ -63,9 +80,14 @@ version = "2.0.3"
 default = ["ssl"]
 force-system-lib-on-osx = ["curl-sys/force-system-lib-on-osx"]
 http2 = ["curl-sys/http2"]
-ssl = ["openssl-sys", "openssl-probe", "curl-sys/ssl"]
+ssl = [
+    "openssl-sys",
+    "openssl-probe",
+    "curl-sys/ssl",
+]
 static-curl = ["curl-sys/static-curl"]
 static-ssl = ["curl-sys/static-ssl"]
+
 [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-probe]
 version = "0.1.2"
 optional = true
@@ -73,12 +95,17 @@ optional = true
 [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
 version = "0.9.43"
 optional = true
+
 [target."cfg(target_env = \"msvc\")".dependencies.schannel]
 version = "0.1.13"
 
 [target."cfg(target_env = \"msvc\")".dependencies.winapi]
 version = "0.3"
-features = ["libloaderapi", "wincrypt"]
+features = [
+    "libloaderapi",
+    "wincrypt",
+]
+
 [badges.appveyor]
 repository = "alexcrichton/curl-rust"
 

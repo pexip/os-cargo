@@ -39,21 +39,20 @@
 //!   show them to the user.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command, ExitStatus};
-use std::str;
+use std::process::{self, ExitStatus};
+use std::{env, fs, str};
 
-use anyhow::{bail, Context, Error};
+use anyhow::{bail, Context as _};
 use cargo_util::{exit_status_to_string, is_simple_exit_code, paths, ProcessBuilder};
 use log::{debug, trace, warn};
 use rustfix::diagnostics::Diagnostic;
 use rustfix::{self, CodeFix};
 use semver::Version;
 
-use crate::core::compiler::{CompileKind, RustcTargetData, TargetInfo};
-use crate::core::resolver::features::{DiffMap, FeatureOpts, FeatureResolver};
+use crate::core::compiler::RustcTargetData;
+use crate::core::resolver::features::{DiffMap, FeatureOpts, FeatureResolver, FeaturesFor};
 use crate::core::resolver::{HasDevUnits, Resolve, ResolveBehavior};
 use crate::core::{Edition, MaybePackage, PackageId, Workspace};
 use crate::ops::resolve::WorkspaceResolve;
@@ -68,7 +67,6 @@ const FIX_ENV: &str = "__CARGO_FIX_PLZ";
 const BROKEN_CODE_ENV: &str = "__CARGO_FIX_BROKEN_CODE";
 const EDITION_ENV: &str = "__CARGO_FIX_EDITION";
 const IDIOMS_ENV: &str = "__CARGO_FIX_IDIOMS";
-const SUPPORTS_FORCE_WARN: &str = "__CARGO_SUPPORTS_FORCE_WARN";
 
 pub struct FixOptions {
     pub edition: bool,
@@ -123,17 +121,9 @@ pub fn fix(ws: &Workspace<'_>, opts: &mut FixOptions) -> CargoResult<()> {
 
     let rustc = ws.config().load_global_rustc(Some(ws))?;
     wrapper.arg(&rustc.path);
-
-    // Remove this once 1.56 is stabilized.
-    let target_info = TargetInfo::new(
-        ws.config(),
-        &opts.compile_opts.build_config.requested_kinds,
-        &rustc,
-        CompileKind::Host,
-    )?;
-    if target_info.supports_force_warn {
-        wrapper.env(SUPPORTS_FORCE_WARN, "1");
-    }
+    // This is calling rustc in cargo fix-proxy-mode, so it also need to retry.
+    // The argfile handling are located at `FixArgs::from_args`.
+    wrapper.retry_with_argfile(true);
 
     // primary crates are compiled using a cargo subprocess to do extra work of applying fixes and
     // repeating build until there are no more changes to be applied
@@ -296,9 +286,9 @@ fn check_resolver_change(ws: &Workspace<'_>, opts: &FixOptions) -> CargoResult<(
          the given features will no longer be used:\n"
     );
     let show_diffs = |differences: DiffMap| {
-        for ((pkg_id, for_host), removed) in differences {
+        for ((pkg_id, features_for), removed) in differences {
             drop_eprint!(config, "  {}", pkg_id);
-            if for_host {
+            if let FeaturesFor::HostDep = features_for {
                 drop_eprint!(config, " (as host dependency)");
             }
             drop_eprint!(config, " removed features: ");
@@ -364,10 +354,17 @@ pub fn fix_maybe_exec_rustc(config: &Config) -> CargoResult<bool> {
         .map(PathBuf::from)
         .ok();
     let mut rustc = ProcessBuilder::new(&args.rustc).wrapped(workspace_rustc.as_ref());
+    rustc.retry_with_argfile(true);
     rustc.env_remove(FIX_ENV);
+    args.apply(&mut rustc);
 
     trace!("start rustfixing {:?}", args.file);
-    let fixes = rustfix_crate(&lock_addr, &rustc, &args.file, &args, config)?;
+    let json_error_rustc = {
+        let mut cmd = rustc.clone();
+        cmd.arg("--error-format=json");
+        cmd
+    };
+    let fixes = rustfix_crate(&lock_addr, &json_error_rustc, &args.file, &args, config)?;
 
     // Ok now we have our final goal of testing out the changes that we applied.
     // If these changes went awry and actually started to cause the crate to
@@ -378,11 +375,8 @@ pub fn fix_maybe_exec_rustc(config: &Config) -> CargoResult<bool> {
     // new rustc, and otherwise we capture the output to hide it in the scenario
     // that we have to back it all out.
     if !fixes.files.is_empty() {
-        let mut cmd = rustc.build_command();
-        args.apply(&mut cmd);
-        cmd.arg("--error-format=json");
-        debug!("calling rustc for final verification: {:?}", cmd);
-        let output = cmd.output().context("failed to spawn rustc")?;
+        debug!("calling rustc for final verification: {json_error_rustc}");
+        let output = json_error_rustc.output()?;
 
         if output.status.success() {
             for (path, file) in fixes.files.iter() {
@@ -411,7 +405,18 @@ pub fn fix_maybe_exec_rustc(config: &Config) -> CargoResult<bool> {
                     paths::write(path, &file.original_code)?;
                 }
             }
-            log_failed_fix(&output.stderr, output.status)?;
+
+            let krate = {
+                let mut iter = json_error_rustc.get_args();
+                let mut krate = None;
+                while let Some(arg) = iter.next() {
+                    if arg == "--crate-name" {
+                        krate = iter.next().and_then(|s| s.to_owned().into_string().ok());
+                    }
+                }
+                krate
+            };
+            log_failed_fix(krate, &output.stderr, output.status)?;
         }
     }
 
@@ -419,15 +424,13 @@ pub fn fix_maybe_exec_rustc(config: &Config) -> CargoResult<bool> {
     // - If the fix failed, show the original warnings and suggestions.
     // - If `--broken-code`, show the error messages.
     // - If the fix succeeded, show any remaining warnings.
-    let mut cmd = rustc.build_command();
-    args.apply(&mut cmd);
     for arg in args.format_args {
         // Add any json/error format arguments that Cargo wants. This allows
         // things like colored output to work correctly.
-        cmd.arg(arg);
+        rustc.arg(arg);
     }
-    debug!("calling rustc to display remaining diagnostics: {:?}", cmd);
-    exit_with(cmd.status().context("failed to spawn rustc")?);
+    debug!("calling rustc to display remaining diagnostics: {rustc}");
+    exit_with(rustc.status()?);
 }
 
 #[derive(Default)]
@@ -451,7 +454,7 @@ fn rustfix_crate(
     filename: &Path,
     args: &FixArgs,
     config: &Config,
-) -> Result<FixedCrate, Error> {
+) -> CargoResult<FixedCrate> {
     if !args.can_run_rustfix(config)? {
         // This fix should not be run. Skipping...
         return Ok(FixedCrate::default());
@@ -514,7 +517,7 @@ fn rustfix_crate(
             // We'll generate new errors below.
             file.errors_applying_fixes.clear();
         }
-        rustfix_and_fix(&mut fixes, rustc, filename, args)?;
+        rustfix_and_fix(&mut fixes, rustc, filename, config)?;
         let mut progress_yet_to_be_made = false;
         for (path, file) in fixes.files.iter_mut() {
             if file.errors_applying_fixes.is_empty() {
@@ -555,25 +558,14 @@ fn rustfix_and_fix(
     fixes: &mut FixedCrate,
     rustc: &ProcessBuilder,
     filename: &Path,
-    args: &FixArgs,
-) -> Result<(), Error> {
+    config: &Config,
+) -> CargoResult<()> {
     // If not empty, filter by these lints.
     // TODO: implement a way to specify this.
     let only = HashSet::new();
 
-    let mut cmd = rustc.build_command();
-    cmd.arg("--error-format=json");
-    args.apply(&mut cmd);
-    debug!(
-        "calling rustc to collect suggestions and validate previous fixes: {:?}",
-        cmd
-    );
-    let output = cmd.output().with_context(|| {
-        format!(
-            "failed to execute `{}`",
-            rustc.get_program().to_string_lossy()
-        )
-    })?;
+    debug!("calling rustc to collect suggestions and validate previous fixes: {rustc}");
+    let output = rustc.output()?;
 
     // If rustc didn't succeed for whatever reasons then we're very likely to be
     // looking at otherwise broken code. Let's not make things accidentally
@@ -609,6 +601,8 @@ fn rustfix_and_fix(
     // Collect suggestions by file so we can apply them one at a time later.
     let mut file_map = HashMap::new();
     let mut num_suggestion = 0;
+    // It's safe since we won't read any content under home dir.
+    let home_path = config.home().as_path_unlocked();
     for suggestion in suggestions {
         trace!("suggestion");
         // Make sure we've got a file associated with this suggestion and all
@@ -626,6 +620,11 @@ fn rustfix_and_fix(
             trace!("rejecting as it has no solutions {:?}", suggestion);
             continue;
         };
+
+        // Do not write into registry cache. See rust-lang/cargo#9857.
+        if Path::new(&file_name).starts_with(home_path) {
+            continue;
+        }
 
         if !file_names.clone().all(|f| f == &file_name) {
             trace!("rejecting as it changes multiple files: {:?}", suggestion);
@@ -707,7 +706,7 @@ fn exit_with(status: ExitStatus) -> ! {
     process::exit(status.code().unwrap_or(3));
 }
 
-fn log_failed_fix(stderr: &[u8], status: ExitStatus) -> Result<(), Error> {
+fn log_failed_fix(krate: Option<String>, stderr: &[u8], status: ExitStatus) -> CargoResult<()> {
     let stderr = str::from_utf8(stderr).context("failed to parse rustc stderr as utf-8")?;
 
     let diagnostics = stderr
@@ -729,19 +728,6 @@ fn log_failed_fix(stderr: &[u8], status: ExitStatus) -> Result<(), Error> {
             .filter(|x| !x.starts_with('{'))
             .map(|x| x.to_string()),
     );
-    let mut krate = None;
-    let mut prev_dash_dash_krate_name = false;
-    for arg in env::args() {
-        if prev_dash_dash_krate_name {
-            krate = Some(arg.clone());
-        }
-
-        if arg == "--crate-name" {
-            prev_dash_dash_krate_name = true;
-        } else {
-            prev_dash_dash_krate_name = false;
-        }
-    }
 
     let files = files.into_iter().collect();
     let abnormal_exit = if status.code().map_or(false, is_simple_exit_code) {
@@ -788,36 +774,66 @@ struct FixArgs {
 }
 
 impl FixArgs {
-    fn get() -> Result<FixArgs, Error> {
-        let rustc = env::args_os()
+    fn get() -> CargoResult<FixArgs> {
+        Self::from_args(env::args_os())
+    }
+
+    // This is a separate function so that we can use it in tests.
+    fn from_args(argv: impl IntoIterator<Item = OsString>) -> CargoResult<Self> {
+        let mut argv = argv.into_iter();
+        let mut rustc = argv
             .nth(1)
             .map(PathBuf::from)
-            .ok_or_else(|| anyhow::anyhow!("expected rustc as first argument"))?;
+            .ok_or_else(|| anyhow::anyhow!("expected rustc or `@path` as first argument"))?;
         let mut file = None;
         let mut enabled_edition = None;
         let mut other = Vec::new();
         let mut format_args = Vec::new();
 
-        for arg in env::args_os().skip(2) {
+        let mut handle_arg = |arg: OsString| -> CargoResult<()> {
             let path = PathBuf::from(arg);
             if path.extension().and_then(|s| s.to_str()) == Some("rs") && path.exists() {
                 file = Some(path);
-                continue;
+                return Ok(());
             }
             if let Some(s) = path.to_str() {
                 if let Some(edition) = s.strip_prefix("--edition=") {
                     enabled_edition = Some(edition.parse()?);
-                    continue;
+                    return Ok(());
                 }
                 if s.starts_with("--error-format=") || s.starts_with("--json=") {
                     // Cargo may add error-format in some cases, but `cargo
                     // fix` wants to add its own.
                     format_args.push(s.to_string());
-                    continue;
+                    return Ok(());
                 }
             }
             other.push(path.into());
+            Ok(())
+        };
+
+        if let Some(argfile_path) = rustc.to_str().unwrap_or_default().strip_prefix("@") {
+            // Because cargo in fix-proxy-mode might hit the command line size limit,
+            // cargo fix need handle `@path` argfile for this special case.
+            if argv.next().is_some() {
+                bail!("argfile `@path` cannot be combined with other arguments");
+            }
+            let contents = fs::read_to_string(argfile_path)
+                .with_context(|| format!("failed to read argfile at `{argfile_path}`"))?;
+            let mut iter = contents.lines().map(OsString::from);
+            rustc = iter
+                .next()
+                .map(PathBuf::from)
+                .ok_or_else(|| anyhow::anyhow!("expected rustc as first argument"))?;
+            for arg in iter {
+                handle_arg(arg)?;
+            }
+        } else {
+            for arg in argv {
+                handle_arg(arg)?;
+            }
         }
+
         let file = file.ok_or_else(|| anyhow::anyhow!("could not find .rs file in rustc args"))?;
         let idioms = env::var(IDIOMS_ENV).is_ok();
 
@@ -838,10 +854,10 @@ impl FixArgs {
         })
     }
 
-    fn apply(&self, cmd: &mut Command) {
+    fn apply(&self, cmd: &mut ProcessBuilder) {
         cmd.arg(&self.file);
         cmd.args(&self.other);
-        if self.prepare_for_edition.is_some() && env::var_os(SUPPORTS_FORCE_WARN).is_some() {
+        if self.prepare_for_edition.is_some() {
             // When migrating an edition, we don't want to fix other lints as
             // they can sometimes add suggestions that fail to apply, causing
             // the entire migration to fail. But those lints aren't needed to
@@ -860,12 +876,8 @@ impl FixArgs {
 
         if let Some(edition) = self.prepare_for_edition {
             if edition.supports_compat_lint() {
-                if env::var_os(SUPPORTS_FORCE_WARN).is_some() {
-                    cmd.arg("--force-warn")
-                        .arg(format!("rust-{}-compatibility", edition));
-                } else {
-                    cmd.arg("-W").arg(format!("rust-{}-compatibility", edition));
-                }
+                cmd.arg("--force-warn")
+                    .arg(format!("rust-{}-compatibility", edition));
             }
         }
     }
@@ -931,5 +943,48 @@ impl FixArgs {
             .post()
         }
         .and(Ok(true))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FixArgs;
+    use std::ffi::OsString;
+    use std::io::Write as _;
+    use std::path::PathBuf;
+
+    #[test]
+    fn get_fix_args_from_argfile() {
+        let mut temp = tempfile::Builder::new().tempfile().unwrap();
+        let main_rs = tempfile::Builder::new().suffix(".rs").tempfile().unwrap();
+
+        let content = format!("/path/to/rustc\n{}\nfoobar\n", main_rs.path().display());
+        temp.write_all(content.as_bytes()).unwrap();
+
+        let argfile = format!("@{}", temp.path().display());
+        let args = ["cargo", &argfile];
+        let fix_args = FixArgs::from_args(args.map(|x| x.into())).unwrap();
+        assert_eq!(fix_args.rustc, PathBuf::from("/path/to/rustc"));
+        assert_eq!(fix_args.file, main_rs.path());
+        assert_eq!(fix_args.other, vec![OsString::from("foobar")]);
+    }
+
+    #[test]
+    fn get_fix_args_from_argfile_with_extra_arg() {
+        let mut temp = tempfile::Builder::new().tempfile().unwrap();
+        let main_rs = tempfile::Builder::new().suffix(".rs").tempfile().unwrap();
+
+        let content = format!("/path/to/rustc\n{}\nfoobar\n", main_rs.path().display());
+        temp.write_all(content.as_bytes()).unwrap();
+
+        let argfile = format!("@{}", temp.path().display());
+        let args = ["cargo", &argfile, "boo!"];
+        match FixArgs::from_args(args.map(|x| x.into())) {
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "argfile `@path` cannot be combined with other arguments"
+            ),
+            Ok(_) => panic!("should fail"),
+        }
     }
 }

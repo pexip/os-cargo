@@ -70,6 +70,9 @@ pub(crate) fn update_slow(prev: u32, buf: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod test {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
+
     #[test]
     fn slow() {
         assert_eq!(super::update_slow(0, b""), 0);

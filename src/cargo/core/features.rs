@@ -387,13 +387,13 @@ features! {
     (unstable, public_dependency, "", "reference/unstable.html#public-dependency"),
 
     // Allow to specify profiles other than 'dev', 'release', 'test', etc.
-    (unstable, named_profiles, "", "reference/unstable.html#custom-named-profiles"),
+    (stable, named_profiles, "1.57", "reference/profiles.html#custom-profiles"),
 
     // Opt-in new-resolver behavior.
     (stable, resolver, "1.51", "reference/resolver.html#resolver-versions"),
 
     // Allow to specify whether binaries should be stripped.
-    (unstable, strip, "", "reference/unstable.html#profile-strip-option"),
+    (stable, strip, "1.58", "reference/profiles.html#strip-option"),
 
     // Specifying a minimal 'rust-version' attribute for crates
     (stable, rust_version, "1.56", "reference/manifest.html#the-rust-version-field"),
@@ -409,6 +409,12 @@ features! {
 
     // Allow specifying different binary name apart from the crate name
     (unstable, different_binary_name, "", "reference/unstable.html#different-binary-name"),
+
+    // Allow specifying rustflags directly in a profile
+    (unstable, profile_rustflags, "", "reference/unstable.html#profile-rustflags-option"),
+
+    // Allow specifying rustflags directly in a profile
+    (unstable, workspace_inheritance, "", "reference/unstable.html#workspace-inheritance"),
 }
 
 pub struct Feature {
@@ -622,39 +628,40 @@ macro_rules! unstable_cli_options {
 unstable_cli_options!(
     // Permanently unstable features:
     allow_features: Option<BTreeSet<String>> = ("Allow *only* the listed unstable features"),
-    print_im_a_teapot: bool= (HIDDEN),
+    print_im_a_teapot: bool = (HIDDEN),
 
     // All other unstable features.
     // Please keep this list lexiographically ordered.
     advanced_env: bool = (HIDDEN),
     avoid_dev_deps: bool = ("Avoid installing dev-dependencies if possible"),
     binary_dep_depinfo: bool = ("Track changes to dependency artifacts"),
+    bindeps: bool = ("Allow Cargo packages to depend on bin, cdylib, and staticlib crates, and use the artifacts built by those crates"),
     #[serde(deserialize_with = "deserialize_build_std")]
     build_std: Option<Vec<String>>  = ("Enable Cargo to compile the standard library itself as part of a crate graph compilation"),
     build_std_features: Option<Vec<String>>  = ("Configure features enabled for the standard library itself when building the standard library"),
     config_include: bool = ("Enable the `include` key in config files"),
     credential_process: bool = ("Add a config setting to fetch registry authentication tokens by calling an external process"),
+    check_cfg: Option<(/*features:*/ bool, /*well_known_names:*/ bool, /*well_known_values:*/ bool)> = ("Specify scope of compile-time checking of `cfg` names/values"),
     doctest_in_workspace: bool = ("Compile doctests with paths relative to the workspace root"),
     doctest_xcompile: bool = ("Compile and run doctests for non-host target using runner config"),
     dual_proc_macros: bool = ("Build proc-macros for both the host and the target"),
-    future_incompat_report: bool = ("Enable creation of a future-incompat report for all dependencies"),
     features: Option<Vec<String>>  = (HIDDEN),
     jobserver_per_rustc: bool = (HIDDEN),
     minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
     multitarget: bool = ("Allow passing multiple `--target` flags to the cargo subcommand selected"),
-    named_profiles: bool = ("Allow defining custom profiles"),
-    namespaced_features: bool = ("Allow features with `dep:` prefix"),
     no_index_update: bool = ("Do not update the registry index even if the cache is outdated"),
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
     host_config: bool = ("Enable the [host] section in the .cargo/config.toml file"),
+    http_registry: bool = ("Support HTTP-based crate registries"),
     target_applies_to_host: bool = ("Enable the `target-applies-to-host` key in the .cargo/config.toml file"),
     rustdoc_map: bool = ("Allow passing external documentation mappings to rustdoc"),
     separate_nightlies: bool = (HIDDEN),
     terminal_width: Option<Option<usize>>  = ("Provide a terminal width to rustc for error truncation"),
-    timings: Option<Vec<String>>  = ("Display concurrency information"),
     unstable_options: bool = ("Allow the usage of unstable options"),
-    weak_dep_features: bool = ("Allow `dep_name?/feature` feature syntax"),
+    // TODO(wcrichto): move scrape example configuration into Cargo.toml before stabilization
+    // See: https://github.com/rust-lang/cargo/pull/9525#discussion_r728470927
+    rustdoc_scrape_examples: Option<String> = ("Allow rustdoc to scrape examples from reverse-dependencies for documentation"),
     skip_rustdoc_fingerprint: bool = (HIDDEN),
 );
 
@@ -698,6 +705,19 @@ const STABILIZED_EXTRA_LINK_ARG: &str = "Additional linker arguments are now \
 const STABILIZED_CONFIGURABLE_ENV: &str = "The [env] section is now always enabled.";
 
 const STABILIZED_PATCH_IN_CONFIG: &str = "The patch-in-config feature is now always enabled.";
+
+const STABILIZED_NAMED_PROFILES: &str = "The named-profiles feature is now always enabled.\n\
+    See https://doc.rust-lang.org/nightly/cargo/reference/profiles.html#custom-profiles \
+    for more information";
+
+const STABILIZED_FUTURE_INCOMPAT_REPORT: &str =
+    "The future-incompat-report feature is now always enabled.";
+
+const STABILIZED_WEAK_DEP_FEATURES: &str = "Weak dependency features are now always available.";
+
+const STABILISED_NAMESPACED_FEATURES: &str = "Namespaced features are now always available.";
+
+const STABILIZED_TIMINGS: &str = "The -Ztimings option has been stabilized as --timings.";
 
 fn deserialize_build_std<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
@@ -755,18 +775,32 @@ impl CliUnstable {
             }
         }
 
-        fn parse_timings(value: Option<&str>) -> Vec<String> {
-            match value {
-                None => vec!["html".to_string(), "info".to_string()],
-                Some(v) => v.split(',').map(|s| s.to_string()).collect(),
-            }
-        }
-
         fn parse_features(value: Option<&str>) -> Vec<String> {
             match value {
                 None => Vec::new(),
                 Some("") => Vec::new(),
                 Some(v) => v.split(',').map(|s| s.to_string()).collect(),
+            }
+        }
+
+        fn parse_check_cfg(value: Option<&str>) -> CargoResult<Option<(bool, bool, bool)>> {
+            if let Some(value) = value {
+                let mut features = false;
+                let mut well_known_names = false;
+                let mut well_known_values = false;
+
+                for e in value.split(',') {
+                    match e {
+                        "features" => features = true,
+                        "names" => well_known_names = true,
+                        "values" => well_known_values = true,
+                        _ => bail!("flag -Zcheck-cfg only takes `features`, `names` or `values` as valid inputs"),
+                    }
+                }
+
+                Ok(Some((features, well_known_names, well_known_values)))
+            } else {
+                Ok(None)
             }
         }
 
@@ -827,16 +861,17 @@ impl CliUnstable {
             "minimal-versions" => self.minimal_versions = parse_empty(k, v)?,
             "advanced-env" => self.advanced_env = parse_empty(k, v)?,
             "config-include" => self.config_include = parse_empty(k, v)?,
+            "check-cfg" => self.check_cfg = parse_check_cfg(v)?,
             "dual-proc-macros" => self.dual_proc_macros = parse_empty(k, v)?,
             // can also be set in .cargo/config or with and ENV
             "mtime-on-use" => self.mtime_on_use = parse_empty(k, v)?,
-            "named-profiles" => self.named_profiles = parse_empty(k, v)?,
+            "named-profiles" => stabilized_warn(k, "1.57", STABILIZED_NAMED_PROFILES),
             "binary-dep-depinfo" => self.binary_dep_depinfo = parse_empty(k, v)?,
+            "bindeps" => self.bindeps = parse_empty(k, v)?,
             "build-std" => {
                 self.build_std = Some(crate::core::compiler::standard_lib::parse_unstable_flag(v))
             }
             "build-std-features" => self.build_std_features = Some(parse_features(v)),
-            "timings" => self.timings = Some(parse_timings(v)),
             "doctest-xcompile" => self.doctest_xcompile = parse_empty(k, v)?,
             "doctest-in-workspace" => self.doctest_in_workspace = parse_empty(k, v)?,
             "panic-abort-tests" => self.panic_abort_tests = parse_empty(k, v)?,
@@ -865,9 +900,19 @@ impl CliUnstable {
             "multitarget" => self.multitarget = parse_empty(k, v)?,
             "rustdoc-map" => self.rustdoc_map = parse_empty(k, v)?,
             "terminal-width" => self.terminal_width = Some(parse_usize_opt(v)?),
-            "namespaced-features" => self.namespaced_features = parse_empty(k, v)?,
-            "weak-dep-features" => self.weak_dep_features = parse_empty(k, v)?,
+            "http-registry" => self.http_registry = parse_empty(k, v)?,
+            "namespaced-features" => stabilized_warn(k, "1.60", STABILISED_NAMESPACED_FEATURES),
+            "weak-dep-features" => stabilized_warn(k, "1.60", STABILIZED_WEAK_DEP_FEATURES),
             "credential-process" => self.credential_process = parse_empty(k, v)?,
+            "rustdoc-scrape-examples" => {
+                if let Some(s) = v {
+                    self.rustdoc_scrape_examples = Some(s.to_string())
+                } else {
+                    bail!(
+                        r#"-Z rustdoc-scrape-examples must take "all" or "examples" as an argument"#
+                    )
+                }
+            }
             "skip-rustdoc-fingerprint" => self.skip_rustdoc_fingerprint = parse_empty(k, v)?,
             "compile-progress" => stabilized_warn(k, "1.30", STABILIZED_COMPILE_PROGRESS),
             "offline" => stabilized_err(k, "1.36", STABILIZED_OFFLINE)?,
@@ -879,7 +924,10 @@ impl CliUnstable {
             "extra-link-arg" => stabilized_warn(k, "1.56", STABILIZED_EXTRA_LINK_ARG),
             "configurable-env" => stabilized_warn(k, "1.56", STABILIZED_CONFIGURABLE_ENV),
             "patch-in-config" => stabilized_warn(k, "1.56", STABILIZED_PATCH_IN_CONFIG),
-            "future-incompat-report" => self.future_incompat_report = parse_empty(k, v)?,
+            "future-incompat-report" => {
+                stabilized_warn(k, "1.59.0", STABILIZED_FUTURE_INCOMPAT_REPORT)
+            }
+            "timings" => stabilized_warn(k, "1.60", STABILIZED_TIMINGS),
             _ => bail!("unknown `-Z` flag specified: {}", k),
         }
 
@@ -969,7 +1017,6 @@ pub fn channel() -> String {
         }
     }
     crate::version()
-        .cfg_info
-        .map(|c| c.release_channel)
+        .release_channel
         .unwrap_or_else(|| String::from("dev"))
 }

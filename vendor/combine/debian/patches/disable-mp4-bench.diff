@@ -1,0 +1,16 @@
+Index: combine/Cargo.toml
+===================================================================
+--- combine.orig/Cargo.toml
++++ combine/Cargo.toml
+@@ -82,11 +82,6 @@ name = "http"
+ harness = false
+ required-features = ["std"]
+ 
+-[[bench]]
+-name = "mp4"
+-harness = false
+-required-features = ["mp4"]
+-
+ [dependencies.bytes]
+ version = "1"
+ optional = true

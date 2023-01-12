@@ -96,8 +96,15 @@ def prepare_debian(cargo_home, registry, cratespec, host_gnu_type, ldflags, link
     for f in ldflags:
         rustflags.extend(["-C", "link-arg=%s" % f])
     if link_from_system:
-        rustflags.extend(["--remap-path-prefix", "%s=%s/%s" %
-            (sourcepath(), SYSTEM_REGISTRY, cratespec.replace("_", "-"))])
+        rustflags.extend([
+            # Note that this order is important! Rust evaluates these options in
+            # priority of reverse order, so if the second option were in front,
+            # it would never be used, because any paths in registry_path are
+            # also in sourcepath().
+            "--remap-path-prefix", "%s=%s/%s" %
+                (sourcepath(), SYSTEM_REGISTRY, cratespec.replace("_", "-")),
+            "--remap-path-prefix", "%s=%s" % (registry_path, SYSTEM_REGISTRY),
+        ])
     rustflags.extend(extra_rustflags.split())
 
     # TODO: we cannot enable this until dh_shlibdeps works correctly; atm we get:

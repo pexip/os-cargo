@@ -1,2 +1,3 @@
 remove-rustc-dep-of-std-etc.patch
 remove-compiler-builtins.patch
+remove-simd-adler32.patch

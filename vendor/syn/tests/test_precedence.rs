@@ -1,9 +1,10 @@
 #![cfg(not(syn_disable_nightly_tests))]
+#![cfg(not(miri))]
 #![recursion_limit = "1024"]
 #![feature(rustc_private)]
 #![allow(
     clippy::explicit_deref_methods,
-    clippy::if_then_panic,
+    clippy::manual_assert,
     clippy::match_wildcard_for_single_variants,
     clippy::too_many_lines
 )]
@@ -23,6 +24,7 @@
 extern crate rustc_ast;
 extern crate rustc_data_structures;
 extern crate rustc_span;
+extern crate thin_vec;
 
 use crate::common::eq::SpanlessEq;
 use crate::common::parse;
@@ -134,16 +136,16 @@ fn test_rustc_precedence() {
                 l_failed
             );
 
-            passed.fetch_add(l_passed, Ordering::SeqCst);
-            let prev_failed = failed.fetch_add(l_failed, Ordering::SeqCst);
+            passed.fetch_add(l_passed, Ordering::Relaxed);
+            let prev_failed = failed.fetch_add(l_failed, Ordering::Relaxed);
 
             if prev_failed + l_failed >= abort_after {
                 process::exit(1);
             }
         });
 
-    let passed = passed.load(Ordering::SeqCst);
-    let failed = failed.load(Ordering::SeqCst);
+    let passed = passed.load(Ordering::Relaxed);
+    let failed = failed.load(Ordering::Relaxed);
 
     errorf!("\n===== Precedence Test Results =====\n");
     errorf!("{} passed | {} failed\n", passed, failed);
@@ -195,7 +197,7 @@ fn librustc_parse_and_rewrite(input: &str) -> Option<P<ast::Expr>> {
 }
 
 /// Wrap every expression which is not already wrapped in parens with parens, to
-/// reveal the precidence of the parsed expressions, and produce a stringified
+/// reveal the precedence of the parsed expressions, and produce a stringified
 /// form of the resulting expression.
 ///
 /// This method operates on librustc objects.
@@ -206,10 +208,10 @@ fn librustc_brackets(mut librustc_expr: P<ast::Expr>) -> Option<P<ast::Expr>> {
     };
     use rustc_ast::mut_visit::{noop_visit_generic_arg, noop_visit_local, MutVisitor};
     use rustc_data_structures::map_in_place::MapInPlace;
-    use rustc_data_structures::thin_vec::ThinVec;
     use rustc_span::DUMMY_SP;
     use std::mem;
     use std::ops::DerefMut;
+    use thin_vec::ThinVec;
 
     struct BracketsVisitor {
         failed: bool,
@@ -242,7 +244,7 @@ fn librustc_brackets(mut librustc_expr: P<ast::Expr>) -> Option<P<ast::Expr>> {
     }
 
     fn noop_visit_expr<T: MutVisitor>(e: &mut Expr, vis: &mut T) {
-        use rustc_ast::mut_visit::{noop_visit_expr, visit_thin_attrs};
+        use rustc_ast::mut_visit::{noop_visit_expr, visit_attrs};
         match &mut e.kind {
             ExprKind::AddrOf(BorrowKind::Raw, ..) => {}
             ExprKind::Struct(expr) => {
@@ -260,7 +262,7 @@ fn librustc_brackets(mut librustc_expr: P<ast::Expr>) -> Option<P<ast::Expr>> {
                 }
                 vis.visit_id(&mut e.id);
                 vis.visit_span(&mut e.span);
-                visit_thin_attrs(&mut e.attrs, vis);
+                visit_attrs(&mut e.attrs, vis);
             }
             _ => noop_visit_expr(e, vis),
         }
@@ -321,15 +323,15 @@ fn librustc_brackets(mut librustc_expr: P<ast::Expr>) -> Option<P<ast::Expr>> {
         // types yet. We'll look into comparing those in the future. For now
         // focus on expressions appearing in other places.
         fn visit_pat(&mut self, pat: &mut P<Pat>) {
-            let _ = pat;
+            _ = pat;
         }
 
         fn visit_ty(&mut self, ty: &mut P<Ty>) {
-            let _ = ty;
+            _ = ty;
         }
 
         fn visit_attribute(&mut self, attr: &mut Attribute) {
-            let _ = attr;
+            _ = attr;
         }
     }
 
@@ -425,7 +427,7 @@ fn syn_brackets(syn_expr: syn::Expr) -> syn::Expr {
 fn collect_exprs(file: syn::File) -> Vec<syn::Expr> {
     use syn::fold::Fold;
     use syn::punctuated::Punctuated;
-    use syn::{token, Expr, ExprTuple};
+    use syn::{token, ConstParam, Expr, ExprTuple, Path};
 
     struct CollectExprs(Vec<Expr>);
     impl Fold for CollectExprs {
@@ -440,6 +442,15 @@ fn collect_exprs(file: syn::File) -> Vec<syn::Expr> {
                 elems: Punctuated::new(),
                 paren_token: token::Paren::default(),
             })
+        }
+
+        fn fold_path(&mut self, path: Path) -> Path {
+            // Skip traversing into const generic path arguments
+            path
+        }
+
+        fn fold_const_param(&mut self, const_param: ConstParam) -> ConstParam {
+            const_param
         }
     }
 

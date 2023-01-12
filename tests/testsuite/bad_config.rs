@@ -196,7 +196,12 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  expected an equals, found eof at line 1 column 2
+  TOML parse error at line 1, column 2
+    |
+  1 | 4
+    |  ^
+  Unexpected end of input
+  Expected `.` or `=`
 ",
         )
         .run();
@@ -442,7 +447,13 @@ Caused by:
   could not parse input as TOML
 
 Caused by:
-  expected a table key, found a newline at line 8 column 27
+  TOML parse error at line 8, column 27
+    |
+  8 |                 native = {
+    |                           ^
+  Unexpected `
+  `
+  Expected key
 ",
         )
         .run();
@@ -773,24 +784,32 @@ to use. This will be considered an error in future versions
 }
 
 #[cargo_test]
-fn invalid_toml_historically_allowed_is_warned() {
+fn invalid_toml_historically_allowed_fails() {
     let p = project()
         .file(".cargo/config", "[bar] baz = 2")
         .file("src/main.rs", "fn main() {}")
         .build();
 
     p.cargo("build")
+        .with_status(101)
         .with_stderr(
             "\
-warning: TOML file found which contains invalid syntax and will soon not parse
-at `[..]config`.
+error: could not load Cargo configuration
 
-The TOML spec requires newlines after table definitions (e.g., `[a] b = 1` is
-invalid), but this file has a table header which does not have a newline after
-it. A newline needs to be added and this warning will soon become a hard error
-in the future.
-[COMPILING] foo v0.0.1 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+Caused by:
+  could not parse TOML configuration in `[..]`
+
+Caused by:
+  could not parse input as TOML
+
+Caused by:
+  TOML parse error at line 1, column 7
+    |
+  1 | [bar] baz = 2
+    |       ^
+  Unexpected `b`
+  Expected newline or end of input
+  While parsing a Table Header
 ",
         )
         .run();

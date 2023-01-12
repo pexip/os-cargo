@@ -1,0 +1,32 @@
+Index: combine/Cargo.toml
+===================================================================
+--- combine.orig/Cargo.toml
++++ combine/Cargo.toml
+@@ -58,16 +58,6 @@ name = "readme"
+ [[example]]
+ name = "ini"
+ 
+-[[bench]]
+-name = "json"
+-harness = false
+-required-features = ["std"]
+-
+-[[bench]]
+-name = "http"
+-harness = false
+-required-features = ["std"]
+-
+ [dependencies.bytes]
+ version = "1"
+ optional = true
+@@ -111,10 +101,6 @@ default-features = false
+ [dev-dependencies.bytes]
+ version = "1"
+ 
+-[dev-dependencies.criterion]
+-version = "0.3"
+-default-features = false
+-
+ [dev-dependencies.futures-03-dep]
+ version = "0.3.1"
+ package = "futures"

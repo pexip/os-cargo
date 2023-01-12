@@ -1,0 +1,12 @@
+Index: openssl/Cargo.toml
+===================================================================
+--- openssl.orig/Cargo.toml
++++ openssl/Cargo.toml
+@@ -57,7 +57,6 @@ version = "0.3"
+ [features]
+ bindgen = ["ffi/bindgen"]
+ default = []
+-unstable_boringssl = ["ffi/unstable_boringssl"]
+ v101 = []
+ v102 = []
+ v110 = []

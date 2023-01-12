@@ -1,0 +1,20 @@
+--- rust-clap-3.1.8.orig/Cargo.toml
++++ rust-clap-3.1.8/Cargo.toml
+@@ -26 +25,0 @@
+-features = ["unstable-doc"]
+@@ -29,3 +27,0 @@
+-[package.metadata.playground]
+-features = ["unstable-doc"]
+-
+@@ -438,11 +433,0 @@
+-unstable-doc = [
+-    "derive",
+-    "cargo",
+-    "wrap_help",
+-    "yaml",
+-    "env",
+-    "unicode",
+-    "regex",
+-    "unstable-replace",
+-    "unstable-grouped",
+-]

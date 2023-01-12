@@ -1,8 +1,8 @@
 // Copyright 2015 The Rust Project Developers.
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
@@ -32,9 +32,11 @@ use crate::{MaybeUninitSlice, RecvFlags};
 /// precisely one libc or OS API call which is essentially just a "Rustic
 /// translation" of what's below.
 ///
+/// ## Converting to and from other types
+///
 /// This type can be freely converted into the network primitives provided by
 /// the standard library, such as [`TcpStream`] or [`UdpSocket`], using the
-/// [`Into`] trait, see the example below.
+/// [`From`] trait, see the example below.
 ///
 /// [`TcpStream`]: std::net::TcpStream
 /// [`UdpSocket`]: std::net::UdpSocket
@@ -711,6 +713,25 @@ fn set_common_flags(socket: Socket) -> io::Result<Socket> {
     Ok(socket)
 }
 
+/// A local interface specified by its index or an address assigned to it.
+///
+/// `Index(0)` and `Address(Ipv4Addr::UNSPECIFIED)` are equivalent and indicate
+/// that an appropriate interface should be selected by the system.
+#[cfg(not(any(
+    target_os = "haiku",
+    target_os = "illumos",
+    target_os = "netbsd",
+    target_os = "redox",
+    target_os = "solaris",
+)))]
+#[derive(Debug)]
+pub enum InterfaceIndexOrAddress {
+    /// An interface index.
+    Index(u32),
+    /// An address assigned to an interface.
+    Address(Ipv4Addr),
+}
+
 /// Socket options get/set using `SOL_SOCKET`.
 ///
 /// Additional documentation can be found in documentation of the OS.
@@ -989,6 +1010,44 @@ fn into_linger(duration: Option<Duration>) -> sys::linger {
 /// * Linux: <https://man7.org/linux/man-pages/man7/ip.7.html>
 /// * Windows: <https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options>
 impl Socket {
+    /// Get the value of the `IP_HDRINCL` option on this socket.
+    ///
+    /// For more information about this option, see [`set_header_included`].
+    ///
+    /// [`set_header_included`]: Socket::set_header_included
+    #[cfg(all(feature = "all", not(target_os = "redox")))]
+    #[cfg_attr(docsrs, doc(all(feature = "all", not(target_os = "redox"))))]
+    pub fn header_included(&self) -> io::Result<bool> {
+        unsafe {
+            getsockopt::<c_int>(self.as_raw(), sys::IPPROTO_IP, sys::IP_HDRINCL)
+                .map(|included| included != 0)
+        }
+    }
+
+    /// Set the value of the `IP_HDRINCL` option on this socket.
+    ///
+    /// If enabled, the user supplies an IP header in front of the user data.
+    /// Valid only for [`SOCK_RAW`] sockets; see [raw(7)] for more information.
+    /// When this flag is enabled, the values set by `IP_OPTIONS`, [`IP_TTL`],
+    /// and [`IP_TOS`] are ignored.
+    ///
+    /// [`SOCK_RAW`]: Type::RAW
+    /// [raw(7)]: https://man7.org/linux/man-pages/man7/raw.7.html
+    /// [`IP_TTL`]: Socket::set_ttl
+    /// [`IP_TOS`]: Socket::set_tos
+    #[cfg(all(feature = "all", not(target_os = "redox")))]
+    #[cfg_attr(docsrs, doc(all(feature = "all", not(target_os = "redox"))))]
+    pub fn set_header_included(&self, included: bool) -> io::Result<()> {
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_HDRINCL,
+                included as c_int,
+            )
+        }
+    }
+
     /// Get the value of the `IP_TRANSPARENT` option on this socket.
     ///
     /// For more information about this option, see [`set_ip_transparent`].
@@ -1014,7 +1073,7 @@ impl Socket {
     /// are routed through the TProxy box (i.e., the system
     /// hosting the application that employs the IP_TRANSPARENT
     /// socket option).  Enabling this socket option requires
-    /// superuser privileges (the CAP_NET_ADMIN capability).
+    /// superuser privileges (the `CAP_NET_ADMIN` capability).
     ///
     /// TProxy redirection with the iptables TPROXY target also
     /// requires that this option be set on the redirected socket.
@@ -1062,6 +1121,135 @@ impl Socket {
                 sys::IPPROTO_IP,
                 sys::IP_DROP_MEMBERSHIP,
                 mreq,
+            )
+        }
+    }
+
+    /// Join a multicast group using `IP_ADD_MEMBERSHIP` option on this socket.
+    ///
+    /// This function specifies a new multicast group for this socket to join.
+    /// The address must be a valid multicast address, and `interface` specifies
+    /// the local interface with which the system should join the multicast
+    /// group. See [`InterfaceIndexOrAddress`].
+    #[cfg(not(any(
+        target_os = "haiku",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+    )))]
+    pub fn join_multicast_v4_n(
+        &self,
+        multiaddr: &Ipv4Addr,
+        interface: &InterfaceIndexOrAddress,
+    ) -> io::Result<()> {
+        let mreqn = sys::to_mreqn(multiaddr, interface);
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_ADD_MEMBERSHIP,
+                mreqn,
+            )
+        }
+    }
+
+    /// Leave a multicast group using `IP_DROP_MEMBERSHIP` option on this socket.
+    ///
+    /// For more information about this option, see [`join_multicast_v4_n`].
+    ///
+    /// [`join_multicast_v4_n`]: Socket::join_multicast_v4_n
+    #[cfg(not(any(
+        target_os = "haiku",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+    )))]
+    pub fn leave_multicast_v4_n(
+        &self,
+        multiaddr: &Ipv4Addr,
+        interface: &InterfaceIndexOrAddress,
+    ) -> io::Result<()> {
+        let mreqn = sys::to_mreqn(multiaddr, interface);
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_DROP_MEMBERSHIP,
+                mreqn,
+            )
+        }
+    }
+
+    /// Join a multicast SSM channel using `IP_ADD_SOURCE_MEMBERSHIP` option on this socket.
+    ///
+    /// This function specifies a new multicast channel for this socket to join.
+    /// The group must be a valid SSM group address, the source must be the address of the sender
+    /// and `interface` is the address of the local interface with which the system should join the
+    /// multicast group. If it's [`Ipv4Addr::UNSPECIFIED`] (`INADDR_ANY`) then
+    /// an appropriate interface is chosen by the system.
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "haiku",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "fuchsia",
+    )))]
+    pub fn join_ssm_v4(
+        &self,
+        source: &Ipv4Addr,
+        group: &Ipv4Addr,
+        interface: &Ipv4Addr,
+    ) -> io::Result<()> {
+        let mreqs = sys::IpMreqSource {
+            imr_multiaddr: sys::to_in_addr(group),
+            imr_interface: sys::to_in_addr(interface),
+            imr_sourceaddr: sys::to_in_addr(source),
+        };
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_ADD_SOURCE_MEMBERSHIP,
+                mreqs,
+            )
+        }
+    }
+
+    /// Leave a multicast group using `IP_DROP_SOURCE_MEMBERSHIP` option on this socket.
+    ///
+    /// For more information about this option, see [`join_ssm_v4`].
+    ///
+    /// [`join_ssm_v4`]: Socket::join_ssm_v4
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "haiku",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "fuchsia",
+    )))]
+    pub fn leave_ssm_v4(
+        &self,
+        source: &Ipv4Addr,
+        group: &Ipv4Addr,
+        interface: &Ipv4Addr,
+    ) -> io::Result<()> {
+        let mreqs = sys::IpMreqSource {
+            imr_multiaddr: sys::to_in_addr(group),
+            imr_interface: sys::to_in_addr(interface),
+            imr_sourceaddr: sys::to_in_addr(source),
+        };
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_DROP_SOURCE_MEMBERSHIP,
+                mreqs,
             )
         }
     }
@@ -1176,7 +1364,7 @@ impl Socket {
     /// NOTE: <https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options>
     /// documents that not all versions of windows support `IP_TOS`.
     #[cfg(not(any(
-        target_os = "fuschia",
+        target_os = "fuchsia",
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
@@ -1191,9 +1379,10 @@ impl Socket {
     ///
     /// NOTE: <https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options>
     /// documents that not all versions of windows support `IP_TOS`.
+    ///
     /// [`set_tos`]: Socket::set_tos
     #[cfg(not(any(
-        target_os = "fuschia",
+        target_os = "fuchsia",
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
@@ -1201,6 +1390,56 @@ impl Socket {
     pub fn tos(&self) -> io::Result<u32> {
         unsafe {
             getsockopt::<c_int>(self.as_raw(), sys::IPPROTO_IP, sys::IP_TOS).map(|tos| tos as u32)
+        }
+    }
+
+    /// Set the value of the `IP_RECVTOS` option for this socket.
+    ///
+    /// If enabled, the IP_TOS ancillary message is passed with
+    /// incoming packets. It contains a byte which specifies the
+    /// Type of Service/Precedence field of the packet header.
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+        target_os = "windows",
+    )))]
+    pub fn set_recv_tos(&self, recv_tos: bool) -> io::Result<()> {
+        let recv_tos = if recv_tos { 1 } else { 0 };
+
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_RECVTOS,
+                recv_tos as c_int,
+            )
+        }
+    }
+
+    /// Get the value of the `IP_RECVTOS` option for this socket.
+    ///
+    /// For more information about this option, see [`set_recv_tos`].
+    ///
+    /// [`set_recv_tos`]: Socket::set_recv_tos
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+        target_os = "windows",
+    )))]
+    pub fn recv_tos(&self) -> io::Result<bool> {
+        unsafe {
+            getsockopt::<c_int>(self.as_raw(), sys::IPPROTO_IP, sys::IP_RECVTOS)
+                .map(|recv_tos| recv_tos > 0)
         }
     }
 }

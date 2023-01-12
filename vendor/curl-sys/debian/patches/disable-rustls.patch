@@ -1,0 +1,24 @@
+Index: curl-sys/Cargo.toml
+===================================================================
+--- curl-sys.orig/Cargo.toml
++++ curl-sys/Cargo.toml
+@@ -33,11 +33,6 @@ version = "0.2.2"
+ version = "0.1.3"
+ optional = true
+ 
+-[dependencies.rustls-ffi]
+-version = "0.8"
+-features = ["no_log_capture"]
+-optional = true
+-
+ [build-dependencies.cc]
+ version = "1.0"
+ 
+@@ -52,7 +47,6 @@ mesalink = []
+ ntlm = []
+ poll_7_68_0 = []
+ protocol-ftp = []
+-rustls = ["rustls-ffi"]
+ spnego = []
+ ssl = ["openssl-sys"]
+ static-curl = []

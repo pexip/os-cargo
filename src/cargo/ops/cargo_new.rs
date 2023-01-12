@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::{from_utf8, FromStr};
+use toml_edit::easy as toml;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VersionControl {
@@ -185,7 +186,7 @@ fn check_name(
                 This can be done by setting the binary filename to `src/bin/{name}.rs` \
                 or change the name in Cargo.toml with:\n\
                 \n    \
-                [bin]\n    \
+                [[bin]]\n    \
                 name = \"{name}\"\n    \
                 path = \"src/main.rs\"\n\
             ",
@@ -715,7 +716,7 @@ fn mk(config: &Config, opts: &MkOptions<'_>) -> CargoResult<()> {
     let mut ignore = IgnoreList::new();
     ignore.push("/target", "^target/", "target");
     if !opts.bin {
-        ignore.push("Cargo.lock", "glob:Cargo.lock", "Cargo.lock,*/Cargo.lock");
+        ignore.push("/Cargo.lock", "^Cargo.lock$", "Cargo.lock");
     }
 
     let vcs = opts.version_control.unwrap_or_else(|| {

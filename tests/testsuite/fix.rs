@@ -89,8 +89,14 @@ fn broken_fixes_backed_out() {
 
                 fn main() {
                     // Ignore calls to things like --print=file-names and compiling build.rs.
+                    // Also compatible for rustc invocations with `@path` argfile.
                     let is_lib_rs = env::args_os()
                         .map(PathBuf::from)
+                        .flat_map(|p| if let Some(p) = p.to_str().unwrap_or_default().strip_prefix("@") {
+                            fs::read_to_string(p).unwrap().lines().map(PathBuf::from).collect()
+                        } else {
+                            vec![p]
+                        })
                         .any(|l| l == Path::new("src/lib.rs"));
                     if is_lib_rs {
                         let path = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -950,10 +956,6 @@ fn prepare_for_already_on_latest_unstable() {
 #[cargo_test]
 fn prepare_for_already_on_latest_stable() {
     // Stable counterpart of prepare_for_already_on_latest_unstable.
-    if !is_nightly() {
-        // Remove once 1.56 is stabilized.
-        return;
-    }
     if Edition::LATEST_UNSTABLE.is_some() {
         eprintln!("This test cannot run while the latest edition is unstable, skipping.");
         return;
@@ -1323,8 +1325,15 @@ fn fix_to_broken_code() {
                 use std::process::{self, Command};
 
                 fn main() {
+                    // Ignore calls to things like --print=file-names and compiling build.rs.
+                    // Also compatible for rustc invocations with `@path` argfile.
                     let is_lib_rs = env::args_os()
                         .map(PathBuf::from)
+                        .flat_map(|p| if let Some(p) = p.to_str().unwrap_or_default().strip_prefix("@") {
+                            fs::read_to_string(p).unwrap().lines().map(PathBuf::from).collect()
+                        } else {
+                            vec![p]
+                        })
                         .any(|l| l == Path::new("src/lib.rs"));
                     if is_lib_rs {
                         let path = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -1528,10 +1537,6 @@ fn rustfix_handles_multi_spans() {
 #[cargo_test]
 fn fix_edition_2021() {
     // Can migrate 2021, even when lints are allowed.
-    if !is_nightly() {
-        // Remove once 1.56 is stabilized.
-        return;
-    }
     let p = project()
         .file(
             "Cargo.toml",
@@ -1748,10 +1753,6 @@ fn fix_with_run_cargo_in_proc_macros() {
 #[cargo_test]
 fn non_edition_lint_migration() {
     // Migrating to a new edition where a non-edition lint causes problems.
-    if !is_nightly() {
-        // Remove once force-warn hits stable.
-        return;
-    }
     let p = project()
         .file("Cargo.toml", &basic_manifest("foo", "0.1.0"))
         .file(
@@ -1790,4 +1791,48 @@ fn non_edition_lint_migration() {
     assert!(contents.contains("use std::str::from_utf8;"));
     // Check that it made the edition migration.
     assert!(contents.contains("from_utf8(crate::foo::FOO)"));
+}
+
+// For rust-lang/cargo#9857
+#[cargo_test]
+fn fix_in_dependency() {
+    Package::new("bar", "1.0.0")
+        .file(
+            "src/lib.rs",
+            r#"
+                #[macro_export]
+                macro_rules! m {
+                    ($i:tt) => {
+                        let $i = 1;
+                    };
+                }
+            "#,
+        )
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [dependencies]
+                bar = "1.0"
+            "#,
+        )
+        .file(
+            "src/lib.rs",
+            r#"
+                pub fn foo() {
+                    bar::m!(abc);
+                }
+            "#,
+        )
+        .build();
+
+    p.cargo("fix --allow-no-vcs")
+        .with_stderr_does_not_contain("[FIXED] [..]")
+        .run();
 }

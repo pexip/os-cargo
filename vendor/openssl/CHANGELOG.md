@@ -2,6 +2,80 @@
 
 ## [Unreleased]
 
+## [v0.10.42] - 2022-09-26
+
+### Added
+
+* Added `SslRef::psk_identity_hint` and  `SslRef::psk_identity`.
+* Added SHA-3 constants to `Nid`.
+* Added `SslOptions::PRIORITIZE_CHACHA`.
+* Added `X509ReqRef::to_text`.
+* Added `MdCtxRef::size`.
+* Added `X509NameRef::try_cmp`.
+* Added `MdCtxRef::reset`.
+* Added experimental, unstable support for BoringSSL.
+
+### Fixed
+
+* Fixed `MdCtxRef::digest_verify_init` to support `PKey`s with only public components.
+
+## [v0.10.41] - 2022-06-09
+
+### Fixed
+
+* Fixed a use-after-free in `Error::function` and `Error::file` with OpenSSL 3.x.
+
+### Added
+
+* Added `MessageDigest::block_size` and `MdRef::block_size`.
+* Implemented `Ord` and `Eq` for `X509` and `X509Ref`.
+* Added `X509Extension::add_alias`.
+* Added SM4 support.
+* Added `EcGroup::from_components` `EcGropuRef::set_generator`, and `EcPointRef::set_affine_coordinates_gfp`.
+
+## [v0.10.40] - 2022-05-04
+
+### Fixed
+
+* Fixed the openssl-sys dependency version.
+
+## [v0.10.39] - 2022-05-02
+
+### Deprecated
+
+* Deprecated `SslContextBuilder::set_tmp_ecdh_callback` and `SslRef::set_tmp_ecdh_callback`.
+
+### Added
+
+* Added `SslRef::extms_support`.
+* Added `Nid::create`.
+* Added `CipherCtx`, which exposes a more direct interface to `EVP_CIPHER_CTX`.
+* Added `PkeyCtx`, which exposes a more direct interface to `EVP_PKEY_CTX`.
+* Added `MdCtx`, which exposes a more direct interface to `EVP_MD_CTX`.
+* Added `Pkcs12Builder::mac_md`.
+* Added `Provider`.
+* Added `X509Ref::issuer_name_hash`.
+* Added `Decrypter::set_rsa_oaep_label`.
+* Added `X509Ref::to_text`.
+
+## [v0.10.38] - 2021-10-31
+
+### Added
+
+* Added `Pkey::ec_gen`.
+
+## [v0.10.37] - 2021-10-27
+
+### Fixed
+
+* Fixed linkage against OpenSSL distributions built with `no-chacha`.
+
+### Added
+
+* Added `BigNumRef::to_vec_padded`.
+* Added `X509Name::from_der` and `X509NameRef::to_der`.
+* Added `BigNum::new_secure`, `BigNumReef::set_const_time`, `BigNumref::is_const_time`, and `BigNumRef::is_secure`.
+
 ## [v0.10.36] - 2021-08-17
 
 ### Added
@@ -556,7 +630,13 @@
 
 Look at the [release tags] for information about older releases.
 
-[Unreleased]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.36...master
+[Unreleased]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.42...master
+[v0.10.42]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.41...openssl-v0.10.42
+[v0.10.41]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.40...openssl-v0.10.41
+[v0.10.40]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.39...openssl-v0.10.40
+[v0.10.39]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.38...openssl-v0.10.39
+[v0.10.38]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.37...openssl-v0.10.38
+[v0.10.37]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.36...openssl-v0.10.37
 [v0.10.36]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.35...openssl-v0.10.36
 [v0.10.35]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.34...openssl-v0.10.35
 [v0.10.34]: https://github.com/sfackler/rust-openssl/compare/openssl-v0.10.33...openssl-v0.10.34

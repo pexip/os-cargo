@@ -1,0 +1,37 @@
+Index: toml-edit/Cargo.toml
+===================================================================
+--- toml-edit.orig/Cargo.toml
++++ toml-edit/Cargo.toml
+@@ -37,6 +37,7 @@ categories = [
+ ]
+ license = "MIT/Apache-2.0"
+ repository = "https://github.com/ordian/toml_edit"
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ features = ["easy"]
+@@ -106,14 +107,6 @@ harness = false
+ name = "test_invalid"
+ harness = false
+ 
+-[[bench]]
+-name = "cargo"
+-harness = false
+-
+-[[bench]]
+-name = "linear"
+-harness = false
+-
+ [dependencies.combine]
+ version = "4.6.3"
+ 
+@@ -133,9 +126,6 @@ version = "1"
+ features = ["derive"]
+ optional = true
+ 
+-[dev-dependencies.criterion]
+-version = "0.3"
+-
+ [dev-dependencies.pretty_assertions]
+ version = "1.0.0"
+ 

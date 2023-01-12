@@ -313,9 +313,9 @@
 //! <https://github.com/rust-lang/cargo/issues?q=is%3Aissue+is%3Aopen+label%3AA-rebuild-detection>
 
 use std::collections::hash_map::{Entry, HashMap};
-use std::convert::TryInto;
 use std::env;
 use std::hash::{self, Hash, Hasher};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -1366,11 +1366,19 @@ fn calculate_run_custom_build(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoRes
     let local = (gen_local)(
         deps,
         Some(&|| {
-            pkg_fingerprint(cx.bcx, &unit.pkg).with_context(|| {
-                format!(
-                    "failed to determine package fingerprint for build script for {}",
-                    unit.pkg
-                )
+            const IO_ERR_MESSAGE: &str = "\
+An I/O error happened. Please make sure you can access the file.
+
+By default, if your project contains a build script, cargo scans all files in
+it to determine whether a rebuild is needed. If you don't expect to access the 
+file, specify `rerun-if-changed` in your build script.
+See https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed for more information.";
+            pkg_fingerprint(cx.bcx, &unit.pkg).map_err(|err| {
+                let mut message = format!("failed to determine package fingerprint for build script for {}", unit.pkg);
+                if err.root_cause().is::<io::Error>() {
+                    message = format!("{}\n{}", message, IO_ERR_MESSAGE)
+                }
+                err.context(message)
             })
         }),
     )?
@@ -1559,13 +1567,14 @@ fn local_fingerprints_deps(
         local.push(LocalFingerprint::RerunIfChanged { output, paths });
     }
 
-    for var in deps.rerun_if_env_changed.iter() {
-        let val = env::var(var).ok();
-        local.push(LocalFingerprint::RerunIfEnvChanged {
-            var: var.clone(),
-            val,
-        });
-    }
+    local.extend(
+        deps.rerun_if_env_changed
+            .iter()
+            .map(|var| LocalFingerprint::RerunIfEnvChanged {
+                var: var.clone(),
+                val: env::var(var).ok(),
+            }),
+    );
 
     local
 }
@@ -1688,14 +1697,13 @@ pub fn parse_dep_info(
     };
     let mut ret = RustcDepInfo::default();
     ret.env = info.env;
-    for (ty, path) in info.files {
-        let path = match ty {
+    ret.files.extend(info.files.into_iter().map(|(ty, path)| {
+        match ty {
             DepInfoPathType::PackageRootRelative => pkg_root.join(path),
             // N.B. path might be absolute here in which case the join will have no effect
             DepInfoPathType::TargetRootRelative => target_root.join(path),
-        };
-        ret.files.push(path);
-    }
+        }
+    }));
     Ok(Some(ret))
 }
 
@@ -1822,7 +1830,7 @@ pub fn translate_dep_info(
 
     // This is a bit of a tricky statement, but here we're *removing* the
     // dependency on environment variables that were defined specifically for
-    // the command itself. Environment variables returend by `get_envs` includes
+    // the command itself. Environment variables returned by `get_envs` includes
     // environment variables like:
     //
     // * `OUT_DIR` if applicable

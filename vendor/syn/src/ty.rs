@@ -14,6 +14,7 @@ ast_enum_of_structs! {
     ///
     /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
+    #[cfg_attr(not(syn_no_non_exhaustive), non_exhaustive)]
     pub enum Type {
         /// A fixed size array type: `[T; n]`.
         Array(TypeArray),
@@ -53,7 +54,7 @@ ast_enum_of_structs! {
         /// A dynamically sized slice type: `[T]`.
         Slice(TypeSlice),
 
-        /// A trait object type `Bound1 + Bound2 + Bound3` where `Bound` is a
+        /// A trait object type `dyn Bound1 + Bound2 + Bound3` where `Bound` is a
         /// trait or a lifetime.
         TraitObject(TypeTraitObject),
 
@@ -63,18 +64,17 @@ ast_enum_of_structs! {
         /// Tokens in type position not interpreted by Syn.
         Verbatim(TokenStream),
 
-        // The following is the only supported idiom for exhaustive matching of
-        // this enum.
+        // Not public API.
         //
-        //     match expr {
-        //         Type::Array(e) => {...}
-        //         Type::BareFn(e) => {...}
+        // For testing exhaustiveness in downstream code, use the following idiom:
+        //
+        //     match ty {
+        //         Type::Array(ty) => {...}
+        //         Type::BareFn(ty) => {...}
         //         ...
-        //         Type::Verbatim(e) => {...}
+        //         Type::Verbatim(ty) => {...}
         //
-        //         #[cfg(test)]
-        //         Type::__TestExhaustive(_) => unimplemented!(),
-        //         #[cfg(not(test))]
+        //         #[cfg_attr(test, deny(non_exhaustive_omitted_patterns))]
         //         _ => { /* some sane fallback */ }
         //     }
         //
@@ -82,12 +82,9 @@ ast_enum_of_structs! {
         // a variant. You will be notified by a test failure when a variant is
         // added, so that you can add code to handle it, but your library will
         // continue to compile and work for downstream users in the interim.
-        //
-        // Once `deny(reachable)` is available in rustc, Type will be
-        // reimplemented as a non_exhaustive enum.
-        // https://github.com/rust-lang/rust/issues/44109#issuecomment-521781237
+        #[cfg(syn_no_non_exhaustive)]
         #[doc(hidden)]
-        __TestExhaustive(crate::private),
+        __NonExhaustive,
     }
 }
 
@@ -247,7 +244,7 @@ ast_struct! {
 }
 
 ast_struct! {
-    /// A trait object type `Bound1 + Bound2 + Bound3` where `Bound` is a
+    /// A trait object type `dyn Bound1 + Bound2 + Bound3` where `Bound` is a
     /// trait or a lifetime.
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
@@ -346,7 +343,8 @@ pub mod parsing {
     impl Parse for Type {
         fn parse(input: ParseStream) -> Result<Self> {
             let allow_plus = true;
-            ambig_ty(input, allow_plus)
+            let allow_group_generic = true;
+            ambig_ty(input, allow_plus, allow_group_generic)
         }
     }
 
@@ -359,11 +357,16 @@ pub mod parsing {
         #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
         pub fn without_plus(input: ParseStream) -> Result<Self> {
             let allow_plus = false;
-            ambig_ty(input, allow_plus)
+            let allow_group_generic = true;
+            ambig_ty(input, allow_plus, allow_group_generic)
         }
     }
 
-    fn ambig_ty(input: ParseStream, allow_plus: bool) -> Result<Type> {
+    pub(crate) fn ambig_ty(
+        input: ParseStream,
+        allow_plus: bool,
+        allow_group_generic: bool,
+    ) -> Result<Type> {
         let begin = input.fork();
 
         if input.peek(token::Group) {
@@ -384,7 +387,9 @@ pub mod parsing {
                         path: Path::parse_helper(input, false)?,
                     }));
                 }
-            } else if input.peek(Token![<]) || input.peek(Token![::]) && input.peek3(Token![<]) {
+            } else if input.peek(Token![<]) && allow_group_generic
+                || input.peek(Token![::]) && input.peek3(Token![<])
+            {
                 if let Type::Path(mut ty) = *group.elem {
                     let arguments = &mut ty.path.segments.last_mut().unwrap().arguments;
                     if let PathArguments::None = arguments {
@@ -540,9 +545,15 @@ pub mod parsing {
             || lookahead.peek(Token![::])
             || lookahead.peek(Token![<])
         {
-            if input.peek(Token![dyn]) {
-                let trait_object = TypeTraitObject::parse(input, allow_plus)?;
-                return Ok(Type::TraitObject(trait_object));
+            let dyn_token: Option<Token![dyn]> = input.parse()?;
+            if dyn_token.is_some() {
+                let star_token: Option<Token![*]> = input.parse()?;
+                let bounds = TypeTraitObject::parse_bounds(input, allow_plus)?;
+                return Ok(if star_token.is_some() {
+                    Type::Verbatim(verbatim::between(begin, input))
+                } else {
+                    Type::TraitObject(TypeTraitObject { dyn_token, bounds })
+                });
             }
 
             let ty: TypePath = input.parse()?;
@@ -740,7 +751,10 @@ pub mod parsing {
                         break;
                     }
 
-                    inputs.push_punct(args.parse()?);
+                    let comma = args.parse()?;
+                    if !has_mut_self {
+                        inputs.push_punct(comma);
+                    }
                 }
 
                 inputs
@@ -819,12 +833,28 @@ pub mod parsing {
     #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypePath {
         fn parse(input: ParseStream) -> Result<Self> {
-            let (qself, mut path) = path::parsing::qpath(input, false)?;
+            let expr_style = false;
+            let (qself, mut path) = path::parsing::qpath(input, expr_style)?;
 
-            if path.segments.last().unwrap().arguments.is_empty() && input.peek(token::Paren) {
+            while path.segments.last().unwrap().arguments.is_empty()
+                && (input.peek(token::Paren) || input.peek(Token![::]) && input.peek3(token::Paren))
+            {
+                input.parse::<Option<Token![::]>>()?;
                 let args: ParenthesizedGenericArguments = input.parse()?;
+                let allow_associated_type = cfg!(feature = "full")
+                    && match &args.output {
+                        ReturnType::Default => true,
+                        ReturnType::Type(_, ty) => match **ty {
+                            // TODO: probably some of the other kinds allow this too.
+                            Type::Paren(_) => true,
+                            _ => false,
+                        },
+                    };
                 let parenthesized = PathArguments::Parenthesized(args);
                 path.segments.last_mut().unwrap().arguments = parenthesized;
+                if allow_associated_type {
+                    Path::parse_rest(input, &mut path, expr_style)?;
+                }
             }
 
             Ok(TypePath { qself, path })
@@ -841,7 +871,8 @@ pub mod parsing {
         pub(crate) fn parse(input: ParseStream, allow_plus: bool) -> Result<Self> {
             if input.peek(Token![->]) {
                 let arrow = input.parse()?;
-                let ty = ambig_ty(input, allow_plus)?;
+                let allow_group_generic = true;
+                let ty = ambig_ty(input, allow_plus, allow_group_generic)?;
                 Ok(ReturnType::Type(arrow, Box::new(ty)))
             } else {
                 Ok(ReturnType::Default)
@@ -964,7 +995,10 @@ pub mod parsing {
             let content;
             Ok(TypeParen {
                 paren_token: parenthesized!(content in input),
-                elem: Box::new(ambig_ty(&content, allow_plus)?),
+                elem: Box::new({
+                    let allow_group_generic = true;
+                    ambig_ty(&content, allow_plus, allow_group_generic)?
+                }),
             })
         }
     }
@@ -1157,7 +1191,7 @@ mod printing {
     #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypePath {
         fn to_tokens(&self, tokens: &mut TokenStream) {
-            private::print_path(tokens, &self.qself, &self.path);
+            path::printing::print_path(tokens, &self.qself, &self.path);
         }
     }
 

@@ -1,11 +1,13 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -29,7 +29,7 @@
- version = "1.4.0"
- optional = true
+Index: crossbeam-utils/Cargo.toml
+===================================================================
+--- crossbeam-utils.orig/Cargo.toml
++++ crossbeam-utils/Cargo.toml
+@@ -36,7 +36,7 @@ repository = "https://github.com/crossbe
+ version = "1"
+ 
  [dev-dependencies.rand]
 -version = "0.8"
 +version = ">= 0.7, < 0.9"
  
- [features]
- default = ["std"]
+ [dev-dependencies.rustversion]
+ version = "1"

@@ -1,0 +1,24 @@
+From fe7c07c4f51e9d46cf0a50bc2aaf1d5c595268fb Mon Sep 17 00:00:00 2001
+From: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+Date: Wed, 9 Mar 2022 19:02:06 -0500
+Subject: [PATCH] Move from parking_lot::Mutex to serial_test
+
+Closes: #34
+---
+ Cargo.toml   |  2 +-
+ src/tests.rs | 14 +++++++-------
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+Index: yansi/Cargo.toml
+===================================================================
+--- yansi.orig/Cargo.toml
++++ yansi/Cargo.toml
+@@ -30,7 +30,7 @@ repository = "https://github.com/SergioB
+ [dependencies]
+ 
+ [dev-dependencies.serial_test]
+-version = "0.6"
++version = "0.5"
+ 
+ [badges.travis-ci]
+ branch = "master"

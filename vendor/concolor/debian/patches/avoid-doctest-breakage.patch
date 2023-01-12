@@ -1,0 +1,14 @@
+Avoid breakage during doc-tests
+
+See https://github.com/rust-cli/concolor/issues/4 for discussion.
+
+--- rust-concolor/src/lib.rs
++++ rust-concolor/src/lib.rs
+@@ -30,6 +30,7 @@
+ //! If you are providing a command line option for controlling color, just call
+ //! ```rust
+ //! let when = concolor::ColorChoice::Always;
++//! #[cfg(feature = "api_unstable")]
+ //! concolor::set(when);
+ //! ```
+ //!
