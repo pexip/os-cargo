@@ -1,0 +1,13 @@
+Index: tempfile/Cargo.toml
+===================================================================
+--- tempfile.orig/Cargo.toml
++++ tempfile/Cargo.toml
+@@ -28,7 +28,7 @@ version = "1"
+ version = "1.6.0"
+ 
+ [dependencies.remove_dir_all]
+-version = "0.5"
++version = "0.7"
+ [dev-dependencies.doc-comment]
+ version = "0.3"
+ 

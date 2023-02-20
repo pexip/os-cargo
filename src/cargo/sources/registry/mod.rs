@@ -176,7 +176,7 @@ use tar::Archive;
 
 use crate::core::dependency::{DepKind, Dependency};
 use crate::core::source::MaybePackage;
-use crate::core::{Package, PackageId, Source, SourceId, Summary};
+use crate::core::{Package, PackageId, QueryKind, Source, SourceId, Summary};
 use crate::sources::PathSource;
 use crate::util::hex;
 use crate::util::interning::InternedString;
@@ -186,6 +186,7 @@ use crate::util::{restricted_names, CargoResult, Config, Filesystem, OptVersionR
 
 const PACKAGE_SOURCE_LOCK: &str = ".cargo-ok";
 pub const CRATES_IO_INDEX: &str = "https://github.com/rust-lang/crates.io-index";
+pub const CRATES_IO_HTTP_INDEX: &str = "sparse+https://index.crates.io/";
 pub const CRATES_IO_REGISTRY: &str = "crates-io";
 pub const CRATES_IO_DOMAIN: &str = "crates.io";
 const CRATE_TEMPLATE: &str = "{crate}";
@@ -546,10 +547,7 @@ impl<'cfg> RegistrySource<'cfg> {
     ) -> CargoResult<RegistrySource<'cfg>> {
         let name = short_name(source_id);
         let ops = if source_id.url().scheme().starts_with("sparse+") {
-            if !config.cli_unstable().http_registry {
-                anyhow::bail!("Usage of HTTP-based registries requires `-Z http-registry`");
-            }
-            Box::new(http_remote::HttpRegistry::new(source_id, config, &name)) as Box<_>
+            Box::new(http_remote::HttpRegistry::new(source_id, config, &name)?) as Box<_>
         } else {
             Box::new(remote::RemoteRegistry::new(source_id, config, &name)) as Box<_>
         };
@@ -703,12 +701,18 @@ impl<'cfg> RegistrySource<'cfg> {
 }
 
 impl<'cfg> Source for RegistrySource<'cfg> {
-    fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> Poll<CargoResult<()>> {
+    fn query(
+        &mut self,
+        dep: &Dependency,
+        kind: QueryKind,
+        f: &mut dyn FnMut(Summary),
+    ) -> Poll<CargoResult<()>> {
         // If this is a precise dependency, then it came from a lock file and in
         // theory the registry is known to contain this version. If, however, we
         // come back with no summaries, then our registry may need to be
         // updated, so we fall back to performing a lazy update.
-        if dep.source_id().precise().is_some() && !self.ops.is_updated() {
+        if kind == QueryKind::Exact && dep.source_id().precise().is_some() && !self.ops.is_updated()
+        {
             debug!("attempting query without update");
             let mut called = false;
             let pend =
@@ -733,19 +737,14 @@ impl<'cfg> Source for RegistrySource<'cfg> {
 
         self.index
             .query_inner(dep, &mut *self.ops, &self.yanked_whitelist, &mut |s| {
-                if dep.matches(&s) {
+                let matched = match kind {
+                    QueryKind::Exact => dep.matches(&s),
+                    QueryKind::Fuzzy => true,
+                };
+                if matched {
                     f(s);
                 }
             })
-    }
-
-    fn fuzzy_query(
-        &mut self,
-        dep: &Dependency,
-        f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>> {
-        self.index
-            .query_inner(dep, &mut *self.ops, &self.yanked_whitelist, f)
     }
 
     fn supports_checksums(&self) -> bool {
@@ -803,14 +802,8 @@ impl<'cfg> Source for RegistrySource<'cfg> {
         self.yanked_whitelist.extend(pkgs);
     }
 
-    fn is_yanked(&mut self, pkg: PackageId) -> CargoResult<bool> {
-        self.invalidate_cache();
-        loop {
-            match self.index.is_yanked(pkg, &mut *self.ops)? {
-                Poll::Ready(yanked) => return Ok(yanked),
-                Poll::Pending => self.block_until_ready()?,
-            }
-        }
+    fn is_yanked(&mut self, pkg: PackageId) -> Poll<CargoResult<bool>> {
+        self.index.is_yanked(pkg, &mut *self.ops)
     }
 
     fn block_until_ready(&mut self) -> CargoResult<()> {

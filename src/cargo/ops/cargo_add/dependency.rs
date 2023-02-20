@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 
@@ -6,8 +5,6 @@ use indexmap::IndexSet;
 use toml_edit::KeyMut;
 
 use super::manifest::str_or_1_len_table;
-use crate::core::FeatureMap;
-use crate::core::FeatureValue;
 use crate::core::GitReference;
 use crate::core::SourceId;
 use crate::core::Summary;
@@ -40,9 +37,6 @@ pub struct Dependency {
     /// If the dependency is renamed, this is the new name for the dependency
     /// as a string.  None if it is not renamed.
     pub rename: Option<String>,
-
-    /// Features that are exposed by the dependency
-    pub available_features: BTreeMap<String, Vec<String>>,
 }
 
 impl Dependency {
@@ -57,7 +51,6 @@ impl Dependency {
             source: None,
             registry: None,
             rename: None,
-            available_features: Default::default(),
         }
     }
 
@@ -82,37 +75,6 @@ impl Dependency {
             Some(Source::Workspace(_workspace)) => {}
             None => {}
         }
-        self
-    }
-
-    /// Set the available features of the dependency to a given vec
-    pub fn set_available_features(
-        mut self,
-        available_features: BTreeMap<String, Vec<String>>,
-    ) -> Self {
-        self.available_features = available_features;
-        self
-    }
-
-    /// Populate from cargo
-    pub fn set_available_features_from_cargo(
-        mut self,
-        available_features: &FeatureMap,
-    ) -> Dependency {
-        self.available_features = available_features
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.as_str().to_owned(),
-                    v.iter()
-                        .filter_map(|v| match v {
-                            FeatureValue::Feature(f) => Some(f.as_str().to_owned()),
-                            FeatureValue::Dep { .. } | FeatureValue::DepFeature { .. } => None,
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
         self
     }
 
@@ -347,8 +309,6 @@ impl Dependency {
                 None
             };
 
-            let available_features = BTreeMap::default();
-
             let optional = table.get("optional").and_then(|v| v.as_bool());
 
             let dep = Self {
@@ -358,7 +318,6 @@ impl Dependency {
                 registry,
                 default_features,
                 features,
-                available_features,
                 optional,
                 inherited_features: None,
             };
@@ -486,9 +445,7 @@ impl Dependency {
         if str_or_1_len_table(item) {
             // Nothing to preserve
             *item = self.to_toml(crate_root);
-            if self.source != Some(Source::Workspace(WorkspaceSource)) {
-                key.fmt();
-            }
+            key.fmt();
         } else if let Some(table) = item.as_table_like_mut() {
             match &self.source {
                 Some(Source::Registry(src)) => {
@@ -539,7 +496,9 @@ impl Dependency {
                     }
                 }
                 Some(Source::Workspace(_)) => {
+                    table.insert("workspace", toml_edit::value(true));
                     table.set_dotted(true);
+                    key.fmt();
                     for key in [
                         "version",
                         "registry",
@@ -550,6 +509,7 @@ impl Dependency {
                         "tag",
                         "rev",
                         "package",
+                        "default-features",
                     ] {
                         table.remove(key);
                     }
@@ -645,9 +605,7 @@ impl<'s> From<&'s Summary> for Dependency {
         } else {
             RegistrySource::new(other.version().to_string()).into()
         };
-        Dependency::new(other.name().as_str())
-            .set_source(source)
-            .set_available_features_from_cargo(other.features())
+        Dependency::new(other.name().as_str()).set_source(source)
     }
 }
 
@@ -937,6 +895,7 @@ impl Display for WorkspaceSource {
 mod tests {
     use std::path::Path;
 
+    use crate::ops::cargo_add::manifest::LocalManifest;
     use cargo_util::paths;
 
     use super::*;
@@ -1118,6 +1077,25 @@ mod tests {
         assert_eq!(got, relpath);
 
         verify_roundtrip(&crate_root, key, &item);
+    }
+
+    #[test]
+    fn overwrite_with_workspace_source_fmt_key() {
+        let crate_root =
+            paths::normalize_path(&std::env::current_dir().unwrap().join(Path::new("./")));
+        let toml = "dep = \"1.0\"\n";
+        let manifest = toml.parse().unwrap();
+        let mut local = LocalManifest {
+            path: crate_root.clone(),
+            manifest,
+        };
+        assert_eq!(local.manifest.to_string(), toml);
+        for (key, item) in local.data.clone().iter() {
+            let dep = Dependency::from_toml(&crate_root, key, item).unwrap();
+            let dep = dep.set_source(WorkspaceSource::new());
+            local.insert_into_table(&vec![], &dep).unwrap();
+            assert_eq!(local.data.to_string(), "dep.workspace = true\n");
+        }
     }
 
     #[test]

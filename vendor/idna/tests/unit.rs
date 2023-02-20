@@ -1,5 +1,4 @@
-#![feature(assert_matches)]
-use std::assert_matches::assert_matches;
+use assert_matches::assert_matches;
 use unicode_normalization::char::is_combining_mark;
 
 /// https://github.com/servo/rust-url/issues/373

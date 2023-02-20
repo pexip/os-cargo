@@ -1,8 +1,6 @@
-Index: openssl-sys/Cargo.toml
-===================================================================
---- openssl-sys.orig/Cargo.toml
-+++ openssl-sys/Cargo.toml
-@@ -47,16 +47,11 @@ optional = true
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -47,16 +47,11 @@
  [build-dependencies.cc]
  version = "1.0"
  
@@ -19,11 +17,9 @@ Index: openssl-sys/Cargo.toml
  
  [target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
  version = "0.2.8"
-Index: openssl-sys/build/main.rs
-===================================================================
---- openssl-sys.orig/build/main.rs
-+++ openssl-sys/build/main.rs
-@@ -17,8 +17,6 @@ use std::path::{Path, PathBuf};
+--- a/build/main.rs
++++ b/build/main.rs
+@@ -17,8 +17,6 @@
  mod cfgs;
  
  mod find_normal;
@@ -32,7 +28,7 @@ Index: openssl-sys/build/main.rs
  #[cfg(feature = "bindgen")]
  mod run_bindgen;
  
-@@ -49,14 +47,6 @@ fn env(name: &str) -> Option<OsString> {
+@@ -49,14 +47,6 @@
  }
  
  fn find_openssl(target: &str) -> (Vec<PathBuf>, PathBuf) {

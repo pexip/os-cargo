@@ -1,0 +1,20 @@
+Index: hmac/Cargo.toml
+===================================================================
+--- hmac.orig/Cargo.toml
++++ hmac/Cargo.toml
+@@ -32,13 +32,13 @@ version = "0.10"
+ features = ["dev"]
+ 
+ [dev-dependencies.hex-literal]
+-version = "0.2.2"
++version = "0.3"
+ 
+ [dev-dependencies.md-5]
+ version = "0.10"
+ default-features = false
+ 
+-[dev-dependencies.sha-1]
++[dev-dependencies.sha1]
+ version = "0.10"
+ default-features = false
+ 

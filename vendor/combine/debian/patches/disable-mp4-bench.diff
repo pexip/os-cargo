@@ -2,7 +2,15 @@ Index: combine/Cargo.toml
 ===================================================================
 --- combine.orig/Cargo.toml
 +++ combine/Cargo.toml
-@@ -82,11 +82,6 @@ name = "http"
+@@ -31,6 +31,7 @@ license = "MIT"
+ repository = "https://github.com/Marwes/combine"
+ resolver = "1"
+ autoexamples = false
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ all-features = true
+@@ -76,11 +77,6 @@ name = "http"
  harness = false
  required-features = ["std"]
  

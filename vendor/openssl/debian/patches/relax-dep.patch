@@ -1,0 +1,13 @@
+Index: openssl/Cargo.toml
+===================================================================
+--- openssl.orig/Cargo.toml
++++ openssl/Cargo.toml
+@@ -52,7 +52,7 @@ version = "1.5.2"
+ version = "0.1.0"
+ 
+ [dev-dependencies.hex]
+-version = "0.3"
++version = "0.4"
+ 
+ [features]
+ bindgen = ["ffi/bindgen"]

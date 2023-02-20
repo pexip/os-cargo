@@ -1,22 +1,12 @@
-Index: flate2/Cargo.toml
-===================================================================
 --- flate2.orig/Cargo.toml
 +++ flate2/Cargo.toml
-@@ -42,10 +42,6 @@ repository = "https://github.com/rust-la
- [dependencies.crc32fast]
- version = "1.2.0"
- 
+@@ -45,4 +44,0 @@
 -[dependencies.libz-ng-sys]
 -version = "1.1.8"
 -optional = true
 -
- [dependencies.libz-sys]
- version = "1.1.8"
- optional = true
-@@ -72,14 +68,6 @@ zlib = [
-     "any_zlib",
-     "libz-sys",
- ]
+@@ -74,8 +69,0 @@
+-]
 -zlib-ng = [
 -    "any_zlib",
 -    "libz-ng-sys",
@@ -24,7 +14,3 @@ Index: flate2/Cargo.toml
 -zlib-ng-compat = [
 -    "zlib",
 -    "libz-sys/zlib-ng",
--]
- 
- [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
- version = "0.5.0"

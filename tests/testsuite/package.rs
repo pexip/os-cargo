@@ -846,6 +846,55 @@ Caused by:
 }
 
 #[cargo_test]
+/// Tests if a broken but excluded symlink is ignored.
+/// See issue rust-lang/cargo#10917
+///
+/// This test requires you to be able to make symlinks.
+/// For windows, this may require you to enable developer mode.
+fn broken_but_excluded_symlink() {
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir as symlink;
+
+    if !symlink_supported() {
+        return;
+    }
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = 'foo'
+                documentation = 'foo'
+                homepage = 'foo'
+                repository = 'foo'
+                exclude = ["src/foo.rs"]
+            "#,
+        )
+        .file("src/main.rs", r#"fn main() { println!("hello"); }"#)
+        .build();
+    t!(symlink("nowhere", &p.root().join("src/foo.rs")));
+
+    p.cargo("package -v --list")
+        // `src/foo.rs` is excluded.
+        .with_stdout(
+            "\
+Cargo.lock
+Cargo.toml
+Cargo.toml.orig
+src/main.rs
+",
+        )
+        .run();
+}
+
+#[cargo_test]
 #[cfg(not(windows))] // https://github.com/libgit2/libgit2/issues/6250
 /// Test that /dir and /dir/ matches symlinks to directories.
 fn gitignore_symlink_dir() {
@@ -1072,7 +1121,7 @@ src/lib.rs
 
 #[cargo_test]
 fn generated_manifest() {
-    registry::alt_init();
+    let registry = registry::alt_init();
     Package::new("abc", "1.0.0").publish();
     Package::new("def", "1.0.0").alternative(true).publish();
     Package::new("ghi", "1.0.0").publish();
@@ -1137,7 +1186,7 @@ registry-index = "{}"
 version = "1.0"
 "#,
         cargo::core::package::MANIFEST_PREAMBLE,
-        registry::alt_registry_url()
+        registry.index_url()
     );
 
     validate_crate_contents(
@@ -2007,6 +2056,12 @@ src/lib.rs
 #[cargo_test]
 #[cfg(windows)]
 fn reserved_windows_name() {
+    // If we are running on a version of Windows that allows these reserved filenames,
+    // skip this test.
+    if paths::windows_reserved_names_are_allowed() {
+        return;
+    }
+
     Package::new("bar", "1.0.0")
         .file("src/lib.rs", "pub mod aux;")
         .file("src/aux.rs", "")
@@ -2324,4 +2379,75 @@ See [..]
 
     assert!(p.root().join("target/package/foo-0.0.1.crate").is_file());
     assert!(p.root().join("target/package/bar-0.0.1.crate").is_file());
+}
+
+#[cargo_test]
+fn workspace_overrides_resolver() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [workspace]
+                members = ["bar", "baz"]
+            "#,
+        )
+        .file(
+            "bar/Cargo.toml",
+            r#"
+                [package]
+                name = "bar"
+                version = "0.1.0"
+                edition = "2021"
+            "#,
+        )
+        .file("bar/src/lib.rs", "")
+        .file(
+            "baz/Cargo.toml",
+            r#"
+                [package]
+                name = "baz"
+                version = "0.1.0"
+                edition = "2015"
+            "#,
+        )
+        .file("baz/src/lib.rs", "")
+        .build();
+
+    p.cargo("package --no-verify -p bar -p baz").run();
+
+    let f = File::open(&p.root().join("target/package/bar-0.1.0.crate")).unwrap();
+    let rewritten_toml = format!(
+        r#"{}
+[package]
+edition = "2021"
+name = "bar"
+version = "0.1.0"
+resolver = "1"
+"#,
+        cargo::core::package::MANIFEST_PREAMBLE
+    );
+    validate_crate_contents(
+        f,
+        "bar-0.1.0.crate",
+        &["Cargo.toml", "Cargo.toml.orig", "src/lib.rs"],
+        &[("Cargo.toml", &rewritten_toml)],
+    );
+
+    // When the crate has the same implicit resolver as the workspace it is not overridden
+    let f = File::open(&p.root().join("target/package/baz-0.1.0.crate")).unwrap();
+    let rewritten_toml = format!(
+        r#"{}
+[package]
+edition = "2015"
+name = "baz"
+version = "0.1.0"
+"#,
+        cargo::core::package::MANIFEST_PREAMBLE
+    );
+    validate_crate_contents(
+        f,
+        "baz-0.1.0.crate",
+        &["Cargo.toml", "Cargo.toml.orig", "src/lib.rs"],
+        &[("Cargo.toml", &rewritten_toml)],
+    );
 }

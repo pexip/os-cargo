@@ -1,8 +1,6 @@
-Index: openssl-sys/Cargo.toml
-===================================================================
---- openssl-sys.orig/Cargo.toml
-+++ openssl-sys/Cargo.toml
-@@ -30,10 +30,6 @@ repository = "https://github.com/sfackle
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -30,10 +30,6 @@
  [package.metadata.pkg-config]
  openssl = "1.0.1"
  
@@ -13,7 +11,7 @@ Index: openssl-sys/Cargo.toml
  [dependencies.libc]
  version = "0.2"
  
-@@ -51,7 +47,6 @@ version = "1.0"
+@@ -51,7 +47,6 @@
  version = "0.3.9"
  
  [features]

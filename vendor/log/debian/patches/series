@@ -1,2 +1,1 @@
-ignore-sval.diff
 disable-tests-not-in-crates.io-release.diff

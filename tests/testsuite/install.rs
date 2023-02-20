@@ -5,7 +5,7 @@ use std::io::prelude::*;
 
 use cargo_test_support::cross_compile;
 use cargo_test_support::git;
-use cargo_test_support::registry::{self, registry_path, registry_url, Package};
+use cargo_test_support::registry::{self, registry_path, Package};
 use cargo_test_support::{
     basic_manifest, cargo_process, no_such_file_err_msg, project, project_in, symlink_supported, t,
 };
@@ -133,10 +133,11 @@ fn simple_with_message_format() {
 
 #[cargo_test]
 fn with_index() {
+    let registry = registry::init();
     pkg("foo", "0.0.1");
 
     cargo_process("install foo --index")
-        .arg(registry_url().to_string())
+        .arg(registry.index_url().as_str())
         .with_stderr(&format!(
             "\
 [UPDATING] `{reg}` index
@@ -1754,7 +1755,9 @@ fn install_ignores_unstable_table_in_local_cargo_config() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("install bar").masquerade_as_nightly_cargo().run();
+    p.cargo("install bar")
+        .masquerade_as_nightly_cargo(&["build-std"])
+        .run();
     assert_has_installed_exe(cargo_home(), "bar");
 }
 

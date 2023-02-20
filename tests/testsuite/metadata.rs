@@ -957,7 +957,7 @@ fn workspace_metadata_with_dependencies_no_deps() {
         .build();
 
     p.cargo("metadata --no-deps -Z bindeps")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["bindeps"])
         .with_json(
             r#"
     {
@@ -1220,7 +1220,7 @@ fn workspace_metadata_with_dependencies_and_resolve() {
         .build();
 
     p.cargo("metadata -Z bindeps")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["bindeps"])
         .with_json(
             r#"
             {
@@ -1702,6 +1702,30 @@ fn cargo_metadata_with_invalid_manifest() {
 
 Caused by:
   virtual manifests must be configured with [workspace]",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn cargo_metadata_with_invalid_authors_field() {
+    let p = project()
+        .file("src/foo.rs", "")
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                authors = ""
+            "#,
+        )
+        .build();
+
+    p.cargo("metadata")
+        .with_status(101)
+        .with_stderr(
+            r#"[ERROR] failed to parse manifest at `[..]`
+
+Caused by:
+  invalid type: string "", expected vector of strings for key `package.authors`"#,
         )
         .run();
 }
@@ -3786,7 +3810,7 @@ fn workspace_metadata_with_dependencies_no_deps_artifact() {
         .build();
 
     p.cargo("metadata --no-deps -Z bindeps")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["bindeps"])
         .with_json(
             r#"
             {

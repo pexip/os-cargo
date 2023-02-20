@@ -1,3 +1,2 @@
 disable-vendor.patch
-relax-dep.patch
 disable-bssl.patch

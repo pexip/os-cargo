@@ -1,4 +1,3 @@
-relax-dep-versions.patch
 disable-trycmd.diff
 disable-unstable-doc.patch
 disable-unstable-v4.patch
