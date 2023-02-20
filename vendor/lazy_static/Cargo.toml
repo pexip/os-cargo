@@ -23,10 +23,10 @@ categories = ["no-std", "rust-patterns", "memory-management"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/rust-lang-nursery/lazy-static.rs"
 [dependencies.spin]
-version = "0.5.0"
+version = "0.9"
 optional = true
 [dev-dependencies.doc-comment]
-version = "0.3.1"
+version = "0.3"
 
 [features]
 spin_no_std = ["spin"]

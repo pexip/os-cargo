@@ -120,12 +120,25 @@ Comment:
  see https://github.com/bluss/either
  see https://github.com/rust-itertools/itertools
 
+Files: vendor/base64/*
+Copyright: 2015-2023 Alice Maz <alice@alicemaz.com>
+           2015-2023 Marshall Pierce <marshall@mpierce.org>
+License: MIT or Apache-2.0
+Comment: see https://github.com/marshallpierce/rust-base64
+
 Files: vendor/bitmaps/*
 Copyright: 2019-2020 Bodil Stokke <bodil@bodil.org>
 License: MPL-2.0+
 Comment: see https://github.com/bodil/bitmaps
 
-Files: vendor/bstr/*
+Files: vendor/block-buffer/*
+Copyright: 2016-2023 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/utils
+
+Files: 
+ vendor/bstr/*
+ vendor/bstr-*/*
 Copyright: 2015-2019 Andrew Gallant <jamslam@gmail.com>
 License: MIT or Apache-2.0
 Comment:
@@ -177,6 +190,11 @@ Copyright: 2012-2013, The Servo Project Developers,
 License: MIT or Apache-2.0
 Comment: see https://github.com/servo/core-foundation-rs
 
+Files: vendor/cpufeatures/*
+Copyright: 2016-2023 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/utils
+
 Files: vendor/crc32fast/*
 Copyright: 2018, Sam Rijs <srijs@airpost.net>
            2018, Alex Crichton <alex@alexcrichton.com>
@@ -186,6 +204,11 @@ Files: vendor/crossbeam-utils/*
 Copyright: 2017-2018 The Crossbeam Project Developers
 License: MIT or Apache-2.0
 Comment: see https://github.com/crossbeam-rs
+
+Files: vendor/crypto-common/*
+Copyright: 2017-2023 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/traits
 
 Files: vendor/commoncrypto/*
        vendor/commoncrypto-sys/*
@@ -203,6 +226,11 @@ Copyright: 2014-2019 Alex Crichton <alex@alexcrichton.com>
 License: MIT
 Comment: see https://github.com/alexcrichton/curl-rust
 
+Files: vendor/digest/*
+Copyright: 2017-2023 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/traits
+
 Files: vendor/dunce/*
 Copyright: 2017-2021 Kornel <kornel@geekhood.net>
 License: CC0-1.0
@@ -212,6 +240,12 @@ Files: vendor/fastrand/*
 Copyright: 2020-2022 Stjepan Glavina <stjepang@gmail.com>
 License: Apache-2.0 OR MIT
 Comment: see https://github.com/smol-rs/fastrand
+
+Files: vendor/generic-array/*
+Copyright: 2015-2022 Bartłomiej Kamiński <fizyk20@gmail.com>
+           2015-2022 Aaron Trent <novacrazy@gmail.com>
+License: MIT
+Comment: see https://github.com/fizyk20/generic-array.git
 
 Files: vendor/hashbrown/*
 Copyright: 2018-2022 Amanieu d'Antras <amanieu@gmail.com>
@@ -224,6 +258,11 @@ Copyright:
  2015-2019 rust-hex Developers
 License: MIT or Apache-2.0
 Comment: see https://github.com/KokaKiwi/rust-hex
+
+Files: vendor/hmac/*
+Copyright: 2017-2023 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/MACs
 
 Files: vendor/home/*
 Copyright: Brian Anderson <andersb@gmail.com>
@@ -400,6 +439,11 @@ License: MIT or Apache-2.0
 Comment: see https://github.com/serde-rs
          see https://github.com/dtolnay/serde-ignored
 
+Files: vendor/sha1/*
+Copyright: 2016-2022 RustCrypto Developers
+License: MIT OR Apache-2.0
+Comment: see https://github.com/RustCrypto/hashes
+
 Files: vendor/similar/*
 Copyright: 2021-2022 Armin Ronacher <armin.ronacher@active-4.com>
            2021-2022 Pierre-Étienne Meunier <pe@pijul.org>
@@ -427,6 +471,12 @@ Files: vendor/strsim/*
 Copyright: 2015 Danny Guo <dannyguo91@gmail.com>
 License: MIT
 Comment: see https://github.com/dguo/strsim-rs
+
+Files: vendor/subtle/*
+Copyright: 2017-2021 Isis Lovecruft <isis@patternsinthevoid.net>
+           2017-2021 Henry de Valence <hdevalence@hdevalence.ca>
+License: BSD-3-Clause
+Comment: see https://github.com/dalek-cryptography/subtle
 
 Files: vendor/syn/*
 Copyright: 2016-2017 David Tolnay <dtolnay@gmail.com>

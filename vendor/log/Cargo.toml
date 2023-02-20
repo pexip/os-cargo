@@ -30,6 +30,7 @@ features = [
     "std",
     "serde",
     "kv_unstable_std",
+    "kv_unstable_sval",
     "kv_unstable_serde",
 ]
 
@@ -38,6 +39,11 @@ version = "1.0"
 
 [dependencies.serde]
 version = "1.0"
+optional = true
+default-features = false
+
+[dependencies.sval]
+version = "=1.0.0-alpha.5"
 optional = true
 default-features = false
 
@@ -56,16 +62,30 @@ features = ["derive"]
 [dev-dependencies.serde_test]
 version = "1.0"
 
+[dev-dependencies.sval]
+version = "=1.0.0-alpha.5"
+features = ["derive"]
+
 [dev-dependencies.value-bag]
 version = "=1.0.0-alpha.9"
 features = ["test"]
 
 [features]
 kv_unstable = ["value-bag"]
+kv_unstable_serde = [
+    "kv_unstable_std",
+    "value-bag/serde",
+    "serde",
+]
 kv_unstable_std = [
     "std",
     "kv_unstable",
     "value-bag/error",
+]
+kv_unstable_sval = [
+    "kv_unstable",
+    "value-bag/sval",
+    "sval",
 ]
 max_level_debug = []
 max_level_error = []

@@ -81,7 +81,7 @@
 //!     }
 //! }
 //!
-//! fn test(input_path: &std::path::Path) -> Result<usize, Box<std::error::Error>> {
+//! fn test(input_path: &std::path::Path) -> Result<usize, Box<dyn std::error::Error>> {
 //!     let raw = std::fs::read_to_string(input_path)?;
 //!     let num = raw.parse::<usize>()?;
 //!
@@ -113,6 +113,7 @@ pub use action::Action;
 pub use action::DEFAULT_ACTION_ENV;
 pub use assert::Assert;
 pub use data::Data;
+pub use data::DataFormat;
 pub use error::Error;
 pub use snapbox_macros::debug;
 pub use substitutions::Substitutions;

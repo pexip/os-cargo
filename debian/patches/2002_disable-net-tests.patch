@@ -45,12 +45,12 @@ This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
          .file(
 --- a/tests/testsuite/publish.rs
 +++ b/tests/testsuite/publish.rs
-@@ -1642,7 +1642,7 @@
-     t.join().unwrap();
+@@ -1584,7 +1584,7 @@
+         .run();
  }
  
 -#[cargo_test]
 +#[allow(dead_code)]
  fn api_curl_error() {
      // Registry has a network error.
-     let t = registry::RegistryBuilder::new().build_api_server(&|_headers| panic!("broke!"));
+     let _registry = registry::RegistryBuilder::new()

@@ -1041,7 +1041,14 @@ fn cargo_compile_with_filename() {
 
     p.cargo("build --bin bin.rs")
         .with_status(101)
-        .with_stderr("[ERROR] no bin target named `bin.rs`")
+        .with_stderr(
+            "\
+[ERROR] no bin target named `bin.rs`.
+Available bin targets:
+    a
+
+",
+        )
         .run();
 
     p.cargo("build --bin a.rs")
@@ -1056,7 +1063,14 @@ fn cargo_compile_with_filename() {
 
     p.cargo("build --example example.rs")
         .with_status(101)
-        .with_stderr("[ERROR] no example target named `example.rs`")
+        .with_stderr(
+            "\
+[ERROR] no example target named `example.rs`.
+Available example targets:
+    a
+
+",
+        )
         .run();
 
     p.cargo("build --example a.rs")
@@ -1314,6 +1328,7 @@ fn crate_env_vars() {
             authors = ["wycats@example.com"]
             license = "MIT OR Apache-2.0"
             license-file = "license.txt"
+            rust-version = "1.61.0"
 
             [[bin]]
             name = "foo-bar"
@@ -1338,6 +1353,7 @@ fn crate_env_vars() {
                 static LICENSE: &'static str = env!("CARGO_PKG_LICENSE");
                 static LICENSE_FILE: &'static str = env!("CARGO_PKG_LICENSE_FILE");
                 static DESCRIPTION: &'static str = env!("CARGO_PKG_DESCRIPTION");
+                static RUST_VERSION: &'static str = env!("CARGO_PKG_RUST_VERSION");
                 static BIN_NAME: &'static str = env!("CARGO_BIN_NAME");
                 static CRATE_NAME: &'static str = env!("CARGO_CRATE_NAME");
 
@@ -1356,6 +1372,7 @@ fn crate_env_vars() {
                      assert_eq!("MIT OR Apache-2.0", LICENSE);
                      assert_eq!("license.txt", LICENSE_FILE);
                      assert_eq!("This is foo", DESCRIPTION);
+                     assert_eq!("1.61.0", RUST_VERSION);
                     let s = format!("{}.{}.{}-{}", VERSION_MAJOR,
                                     VERSION_MINOR, VERSION_PATCH, VERSION_PRE);
                     assert_eq!(s, VERSION);
@@ -5379,7 +5396,7 @@ required by package `bar v0.1.0 ([..]/foo)`
         )
         .run();
     p.cargo("build -Zavoid-dev-deps")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["avoid-dev-deps"])
         .run();
 }
 
@@ -5414,6 +5431,18 @@ fn good_cargo_config_jobs() {
 }
 
 #[cargo_test]
+fn good_jobs() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
+        .build();
+
+    p.cargo("build --jobs 1").run();
+
+    p.cargo("build --jobs -1").run();
+}
+
+#[cargo_test]
 fn invalid_cargo_config_jobs() {
     let p = project()
         .file("src/lib.rs", "")
@@ -5438,11 +5467,9 @@ fn invalid_jobs() {
         .file("src/foo.rs", &main_file(r#""i am foo""#, &[]))
         .build();
 
-    p.cargo("build --jobs -1")
-        .with_status(1)
-        .with_stderr_contains(
-            "error: Found argument '-1' which wasn't expected, or isn't valid in this context",
-        )
+    p.cargo("build --jobs 0")
+        .with_status(101)
+        .with_stderr_contains("error: jobs may not be 0")
         .run();
 
     p.cargo("build --jobs over9000")
@@ -6101,12 +6128,8 @@ fn target_directory_backup_exclusion() {
     assert!(!&cachedir_tag.is_file());
 }
 
-#[cargo_test]
+#[cargo_test(>=1.64, reason = "--diagnostic-width is stabilized in 1.64")]
 fn simple_terminal_width() {
-    if !is_nightly() {
-        // --terminal-width is unstable
-        return;
-    }
     let p = project()
         .file(
             "src/lib.rs",
@@ -6119,7 +6142,7 @@ fn simple_terminal_width() {
         .build();
 
     p.cargo("build -Zterminal-width=20")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["terminal-width"])
         .with_status(101)
         .with_stderr_contains("3 | ..._: () = 42;")
         .run();

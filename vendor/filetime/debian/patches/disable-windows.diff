@@ -1,19 +1,17 @@
-Index: filetime/Cargo.toml
-===================================================================
---- filetime.orig/Cargo.toml
-+++ filetime/Cargo.toml
-@@ -39,9 +39,9 @@ version = "0.2.9"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -39,9 +39,9 @@
  [target."cfg(unix)".dependencies.libc]
  version = "0.2.27"
  
 -[target."cfg(windows)".dependencies.windows-sys]
--version = "0.36.0"
+-version = "0.42.0"
 -features = [
 -    "Win32_Foundation",
 -    "Win32_Storage_FileSystem",
 -]
 +#[target."cfg(windows)".dependencies.windows-sys]
-+#version = "0.36.0"
++#version = "0.42.0"
 +#features = [
 +#    "Win32_Foundation",
 +#    "Win32_Storage_FileSystem",

@@ -2,7 +2,15 @@ Index: combine/Cargo.toml
 ===================================================================
 --- combine.orig/Cargo.toml
 +++ combine/Cargo.toml
-@@ -47,13 +47,6 @@ name = "combine"
+@@ -30,6 +30,7 @@ categories = [
+ license = "MIT"
+ repository = "https://github.com/Marwes/combine"
+ resolver = "1"
++autoexamples = false
+ 
+ [package.metadata.docs.rs]
+ all-features = true
+@@ -47,13 +48,6 @@ name = "combine"
  path = "src/lib.rs"
  
  [[example]]
@@ -16,31 +24,17 @@ Index: combine/Cargo.toml
  name = "date"
  
  [[example]]
-@@ -65,13 +58,6 @@ name = "readme"
- [[example]]
- name = "ini"
- 
--[[test]]
--name = "async"
--required-features = [
--    "tokio-02",
--    "futures-io-03",
--]
--
- [[bench]]
- name = "json"
- harness = false
-@@ -139,13 +125,6 @@ package = "futures"
+@@ -166,13 +160,6 @@ package = "futures"
  [dev-dependencies.once_cell]
  version = "1.0"
  
 -[dev-dependencies.partial-io]
--version = "0.3"
+-version = "0.5.4"
 -features = [
 -    "tokio",
 -    "quickcheck",
 -]
 -
  [dev-dependencies.quick-error]
- version = "1.0"
+ version = "2.0"
  

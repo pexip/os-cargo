@@ -1,9 +1,8 @@
 //! Tests for profiles.
 
-use std::env;
-
 use cargo_test_support::project;
 use cargo_test_support::registry::Package;
+use std::env;
 
 #[cargo_test]
 fn profile_overrides() {
@@ -324,6 +323,37 @@ fn profile_in_virtual_manifest_works() {
 }
 
 #[cargo_test]
+fn profile_lto_string_bool_dev() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [profile.dev]
+                lto = "true"
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("build")
+        .with_status(101)
+        .with_stderr(
+            "\
+error: failed to parse manifest at `[ROOT]/foo/Cargo.toml`
+
+Caused by:
+  `lto` setting of string `\"true\"` for `dev` profile is not a valid setting, \
+must be a boolean (`true`/`false`) or a string (`\"thin\"`/`\"fat\"`/`\"off\"`) or omitted.
+",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn profile_panic_test_bench() {
     let p = project()
         .file(
@@ -600,7 +630,7 @@ fn rustflags_works() {
         .build();
 
     p.cargo("build -v")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["profile-rustflags"])
         .with_stderr(
             "\
 [COMPILING] foo [..]
@@ -629,7 +659,7 @@ fn rustflags_works_with_env() {
 
     p.cargo("build -v")
         .env("CARGO_PROFILE_DEV_RUSTFLAGS", "-C link-dead-code=yes")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["profile-rustflags"])
         .with_stderr(
             "\
 [COMPILING] foo [..]
@@ -658,7 +688,7 @@ fn rustflags_requires_cargo_feature() {
         .build();
 
     p.cargo("build -v")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["profile-rustflags"])
         .with_status(101)
         .with_stderr(
             "\
@@ -693,7 +723,7 @@ Caused by:
         "#,
     );
     p.cargo("check")
-        .masquerade_as_nightly_cargo()
+        .masquerade_as_nightly_cargo(&["profile-rustflags"])
         .with_status(101)
         .with_stderr(
             "\

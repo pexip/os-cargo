@@ -86,7 +86,7 @@
 //! ```
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/serde_ignored/0.1.5")]
+#![doc(html_root_url = "https://docs.rs/serde_ignored/0.1.7")]
 #![allow(clippy::missing_errors_doc)]
 
 extern crate alloc;
@@ -436,6 +436,10 @@ where
     {
         self.de
             .deserialize_identifier(Wrap::new(visitor, self.callback, &self.path))
+    }
+
+    fn is_human_readable(&self) -> bool {
+        self.de.is_human_readable()
     }
 }
 
@@ -1008,6 +1012,10 @@ where
     {
         self.delegate
             .deserialize_identifier(CaptureKey::new(visitor, self.key))
+    }
+
+    fn is_human_readable(&self) -> bool {
+        self.delegate.is_human_readable()
     }
 }
 

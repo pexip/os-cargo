@@ -2,11 +2,9 @@ The crates.io release does not include the benches or examples, but there is
 still metadata related to them in Cargo.toml, clean it up so the autopkgtest
 can run succesfully.
 
-Index: textwrap/Cargo.toml
-===================================================================
---- textwrap.orig/Cargo.toml
-+++ textwrap/Cargo.toml
-@@ -43,26 +43,6 @@ resolver = "2"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -42,11 +42,6 @@
  [package.metadata.docs.rs]
  all-features = true
  
@@ -15,34 +13,6 @@ Index: textwrap/Cargo.toml
 -path = "examples/termwidth.rs"
 -required-features = ["terminal_size"]
 -
--[[bench]]
--name = "linear"
--path = "benches/linear.rs"
--harness = false
--
--[[bench]]
--name = "indent"
--path = "benches/indent.rs"
--harness = false
--
--[[bench]]
--name = "unfill"
--path = "benches/unfill.rs"
--harness = false
--
  [dependencies.smawk]
  version = "0.3.1"
  optional = true
-@@ -79,12 +59,6 @@ optional = true
- version = "0.1.9"
- optional = true
- 
--[dev-dependencies.criterion]
--version = "0.3.5"
--
--[dev-dependencies.lipsum]
--version = "0.8.0"
--
- [dev-dependencies.unic-emoji-char]
- version = "0.9.0"
- 

@@ -1,0 +1,47 @@
+This patch is based on a revert of upstream commmit 
+df9a851260f7178ba7c0886641cd73a76dde7a62 adapted for use in the Debian package
+by Peter Michael Green.
+
+Index: concolor/src/color/mod.rs
+===================================================================
+--- concolor.orig/src/color/mod.rs
++++ concolor/src/color/mod.rs
+@@ -111,12 +111,10 @@ fn init() -> usize {
+ 
+     #[cfg(feature = "interactive")]
+     {
+-        use is_terminal::IsTerminal;
+-        use std::io::{stderr, stdout};
+-        if stdout().is_terminal() {
++        if atty::is(atty::Stream::Stdout) {
+             flags |= InternalFlags::TTY_STDOUT;
+         }
+-        if stderr().is_terminal() {
++        if atty::is(atty::Stream::Stderr) {
+             flags |= InternalFlags::TTY_STDERR;
+         }
+     }
+Index: concolor/Cargo.toml
+===================================================================
+--- concolor.orig/Cargo.toml
++++ concolor/Cargo.toml
+@@ -48,8 +48,8 @@ optional = true
+ version = "^0.1.0"
+ optional = true
+ 
+-[dependencies.is-terminal]
+-version = "0.4"
++[dependencies.atty]
++version = "0.2.14"
+ optional = true
+ 
+ [features]
+@@ -71,7 +71,7 @@ core = [
+ ]
+ interactive = [
+     "core",
+-    "dep:is-terminal",
++    "dep:atty",
+ ]
+ no_color = [
+     "core",

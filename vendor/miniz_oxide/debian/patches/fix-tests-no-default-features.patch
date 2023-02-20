@@ -1,0 +1,66 @@
+Index: miniz-oxide/src/inflate/mod.rs
+===================================================================
+--- miniz-oxide.orig/src/inflate/mod.rs
++++ miniz-oxide/src/inflate/mod.rs
+@@ -277,25 +277,31 @@ pub fn decompress_slice_iter_to_slice<'o
+ #[cfg(test)]
+ mod test {
+     use super::{
+-        decompress_slice_iter_to_slice, decompress_to_vec_zlib, decompress_to_vec_zlib_with_limit,
+-        DecompressError, TINFLStatus,
++        decompress_slice_iter_to_slice, TINFLStatus,
++    };
++    #[cfg(feature = "with-alloc")]
++    use super::{
++        decompress_to_vec_zlib, decompress_to_vec_zlib_with_limit, DecompressError,
+     };
+     const ENCODED: [u8; 20] = [
+         120, 156, 243, 72, 205, 201, 201, 215, 81, 168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19,
+     ];
+ 
++    #[cfg(feature = "with-alloc")]
+     #[test]
+     fn decompress_vec() {
+         let res = decompress_to_vec_zlib(&ENCODED[..]).unwrap();
+         assert_eq!(res.as_slice(), &b"Hello, zlib!"[..]);
+     }
+ 
++    #[cfg(feature = "with-alloc")]
+     #[test]
+     fn decompress_vec_with_high_limit() {
+         let res = decompress_to_vec_zlib_with_limit(&ENCODED[..], 100_000).unwrap();
+         assert_eq!(res.as_slice(), &b"Hello, zlib!"[..]);
+     }
+ 
++    #[cfg(feature = "with-alloc")]
+     #[test]
+     fn fail_to_decompress_with_limit() {
+         let res = decompress_to_vec_zlib_with_limit(&ENCODED[..], 8);
+Index: miniz-oxide/src/inflate/stream.rs
+===================================================================
+--- miniz-oxide.orig/src/inflate/stream.rs
++++ miniz-oxide/src/inflate/stream.rs
+@@ -369,8 +369,10 @@ fn push_dict_out(state: &mut InflateStat
+ mod test {
+     use super::{inflate, InflateState};
+     use crate::{DataFormat, MZFlush, MZStatus};
++    #[cfg(feature = "with-alloc")]
+     use alloc::vec;
+ 
++    #[cfg(feature = "with-alloc")]
+     #[test]
+     fn test_state() {
+         let encoded = [
+Index: miniz-oxide/src/inflate/core.rs
+===================================================================
+--- miniz-oxide.orig/src/inflate/core.rs
++++ miniz-oxide/src/inflate/core.rs
+@@ -1700,7 +1700,7 @@ pub fn decompress(
+     )
+ }
+ 
+-#[cfg(test)]
++#[cfg(all(test,any(feature = "std",feature = "with-alloc")))]
+ mod test {
+     use super::*;
+ 

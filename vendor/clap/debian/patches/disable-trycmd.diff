@@ -1,8 +1,9 @@
-Index: clap/Cargo.toml
-===================================================================
---- clap.orig/Cargo.toml
-+++ clap/Cargo.toml
-@@ -425,9 +425,0 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -410,15 +410,6 @@
+ [dev-dependencies.trybuild]
+ version = "1.0.18"
+ 
 -[dev-dependencies.trycmd]
 -version = "0.13"
 -features = [
@@ -12,3 +13,6 @@ Index: clap/Cargo.toml
 -]
 -default-features = false
 -
+ [features]
+ cargo = ["once_cell"]
+ color = [

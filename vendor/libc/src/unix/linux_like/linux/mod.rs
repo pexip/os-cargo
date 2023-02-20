@@ -603,6 +603,28 @@ s! {
         pub src_length: ::__u64,
         pub dest_offset: ::__u64,
     }
+
+    pub struct __c_anonymous_ifru_map {
+        pub mem_start: ::c_ulong,
+        pub mem_end: ::c_ulong,
+        pub base_addr: ::c_ushort,
+        pub irq: ::c_uchar,
+        pub dma: ::c_uchar,
+        pub port: ::c_uchar,
+    }
+
+   pub struct in6_ifreq {
+       pub ifr6_addr: ::in6_addr,
+       pub ifr6_prefixlen: u32,
+       pub ifr6_ifindex: ::c_int,
+   }
+
+    pub struct option {
+        pub name: *const ::c_char,
+        pub has_arg: ::c_int,
+        pub flag: *mut ::c_int,
+        pub val: ::c_int,
+    }
 }
 
 s_no_extra_traits! {
@@ -689,6 +711,32 @@ s_no_extra_traits! {
         pub mq_curmsgs: ::c_long,
         #[cfg(not(all(target_arch = "x86_64", target_pointer_width = "32")))]
         pad: [::c_long; 4],
+    }
+
+    #[cfg(libc_union)]
+    pub union __c_anonymous_ifr_ifru {
+        pub ifru_addr: ::sockaddr,
+        pub ifru_dstaddr: ::sockaddr,
+        pub ifru_broadaddr: ::sockaddr,
+        pub ifru_netmask: ::sockaddr,
+        pub ifru_hwaddr: ::sockaddr,
+        pub ifru_flags: ::c_short,
+        pub ifru_ifindex: ::c_int,
+        pub ifru_metric: ::c_int,
+        pub ifru_mtu: ::c_int,
+        pub ifru_map: __c_anonymous_ifru_map,
+        pub ifru_slave: [::c_char; ::IFNAMSIZ],
+        pub ifru_newname: [::c_char; ::IFNAMSIZ],
+        pub ifru_data: *mut ::c_char,
+    }
+
+    pub struct ifreq {
+        /// interface name, e.g. "en0"
+        pub ifr_name: [::c_char; ::IFNAMSIZ],
+        #[cfg(libc_union)]
+        pub ifr_ifru: __c_anonymous_ifr_ifru,
+        #[cfg(not(libc_union))]
+        pub ifr_ifru: ::sockaddr,
     }
 }
 
@@ -1061,6 +1109,34 @@ cfg_if! {
                 self.mq_maxmsg.hash(state);
                 self.mq_msgsize.hash(state);
                 self.mq_curmsgs.hash(state);
+            }
+        }
+        #[cfg(libc_union)]
+        impl ::fmt::Debug for __c_anonymous_ifr_ifru {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifr_ifru")
+                    .field("ifru_addr", unsafe { &self.ifru_addr })
+                    .field("ifru_dstaddr", unsafe { &self.ifru_dstaddr })
+                    .field("ifru_broadaddr", unsafe { &self.ifru_broadaddr })
+                    .field("ifru_netmask", unsafe { &self.ifru_netmask })
+                    .field("ifru_hwaddr", unsafe { &self.ifru_hwaddr })
+                    .field("ifru_flags", unsafe { &self.ifru_flags })
+                    .field("ifru_ifindex", unsafe { &self.ifru_ifindex })
+                    .field("ifru_metric", unsafe { &self.ifru_metric })
+                    .field("ifru_mtu", unsafe { &self.ifru_mtu })
+                    .field("ifru_map", unsafe { &self.ifru_map })
+                    .field("ifru_slave", unsafe { &self.ifru_slave })
+                    .field("ifru_newname", unsafe { &self.ifru_newname })
+                    .field("ifru_data", unsafe { &self.ifru_data })
+                    .finish()
+            }
+        }
+        impl ::fmt::Debug for ifreq {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifreq")
+                    .field("ifr_name", &self.ifr_name)
+                    .field("ifr_ifru", &self.ifr_ifru)
+                    .finish()
             }
         }
     }
@@ -1507,6 +1583,10 @@ pub const AT_HWCAP2: ::c_ulong = 26;
 
 pub const AT_EXECFN: ::c_ulong = 31;
 
+// defined in arch/<arch>/include/uapi/asm/auxvec.h but has the same value
+// wherever it is defined.
+pub const AT_SYSINFO_EHDR: ::c_ulong = 33;
+
 pub const GLOB_ERR: ::c_int = 1 << 0;
 pub const GLOB_MARK: ::c_int = 1 << 1;
 pub const GLOB_NOSORT: ::c_int = 1 << 2;
@@ -1524,6 +1604,7 @@ pub const POSIX_MADV_RANDOM: ::c_int = 1;
 pub const POSIX_MADV_SEQUENTIAL: ::c_int = 2;
 pub const POSIX_MADV_WILLNEED: ::c_int = 3;
 pub const POSIX_SPAWN_USEVFORK: ::c_int = 64;
+pub const POSIX_SPAWN_SETSID: ::c_int = 128;
 
 pub const S_IEXEC: mode_t = 64;
 pub const S_IWRITE: mode_t = 128;
@@ -2552,6 +2633,24 @@ pub const SIOCGIFSLAVE: ::c_ulong = 0x00008929;
 pub const SIOCSIFSLAVE: ::c_ulong = 0x00008930;
 pub const SIOCADDMULTI: ::c_ulong = 0x00008931;
 pub const SIOCDELMULTI: ::c_ulong = 0x00008932;
+pub const SIOCGIFINDEX: ::c_ulong = 0x00008933;
+pub const SIOGIFINDEX: ::c_ulong = SIOCGIFINDEX;
+pub const SIOCSIFPFLAGS: ::c_ulong = 0x00008934;
+pub const SIOCGIFPFLAGS: ::c_ulong = 0x00008935;
+pub const SIOCDIFADDR: ::c_ulong = 0x00008936;
+pub const SIOCSIFHWBROADCAST: ::c_ulong = 0x00008937;
+pub const SIOCGIFCOUNT: ::c_ulong = 0x00008938;
+pub const SIOCGIFBR: ::c_ulong = 0x00008940;
+pub const SIOCSIFBR: ::c_ulong = 0x00008941;
+pub const SIOCGIFTXQLEN: ::c_ulong = 0x00008942;
+pub const SIOCSIFTXQLEN: ::c_ulong = 0x00008943;
+pub const SIOCETHTOOL: ::c_ulong = 0x00008946;
+pub const SIOCGMIIPHY: ::c_ulong = 0x00008947;
+pub const SIOCGMIIREG: ::c_ulong = 0x00008948;
+pub const SIOCSMIIREG: ::c_ulong = 0x00008949;
+pub const SIOCWANDEV: ::c_ulong = 0x0000894A;
+pub const SIOCOUTQNSD: ::c_ulong = 0x0000894B;
+pub const SIOCGSKNS: ::c_ulong = 0x0000894C;
 pub const SIOCDARP: ::c_ulong = 0x00008953;
 pub const SIOCGARP: ::c_ulong = 0x00008954;
 pub const SIOCSARP: ::c_ulong = 0x00008955;
@@ -2966,7 +3065,7 @@ pub const IN_Q_OVERFLOW: u32 = 0x0000_4000;
 pub const IN_IGNORED: u32 = 0x0000_8000;
 pub const IN_ONLYDIR: u32 = 0x0100_0000;
 pub const IN_DONT_FOLLOW: u32 = 0x0200_0000;
-// pub const IN_EXCL_UNLINK:   u32 = 0x0400_0000;
+pub const IN_EXCL_UNLINK: u32 = 0x0400_0000;
 
 // linux/keyctl.h
 pub const KEY_SPEC_THREAD_KEYRING: i32 = -1;
@@ -3012,8 +3111,8 @@ pub const KEYCTL_INSTANTIATE_IOV: u32 = 20;
 pub const KEYCTL_INVALIDATE: u32 = 21;
 pub const KEYCTL_GET_PERSISTENT: u32 = 22;
 
-// pub const IN_MASK_CREATE:   u32 = 0x1000_0000;
-// pub const IN_MASK_ADD:      u32 = 0x2000_0000;
+pub const IN_MASK_CREATE: u32 = 0x1000_0000;
+pub const IN_MASK_ADD: u32 = 0x2000_0000;
 pub const IN_ISDIR: u32 = 0x4000_0000;
 pub const IN_ONESHOT: u32 = 0x8000_0000;
 
@@ -3705,10 +3804,19 @@ extern "C" {
     pub fn strerror_r(errnum: ::c_int, buf: *mut c_char, buflen: ::size_t) -> ::c_int;
 
     pub fn abs(i: ::c_int) -> ::c_int;
-    pub fn atof(s: *const ::c_char) -> ::c_double;
     pub fn labs(i: ::c_long) -> ::c_long;
     pub fn rand() -> ::c_int;
     pub fn srand(seed: ::c_uint);
+
+    pub fn drand48() -> ::c_double;
+    pub fn erand48(xseed: *mut ::c_ushort) -> ::c_double;
+    pub fn lrand48() -> ::c_long;
+    pub fn nrand48(xseed: *mut ::c_ushort) -> ::c_long;
+    pub fn mrand48() -> ::c_long;
+    pub fn jrand48(xseed: *mut ::c_ushort) -> ::c_long;
+    pub fn srand48(seed: ::c_long);
+    pub fn seed48(xseed: *mut ::c_ushort) -> *mut ::c_ushort;
+    pub fn lcong48(p: *mut ::c_ushort);
 
     pub fn lutimes(file: *const ::c_char, times: *const ::timeval) -> ::c_int;
 
@@ -4343,6 +4451,13 @@ extern "C" {
 
     pub fn pthread_getname_np(thread: ::pthread_t, name: *mut ::c_char, len: ::size_t) -> ::c_int;
     pub fn pthread_setname_np(thread: ::pthread_t, name: *const ::c_char) -> ::c_int;
+    pub fn getopt_long(
+        argc: ::c_int,
+        argv: *const *mut c_char,
+        optstring: *const c_char,
+        longopts: *const option,
+        longindex: *mut ::c_int,
+    ) -> ::c_int;
 }
 
 cfg_if! {

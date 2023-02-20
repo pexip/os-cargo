@@ -1,8 +1,6 @@
-Index: clap/Cargo.toml
-===================================================================
---- clap.orig/Cargo.toml
-+++ clap/Cargo.toml
-@@ -358,7 +358,6 @@ version = "1"
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -354,7 +354,6 @@
  
  [dependencies.once_cell]
  version = "1.12.0"
@@ -10,7 +8,7 @@ Index: clap/Cargo.toml
  
  [dependencies.regex]
  version = "1.0"
-@@ -408,7 +407,7 @@ version = "1.1.0"
+@@ -404,7 +403,7 @@
  version = "1.0.18"
  
  [features]
@@ -19,7 +17,7 @@ Index: clap/Cargo.toml
  color = [
      "atty",
      "termcolor",
-@@ -424,8 +423,7 @@ default = [
+@@ -420,8 +419,7 @@
  ]
  deprecated = []
  derive = [

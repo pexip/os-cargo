@@ -1,0 +1,50 @@
+Index: hmac/tests/mod.rs
+===================================================================
+--- hmac.orig/tests/mod.rs
++++ hmac/tests/mod.rs
+@@ -5,7 +5,7 @@ use digest::new_resettable_mac_test as t
+ use hmac::{Hmac, SimpleHmac};
+ use sha1::Sha1;
+ use sha2::{Sha224, Sha256, Sha384, Sha512};
+-use streebog::{Streebog256, Streebog512};
++//use streebog::{Streebog256, Streebog512};
+ 
+ // Test vectors from RFC 2104, plus wiki test
+ test!(hmac_md5_rfc2104, "md5", Hmac<md5::Md5>);
+@@ -23,9 +23,9 @@ test!(hmac_sha512_rfc4231_simple, "sha51
+ 
+ // Test vectors from R 50.1.113-2016:
+ // https://tc26.ru/standard/rs/Р 50.1.113-2016.pdf
+-test!(hmac_streebog256, "streebog256", Hmac<Streebog256>);
+-test!(hmac_streebog512, "streebog512", Hmac<Streebog512>);
+-test!(
++//test!(hmac_streebog256, "streebog256", Hmac<Streebog256>);
++//test!(hmac_streebog512, "streebog512", Hmac<Streebog512>);
++/*test!(
+     hmac_streebog256_simple,
+     "streebog256",
+     SimpleHmac<Streebog256>
+@@ -34,7 +34,7 @@ test!(
+     hmac_streebog512_simple,
+     "streebog512",
+     SimpleHmac<Streebog512>
+-);
++);*/
+ 
+ // Tests from Project Wycheproof:
+ // https://github.com/google/wycheproof
+Index: hmac/Cargo.toml
+===================================================================
+--- hmac.orig/Cargo.toml
++++ hmac/Cargo.toml
+@@ -46,10 +46,6 @@ default-features = false
+ version = "0.10"
+ default-features = false
+ 
+-[dev-dependencies.streebog]
+-version = "0.10"
+-default-features = false
+-
+ [features]
+ reset = []
+ std = ["digest/std"]
