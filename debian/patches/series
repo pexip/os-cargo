@@ -4,12 +4,8 @@
 2200-workaround-x32-test.patch
 disable-fs-specific-test.patch
 0003-tests-add-missing-cross-disabled-checks.patch
+2000-fix-test-stderr.patch
+0004-test-loose-overly-matches-for-git-cli-output.patch
 
-cve/CVE-2022-46176-01-validate-ssh-host.keys.patch
-cve/CVE-2022-46176-02-add-support-for-deserializing-vec-value-string.patch
-cve/CVE-2022-46176-03-support-configuring-ssh-known-hosts.patch
-cve/CVE-2022-46176-04-add-some-known-hosts-tests-and-fix-comma-bug.patch
-cve/CVE-2022-46176-05-remove-let-else.patch
-cve/CVE-2022-46176-06-add-test-for-config-value-in-toml-array.patch
-cve/CVE-2022-46176-07-support-hashed-hostnames.patch
-cve/CVE-2022-46176-08-eliminate-let-else.patch
+update-libgit2.patch
+1000-riscv64-skip-split-debuginfo-test.patch

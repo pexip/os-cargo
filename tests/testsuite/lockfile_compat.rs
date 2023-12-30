@@ -52,7 +52,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -98,7 +98,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -111,7 +111,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         .file("Cargo.lock", &old_lockfile)
         .build();
 
-    p.cargo("build --locked").run();
+    p.cargo("check --locked").run();
 
     let lock = p.read_lockfile();
     assert_match_exact(&old_lockfile, &lock);
@@ -125,7 +125,7 @@ fn totally_wild_checksums_works() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -158,7 +158,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
     let p = p.build();
 
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     let lock = p.read_lockfile();
     assert_match_exact(
@@ -191,7 +191,7 @@ fn wrong_checksum_is_an_error() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -223,7 +223,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
     let p = p.build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr(
             "\
@@ -254,7 +254,7 @@ fn unlisted_checksum_is_bad_if_we_calculate() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -320,7 +320,7 @@ fn listed_checksum_bad_if_we_cannot_compute() {
             "Cargo.toml",
             &format!(
                 r#"
-                    [project]
+                    [package]
                     name = "foo"
                     version = "0.0.1"
                     authors = []
@@ -398,7 +398,7 @@ fn current_lockfile_format() {
         .file("src/lib.rs", "");
     let p = p.build();
 
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     let actual = p.read_lockfile();
 
@@ -460,7 +460,7 @@ dependencies = [
 
     let p = p.build();
 
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     let lock = p.read_lockfile();
     assert_match_exact(
@@ -493,7 +493,7 @@ fn locked_correct_error() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -505,7 +505,7 @@ fn locked_correct_error() {
         .file("src/lib.rs", "");
     let p = p.build();
 
-    p.cargo("build --locked")
+    p.cargo("check --locked")
         .with_status(101)
         .with_stderr(
             "\
@@ -545,7 +545,7 @@ dependencies = [
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -604,7 +604,7 @@ dependencies = [
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -619,7 +619,7 @@ dependencies = [
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.2.0"
             "#,
@@ -670,7 +670,7 @@ dependencies = [
             "Cargo.toml",
             &format!(
                 r#"
-                    [project]
+                    [package]
                     name = "foo"
                     version = "0.0.1"
                     authors = []
@@ -697,7 +697,7 @@ fn lock_from_the_future() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -749,7 +749,7 @@ dependencies = [
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -762,7 +762,7 @@ dependencies = [
         .file("Cargo.lock", &lockfile)
         .build();
 
-    p.cargo("build --locked").run();
+    p.cargo("check --locked").run();
 }
 
 #[cargo_test]
@@ -773,7 +773,7 @@ fn same_name_version_different_sources() {
             .file(
                 "Cargo.toml",
                 r#"
-                    [project]
+                    [package]
                     name = "foo"
                     version = "0.1.0"
                 "#,
@@ -817,7 +817,7 @@ source = "git+{url}#{sha}"
             "Cargo.toml",
             &format!(
                 r#"
-                    [project]
+                    [package]
                     name = "foo"
                     version = "0.1.0"
 
@@ -832,7 +832,7 @@ source = "git+{url}#{sha}"
         .file("Cargo.lock", &lockfile)
         .build();
 
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     assert_eq!(p.read_file("Cargo.lock"), lockfile);
 }
@@ -874,7 +874,7 @@ dependencies = [
 ]"#,
         )
         .build();
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr(
             "\

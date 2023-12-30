@@ -1,2 +1,3 @@
 disable-vendor.patch
 disable-bssl.patch
+relax-bindgen.diff

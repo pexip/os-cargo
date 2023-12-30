@@ -1,6 +1,7 @@
 use libc::{self, c_char, c_int, c_void};
 use std::cmp::Ordering;
 use std::ffi::{CStr, CString};
+use std::iter::FusedIterator;
 use std::marker;
 use std::mem;
 use std::ops::Range;
@@ -36,9 +37,9 @@ pub struct TreeIter<'tree> {
 /// A binary indicator of whether a tree walk should be performed in pre-order
 /// or post-order.
 pub enum TreeWalkMode {
-    /// Runs the traversal in pre order.
+    /// Runs the traversal in pre-order.
     PreOrder = 0,
-    /// Runs the traversal in post order.
+    /// Runs the traversal in post-order.
     PostOrder = 1,
 }
 
@@ -94,12 +95,12 @@ impl<'repo> Tree<'repo> {
         }
     }
 
-    /// Traverse the entries in a tree and its subtrees in post or pre order.
+    /// Traverse the entries in a tree and its subtrees in post or pre-order.
     /// The callback function will be run on each node of the tree that's
     /// walked. The return code of this function will determine how the walk
     /// continues.
     ///
-    /// libgit requires that the callback be an integer, where 0 indicates a
+    /// libgit2 requires that the callback be an integer, where 0 indicates a
     /// successful visit, 1 skips the node, and -1 aborts the traversal completely.
     /// You may opt to use the enum [`TreeWalkResult`](TreeWalkResult) instead.
     ///
@@ -113,7 +114,7 @@ impl<'repo> Tree<'repo> {
     /// assert_eq!(ct, 1);
     /// ```
     ///
-    /// See [libgit documentation][1] for more information.
+    /// See [libgit2 documentation][1] for more information.
     ///
     /// [1]: https://libgit2.org/libgit2/#HEAD/group/tree/git_tree_walk
     pub fn walk<C, T>(&self, mode: TreeWalkMode, mut callback: C) -> Result<(), Error>
@@ -121,10 +122,6 @@ impl<'repo> Tree<'repo> {
         C: FnMut(&str, &TreeEntry<'_>) -> T,
         T: Into<i32>,
     {
-        #[allow(unused)]
-        struct TreeWalkCbData<'a, T> {
-            pub callback: &'a mut TreeWalkCb<'a, T>,
-        }
         unsafe {
             let mut data = TreeWalkCbData {
                 callback: &mut callback,
@@ -208,6 +205,10 @@ impl<'repo> Tree<'repo> {
 
 type TreeWalkCb<'a, T> = dyn FnMut(&str, &TreeEntry<'_>) -> T + 'a;
 
+struct TreeWalkCbData<'a, T> {
+    callback: &'a mut TreeWalkCb<'a, T>,
+}
+
 extern "C" fn treewalk_cb<T: Into<i32>>(
     root: *const c_char,
     entry: *const raw::git_tree_entry,
@@ -219,8 +220,9 @@ extern "C" fn treewalk_cb<T: Into<i32>>(
             _ => return -1,
         };
         let entry = entry_from_raw_const(entry);
-        let payload = payload as *mut &mut TreeWalkCb<'_, T>;
-        (*payload)(root, &entry).into()
+        let payload = &mut *(payload as *mut TreeWalkCbData<'_, T>);
+        let callback = &mut payload.callback;
+        callback(root, &entry).into()
     }) {
         Some(value) => value,
         None => -1,
@@ -401,6 +403,7 @@ impl<'tree> DoubleEndedIterator for TreeIter<'tree> {
         self.range.next_back().and_then(|i| self.tree.get(i))
     }
 }
+impl<'tree> FusedIterator for TreeIter<'tree> {}
 impl<'tree> ExactSizeIterator for TreeIter<'tree> {}
 
 #[cfg(test)]

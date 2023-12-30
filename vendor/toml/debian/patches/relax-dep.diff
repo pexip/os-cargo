@@ -1,0 +1,22 @@
+Index: toml/Cargo.toml
+===================================================================
+--- toml.orig/Cargo.toml
++++ toml/Cargo.toml
+@@ -117,7 +117,7 @@ name = "encoder_compliance"
+ harness = false
+ 
+ [dependencies.indexmap]
+-version = "2.0.0"
++version = ">= 1.9.1"
+ optional = true
+ 
+ [dependencies.serde]
+@@ -144,7 +144,7 @@ features = ["derive"]
+ version = "1.0.96"
+ 
+ [dev-dependencies.snapbox]
+-version = "0.4.11"
++version = "0.4.8"
+ 
+ [dev-dependencies.toml-test-harness]
+ version = "0.4.3"

@@ -1,0 +1,7 @@
+--- getrandom.orig/Cargo.toml
++++ getrandom/Cargo.toml
+@@ -61 +60,0 @@
+-    "wasi/rustc-dep-of-std",
+@@ -78,2 +76,0 @@
+-[target."cfg(target_os = \"wasi\")".dependencies.wasi]
+-version = "0.11"

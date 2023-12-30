@@ -21,10 +21,10 @@ use crate::hash::MessageDigest;
 use crate::ocsp::{OcspResponse, OcspResponseStatus};
 use crate::pkey::PKey;
 use crate::srtp::SrtpProfileId;
-use crate::ssl;
 use crate::ssl::test::server::Server;
 #[cfg(any(ossl110, ossl111, libressl261))]
 use crate::ssl::SslVersion;
+use crate::ssl::{self, NameType, SslConnectorBuilder};
 #[cfg(ossl111)]
 use crate::ssl::{ClientHelloResponse, ExtensionContext};
 use crate::ssl::{
@@ -84,17 +84,21 @@ fn verify_trusted_with_set_cert() {
 
 #[test]
 fn verify_untrusted_callback_override_ok() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
     let server = Server::builder().build();
 
     let mut client = server.client();
     client
         .ctx()
         .set_verify_callback(SslVerifyMode::PEER, |_, x509| {
+            CALLED_BACK.store(true, Ordering::SeqCst);
             assert!(x509.current_cert().is_some());
             true
         });
 
     client.connect();
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -113,6 +117,8 @@ fn verify_untrusted_callback_override_bad() {
 
 #[test]
 fn verify_trusted_callback_override_ok() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
     let server = Server::builder().build();
 
     let mut client = server.client();
@@ -120,11 +126,13 @@ fn verify_trusted_callback_override_ok() {
     client
         .ctx()
         .set_verify_callback(SslVerifyMode::PEER, |_, x509| {
+            CALLED_BACK.store(true, Ordering::SeqCst);
             assert!(x509.current_cert().is_some());
             true
         });
 
     client.connect();
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -144,21 +152,27 @@ fn verify_trusted_callback_override_bad() {
 
 #[test]
 fn verify_callback_load_certs() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
     let server = Server::builder().build();
 
     let mut client = server.client();
     client
         .ctx()
         .set_verify_callback(SslVerifyMode::PEER, |_, x509| {
+            CALLED_BACK.store(true, Ordering::SeqCst);
             assert!(x509.current_cert().is_some());
             true
         });
 
     client.connect();
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 #[test]
 fn verify_trusted_get_error_ok() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
     let server = Server::builder().build();
 
     let mut client = server.client();
@@ -166,11 +180,13 @@ fn verify_trusted_get_error_ok() {
     client
         .ctx()
         .set_verify_callback(SslVerifyMode::PEER, |_, x509| {
+            CALLED_BACK.store(true, Ordering::SeqCst);
             assert_eq!(x509.error(), X509VerifyResult::OK);
             true
         });
 
     client.connect();
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -451,7 +467,7 @@ fn test_alpn_server_advertise_multiple() {
 }
 
 #[test]
-#[cfg(any(ossl110))]
+#[cfg(ossl110)]
 fn test_alpn_server_select_none_fatal() {
     let mut server = Server::builder();
     server.ctx().set_alpn_select_callback(|_, client| {
@@ -469,8 +485,11 @@ fn test_alpn_server_select_none_fatal() {
 #[test]
 #[cfg(any(ossl102, libressl261))]
 fn test_alpn_server_select_none() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
     let mut server = Server::builder();
     server.ctx().set_alpn_select_callback(|_, client| {
+        CALLED_BACK.store(true, Ordering::SeqCst);
         ssl::select_next_proto(b"\x08http/1.1\x08spdy/3.1", client).ok_or(ssl::AlpnError::NOACK)
     });
     let server = server.build();
@@ -479,6 +498,7 @@ fn test_alpn_server_select_none() {
     client.ctx().set_alpn_protos(b"\x06http/2").unwrap();
     let s = client.connect();
     assert_eq!(None, s.ssl().selected_alpn_protocol());
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -595,7 +615,7 @@ fn refcount_ssl_context() {
 
     {
         let new_ctx_a = SslContext::builder(SslMethod::tls()).unwrap().build();
-        let _new_ctx_b = ssl.set_ssl_context(&new_ctx_a);
+        ssl.set_ssl_context(&new_ctx_a).unwrap();
     }
 }
 
@@ -731,7 +751,7 @@ fn connector_no_hostname_still_verifies() {
 }
 
 #[test]
-fn connector_no_hostname_can_disable_verify() {
+fn connector_can_disable_verify() {
     let server = Server::builder().build();
 
     let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
@@ -742,10 +762,64 @@ fn connector_no_hostname_can_disable_verify() {
     let mut s = connector
         .configure()
         .unwrap()
-        .verify_hostname(false)
+        .connect("fizzbuzz.com", s)
+        .unwrap();
+    s.read_exact(&mut [0]).unwrap();
+}
+
+#[test]
+fn connector_does_use_sni_with_dnsnames() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
+    let mut builder = Server::builder();
+    builder.ctx().set_servername_callback(|ssl, _| {
+        assert_eq!(ssl.servername(NameType::HOST_NAME), Some("foobar.com"));
+        CALLED_BACK.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    let server = builder.build();
+
+    let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
+    connector.set_ca_file("test/root-ca.pem").unwrap();
+
+    let s = server.connect_tcp();
+    let mut s = connector
+        .build()
+        .configure()
+        .unwrap()
         .connect("foobar.com", s)
         .unwrap();
     s.read_exact(&mut [0]).unwrap();
+
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
+}
+
+#[test]
+fn connector_doesnt_use_sni_with_ips() {
+    static CALLED_BACK: AtomicBool = AtomicBool::new(false);
+
+    let mut builder = Server::builder();
+    builder.ctx().set_servername_callback(|ssl, _| {
+        assert_eq!(ssl.servername(NameType::HOST_NAME), None);
+        CALLED_BACK.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    let server = builder.build();
+
+    let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
+    // The server's cert isn't issued for 127.0.0.1 but we don't care for this test.
+    connector.set_verify(SslVerifyMode::NONE);
+
+    let s = server.connect_tcp();
+    let mut s = connector
+        .build()
+        .configure()
+        .unwrap()
+        .connect("127.0.0.1", s)
+        .unwrap();
+    s.read_exact(&mut [0]).unwrap();
+
+    assert!(CALLED_BACK.load(Ordering::SeqCst));
 }
 
 fn test_mozilla_server(new: fn(SslMethod) -> Result<SslAcceptorBuilder, ErrorStack>) {
@@ -1384,6 +1458,9 @@ fn client_hello() {
         assert!(ssl.client_hello_session_id().is_some());
         assert!(ssl.client_hello_ciphers().is_some());
         assert!(ssl.client_hello_compression_methods().is_some());
+        assert!(ssl
+            .bytes_to_cipher_list(ssl.client_hello_ciphers().unwrap(), ssl.client_hello_isv2())
+            .is_ok());
 
         CALLED_BACK.store(true, Ordering::SeqCst);
         Ok(ClientHelloResponse::SUCCESS)
@@ -1421,4 +1498,73 @@ fn add_chain_cert() {
     let cert = X509::from_pem(CERT).unwrap();
     let mut ssl = Ssl::new(&ctx).unwrap();
     assert!(ssl.add_chain_cert(cert).is_ok());
+}
+#[test]
+#[cfg(ossl111)]
+fn set_ssl_certificate_key_related_api() {
+    let cert_str: &str = include_str!("../../../test/cert.pem");
+    let key_str: &str = include_str!("../../../test/key.pem");
+    let ctx = SslContext::builder(SslMethod::tls()).unwrap().build();
+    let cert_x509 = X509::from_pem(CERT).unwrap();
+    let mut ssl = Ssl::new(&ctx).unwrap();
+    assert!(ssl.set_method(SslMethod::tls()).is_ok());
+    ssl.set_private_key_file("test/key.pem", SslFiletype::PEM)
+        .unwrap();
+    {
+        let pkey = String::from_utf8(
+            ssl.private_key()
+                .unwrap()
+                .private_key_to_pem_pkcs8()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(pkey.lines().eq(key_str.lines()));
+    }
+    let pkey = PKey::private_key_from_pem(KEY).unwrap();
+    ssl.set_private_key(pkey.as_ref()).unwrap();
+    {
+        let pkey = String::from_utf8(
+            ssl.private_key()
+                .unwrap()
+                .private_key_to_pem_pkcs8()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(pkey.lines().eq(key_str.lines()));
+    }
+    ssl.set_certificate(cert_x509.as_ref()).unwrap();
+    let cert = String::from_utf8(ssl.certificate().unwrap().to_pem().unwrap()).unwrap();
+    assert!(cert.lines().eq(cert_str.lines()));
+    ssl.add_client_ca(cert_x509.as_ref()).unwrap();
+    ssl.set_min_proto_version(Some(SslVersion::TLS1_2)).unwrap();
+    ssl.set_max_proto_version(Some(SslVersion::TLS1_3)).unwrap();
+    ssl.set_cipher_list("HIGH:!aNULL:!MD5").unwrap();
+    ssl.set_ciphersuites("TLS_AES_128_GCM_SHA256").unwrap();
+    let x509 = X509::from_pem(ROOT_CERT).unwrap();
+    let mut builder = X509StoreBuilder::new().unwrap();
+    builder.add_cert(x509).unwrap();
+    let store = builder.build();
+    ssl.set_verify_cert_store(store).unwrap();
+}
+
+#[test]
+#[cfg(ossl110)]
+fn test_ssl_set_cert_chain_file() {
+    let ctx = SslContext::builder(SslMethod::tls()).unwrap().build();
+    let mut ssl = Ssl::new(&ctx).unwrap();
+    ssl.set_certificate_chain_file("test/cert.pem").unwrap();
+}
+
+#[test]
+#[cfg(ossl111)]
+fn set_num_tickets() {
+    let mut ctx = SslContext::builder(SslMethod::tls_server()).unwrap();
+    ctx.set_num_tickets(3).unwrap();
+    let ctx = ctx.build();
+    assert_eq!(3, ctx.num_tickets());
+
+    let mut ssl = Ssl::new(&ctx).unwrap();
+    ssl.set_num_tickets(5).unwrap();
+    let ssl = ssl;
+    assert_eq!(5, ssl.num_tickets());
 }

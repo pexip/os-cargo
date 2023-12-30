@@ -1,0 +1,15 @@
+Index: getrandom/tests/rdrand.rs
+===================================================================
+--- getrandom.orig/tests/rdrand.rs
++++ getrandom/tests/rdrand.rs
+@@ -1,3 +1,4 @@
++/*
+ // We only test the RDRAND-based RNG source on supported architectures.
+ #![cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+ 
+@@ -17,4 +18,4 @@
+     rdrand::getrandom_inner(unsafe { util::slice_as_uninit_mut(dest) })?;
+     Ok(())
+ }
+-mod common;
++mod common;*/

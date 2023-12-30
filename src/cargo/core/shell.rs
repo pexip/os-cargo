@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io::prelude::*;
 
+use is_terminal::IsTerminal;
 use termcolor::Color::{Cyan, Green, Red, Yellow};
 use termcolor::{self, Color, ColorSpec, StandardStream, WriteColor};
 
@@ -13,9 +14,12 @@ pub enum TtyWidth {
 }
 
 impl TtyWidth {
-    /// Returns the width provided with `-Z terminal-width` to rustc to truncate diagnostics with
-    /// long lines.
+    /// Returns the width of the terminal to use for diagnostics (which is
+    /// relayed to rustc via `--diagnostic-width`).
     pub fn diagnostic_terminal_width(&self) -> Option<usize> {
+        if let Ok(width) = std::env::var("__CARGO_TEST_TTY_WIDTH_DO_NOT_USE_THIS") {
+            return Some(width.parse().unwrap());
+        }
         match *self {
             TtyWidth::NoTty | TtyWidth::Guess(_) => None,
             TtyWidth::Known(width) => Some(width),
@@ -99,14 +103,10 @@ impl Shell {
         let auto_clr = ColorChoice::CargoAuto;
         Shell {
             output: ShellOut::Stream {
-                stdout: StandardStream::stdout(
-                    auto_clr.to_termcolor_color_choice(atty::Stream::Stdout),
-                ),
-                stderr: StandardStream::stderr(
-                    auto_clr.to_termcolor_color_choice(atty::Stream::Stderr),
-                ),
+                stdout: StandardStream::stdout(auto_clr.to_termcolor_color_choice(Stream::Stdout)),
+                stderr: StandardStream::stderr(auto_clr.to_termcolor_color_choice(Stream::Stderr)),
                 color_choice: ColorChoice::CargoAuto,
-                stderr_tty: atty::is(atty::Stream::Stderr),
+                stderr_tty: std::io::stderr().is_terminal(),
             },
             verbosity: Verbosity::Verbose,
             needs_clear: false,
@@ -301,8 +301,8 @@ impl Shell {
                 ),
             };
             *color_choice = cfg;
-            *stdout = StandardStream::stdout(cfg.to_termcolor_color_choice(atty::Stream::Stdout));
-            *stderr = StandardStream::stderr(cfg.to_termcolor_color_choice(atty::Stream::Stderr));
+            *stdout = StandardStream::stdout(cfg.to_termcolor_color_choice(Stream::Stdout));
+            *stderr = StandardStream::stderr(cfg.to_termcolor_color_choice(Stream::Stderr));
         }
         Ok(())
     }
@@ -496,17 +496,31 @@ impl ShellOut {
 
 impl ColorChoice {
     /// Converts our color choice to termcolor's version.
-    fn to_termcolor_color_choice(self, stream: atty::Stream) -> termcolor::ColorChoice {
+    fn to_termcolor_color_choice(self, stream: Stream) -> termcolor::ColorChoice {
         match self {
             ColorChoice::Always => termcolor::ColorChoice::Always,
             ColorChoice::Never => termcolor::ColorChoice::Never,
             ColorChoice::CargoAuto => {
-                if atty::is(stream) {
+                if stream.is_terminal() {
                     termcolor::ColorChoice::Auto
                 } else {
                     termcolor::ColorChoice::Never
                 }
             }
+        }
+    }
+}
+
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+impl Stream {
+    fn is_terminal(self) -> bool {
+        match self {
+            Self::Stdout => std::io::stdout().is_terminal(),
+            Self::Stderr => std::io::stderr().is_terminal(),
         }
     }
 }
@@ -543,12 +557,17 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use std::{cmp, mem, ptr};
-    use winapi::um::fileapi::*;
-    use winapi::um::handleapi::*;
-    use winapi::um::processenv::*;
-    use winapi::um::winbase::*;
-    use winapi::um::wincon::*;
-    use winapi::um::winnt::*;
+
+    use windows_sys::core::PCSTR;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileA, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetConsoleScreenBufferInfo, GetStdHandle, CONSOLE_SCREEN_BUFFER_INFO, STD_ERROR_HANDLE,
+    };
+    use windows_sys::Win32::System::SystemServices::{GENERIC_READ, GENERIC_WRITE};
 
     pub(super) use super::{default_err_erase_line as err_erase_line, TtyWidth};
 
@@ -564,13 +583,13 @@ mod imp {
             // INVALID_HANDLE_VALUE. Use an alternate method which works
             // in that case as well.
             let h = CreateFileA(
-                "CONOUT$\0".as_ptr() as *const CHAR,
+                "CONOUT$\0".as_ptr() as PCSTR,
                 GENERIC_READ | GENERIC_WRITE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 ptr::null_mut(),
                 OPEN_EXISTING,
                 0,
-                ptr::null_mut(),
+                0,
             );
             if h == INVALID_HANDLE_VALUE {
                 return TtyWidth::NoTty;

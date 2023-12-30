@@ -1,10 +1,12 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _};
 use cargo::core::shell::Shell;
 use cargo::core::{features, CliUnstable};
 use cargo::{self, drop_print, drop_println, CliResult, Config};
-use clap::{AppSettings, Arg, ArgMatches};
+use clap::{Arg, ArgMatches};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fmt::Write;
 
 use super::commands;
@@ -25,14 +27,35 @@ lazy_static::lazy_static! {
 pub fn main(config: &mut LazyConfig) -> CliResult {
     let args = cli().try_get_matches()?;
 
+    // Update the process-level notion of cwd
+    // This must be completed before config is initialized
+    assert_eq!(config.is_init(), false);
+    if let Some(new_cwd) = args.get_one::<std::path::PathBuf>("directory") {
+        // This is a temporary hack. This cannot access `Config`, so this is a bit messy.
+        // This does not properly parse `-Z` flags that appear after the subcommand.
+        // The error message is not as helpful as the standard one.
+        let nightly_features_allowed = matches!(&*features::channel(), "nightly" | "dev");
+        if !nightly_features_allowed
+            || (nightly_features_allowed
+                && !args
+                    .get_many("unstable-features")
+                    .map(|mut z| z.any(|value: &String| value == "unstable-options"))
+                    .unwrap_or(false))
+        {
+            return Err(anyhow::format_err!(
+                "the `-C` flag is unstable, \
+                 pass `-Z unstable-options` on the nightly channel to enable it"
+            )
+            .into());
+        }
+        std::env::set_current_dir(&new_cwd).context("could not change to requested directory")?;
+    }
+
     // CAUTION: Be careful with using `config` until it is configured below.
     // In general, try to avoid loading config values unless necessary (like
     // the [alias] table).
     let config = config.get_mut();
 
-    // Global args need to be extracted before expanding aliases because the
-    // clap code for extracting a subcommand discards global options
-    // (appearing before the subcommand).
     let (expanded_args, global_args) = expand_aliases(config, args, vec![])?;
 
     if expanded_args
@@ -70,7 +93,7 @@ Available unstable (nightly-only) flags:
 
 {}
 
-Run with 'cargo -Z [FLAG] [SUBCOMMAND]'",
+Run with 'cargo -Z [FLAG] [COMMAND]'",
             joined
         );
         if !config.nightly_features_allowed {
@@ -150,7 +173,7 @@ Run with 'cargo -Z [FLAG] [SUBCOMMAND]'",
         }
     };
     config_configure(config, &expanded_args, subcommand_args, global_args)?;
-    super::init_git_transports(config);
+    super::init_git(config);
 
     execute_subcommand(config, cmd, subcommand_args)
 }
@@ -222,41 +245,54 @@ fn add_ssl(version_string: &mut String) {
     }
 }
 
+/// Expands aliases recursively to collect all the command line arguments.
+///
+/// [`GlobalArgs`] need to be extracted before expanding aliases because the
+/// clap code for extracting a subcommand discards global options
+/// (appearing before the subcommand).
 fn expand_aliases(
     config: &mut Config,
     args: ArgMatches,
     mut already_expanded: Vec<String>,
 ) -> Result<(ArgMatches, GlobalArgs), CliError> {
     if let Some((cmd, args)) = args.subcommand() {
-        match (
-            commands::builtin_exec(cmd),
-            super::aliased_command(config, cmd)?,
-        ) {
-            (Some(_), Some(_)) => {
+        let exec = commands::builtin_exec(cmd);
+        let aliased_cmd = super::aliased_command(config, cmd);
+
+        match (exec, aliased_cmd) {
+            (Some(_), Ok(Some(_))) => {
                 // User alias conflicts with a built-in subcommand
                 config.shell().warn(format!(
                     "user-defined alias `{}` is ignored, because it is shadowed by a built-in command",
                     cmd,
                 ))?;
             }
-            (Some(_), None) => {
-                // Command is built-in and is not conflicting with alias, but contains ignored values.
-                if let Some(mut values) = args.get_many::<String>("") {
-                    config.shell().warn(format!(
-                        "trailing arguments after built-in command `{}` are ignored: `{}`",
+            (Some(_), Ok(None) | Err(_)) => {
+                // Here we ignore errors from aliasing as we already favor built-in command,
+                // and alias doesn't involve in this context.
+
+                if let Some(values) = args.get_many::<OsString>("") {
+                    // Command is built-in and is not conflicting with alias, but contains ignored values.
+                    return Err(anyhow::format_err!(
+                        "\
+trailing arguments after built-in command `{}` are unsupported: `{}`
+
+To pass the arguments to the subcommand, remove `--`",
                         cmd,
-                        values.join(" "),
-                    ))?;
+                        values.map(|s| s.to_string_lossy()).join(" "),
+                    )
+                    .into());
                 }
             }
-            (None, None) => {}
-            (_, Some(mut alias)) => {
-                // Check if this alias is shadowing an external subcommand
+            (None, Ok(None)) => {}
+            (None, Ok(Some(alias))) => {
+                // Check if a user-defined alias is shadowing an external subcommand
                 // (binary of the form `cargo-<subcommand>`)
                 // Currently this is only a warning, but after a transition period this will become
                 // a hard error.
-                if let Some(path) = super::find_external_subcommand(config, cmd) {
-                    config.shell().warn(format!(
+                if super::builtin_aliases_execs(cmd).is_none() {
+                    if let Some(path) = super::find_external_subcommand(config, cmd) {
+                        config.shell().warn(format!(
                         "\
 user-defined alias `{}` is shadowing an external subcommand found at: `{}`
 This was previously accepted but is being phased out; it will become a hard error in a future release.
@@ -264,9 +300,14 @@ For more information, see issue #10049 <https://github.com/rust-lang/cargo/issue
                         cmd,
                         path.display(),
                     ))?;
+                    }
                 }
 
-                alias.extend(args.get_many::<String>("").unwrap_or_default().cloned());
+                let mut alias = alias
+                    .into_iter()
+                    .map(|s| OsString::from(s))
+                    .collect::<Vec<_>>();
+                alias.extend(args.get_many::<OsString>("").unwrap_or_default().cloned());
                 // new_args strips out everything before the subcommand, so
                 // capture those global options now.
                 // Note that an alias to an external command will not receive
@@ -290,6 +331,7 @@ For more information, see issue #10049 <https://github.com/rust-lang/cargo/issue
                 let (expanded_args, _) = expand_aliases(config, new_args, already_expanded)?;
                 return Ok((expanded_args, global_args));
             }
+            (None, Err(e)) => return Err(e.into()),
         }
     };
 
@@ -342,12 +384,12 @@ fn execute_subcommand(config: &mut Config, cmd: &str, subcommand_args: &ArgMatch
         return exec(config, subcommand_args);
     }
 
-    let mut ext_args: Vec<&str> = vec![cmd];
+    let mut ext_args: Vec<&OsStr> = vec![OsStr::new(cmd)];
     ext_args.extend(
         subcommand_args
-            .get_many::<String>("")
+            .get_many::<OsString>("")
             .unwrap_or_default()
-            .map(String::as_str),
+            .map(OsString::as_os_str),
     );
     super::execute_external_subcommand(config, cmd, &ext_args)
 }
@@ -387,16 +429,15 @@ impl GlobalArgs {
     }
 }
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     let is_rustup = std::env::var_os("RUSTUP_HOME").is_some();
     let usage = if is_rustup {
-        "cargo [+toolchain] [OPTIONS] [SUBCOMMAND]"
+        "cargo [+toolchain] [OPTIONS] [COMMAND]"
     } else {
-        "cargo [OPTIONS] [SUBCOMMAND]"
+        "cargo [OPTIONS] [COMMAND]"
     };
-    App::new("cargo")
+    Command::new("cargo")
         .allow_external_subcommands(true)
-        .setting(AppSettings::DeriveDisplayOrder)
         // Doesn't mix well with our list of common cargo commands.  See clap-rs/clap#3108 for
         // opening clap up to allow us to style our help template
         .disable_colored_help(true)
@@ -407,10 +448,9 @@ pub fn cli() -> App {
             "\
 Rust's package manager
 
-USAGE:
-    {usage}
+Usage: {usage}
 
-OPTIONS:
+Options:
 {options}
 
 Some common cargo commands are (see all commands with --list):
@@ -421,6 +461,7 @@ Some common cargo commands are (see all commands with --list):
     new         Create a new cargo package
     init        Create a new cargo package in an existing directory
     add         Add dependencies to a manifest file
+    remove      Remove dependencies from a manifest file
     run, r      Run a binary or example of the local package
     test, t     Run the tests
     bench       Run the benchmarks
@@ -450,6 +491,14 @@ See 'cargo help <command>' for more information on a specific command.\n",
                 .value_name("WHEN")
                 .global(true),
         )
+        .arg(
+            Arg::new("directory")
+                .help("Change to DIRECTORY before doing anything (nightly-only)")
+                .short('C')
+                .value_name("DIRECTORY")
+                .value_hint(clap::ValueHint::DirPath)
+                .value_parser(clap::builder::ValueParser::path_buf()),
+        )
         .arg(flag("frozen", "Require Cargo.lock and cache are up to date").global(true))
         .arg(flag("locked", "Require Cargo.lock is up to date").global(true))
         .arg(flag("offline", "Run without accessing the network").global(true))
@@ -478,6 +527,13 @@ pub struct LazyConfig {
 impl LazyConfig {
     pub fn new() -> Self {
         Self { config: None }
+    }
+
+    /// Check whether the config is loaded
+    ///
+    /// This is useful for asserts in case the environment needs to be setup before loading
+    pub fn is_init(&self) -> bool {
+        self.config.is_some()
     }
 
     /// Get the config, loading it if needed

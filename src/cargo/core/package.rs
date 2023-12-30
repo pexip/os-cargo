@@ -16,7 +16,6 @@ use lazycell::LazyCell;
 use log::{debug, warn};
 use semver::Version;
 use serde::Serialize;
-use toml_edit::easy as toml;
 
 use crate::core::compiler::{CompileKind, RustcTargetData};
 use crate::core::dependency::DepKind;
@@ -27,7 +26,7 @@ use crate::core::{Dependency, Manifest, PackageId, SourceId, Target};
 use crate::core::{SourceMap, Summary, Workspace};
 use crate::ops;
 use crate::util::config::PackageCacheLock;
-use crate::util::errors::{CargoResult, HttpNot200};
+use crate::util::errors::{CargoResult, HttpNotSuccessful};
 use crate::util::interning::InternedString;
 use crate::util::network::Retry;
 use crate::util::{self, internal, Config, Progress, ProgressStyle};
@@ -48,14 +47,13 @@ pub const MANIFEST_PREAMBLE: &str = "\
 /// Information about a package that is available somewhere in the file system.
 ///
 /// A package is a `Cargo.toml` file plus all the files that are part of it.
-//
-// TODO: is `manifest_path` a relic?
 #[derive(Clone)]
 pub struct Package {
     inner: Rc<PackageInner>,
 }
 
 #[derive(Clone)]
+// TODO: is `manifest_path` a relic?
 struct PackageInner {
     /// The package's manifest.
     manifest: Manifest,
@@ -653,23 +651,6 @@ impl<'cfg> PackageSet<'cfg> {
     }
 }
 
-// When dynamically linked against libcurl, we want to ignore some failures
-// when using old versions that don't support certain features.
-macro_rules! try_old_curl {
-    ($e:expr, $msg:expr) => {
-        let result = $e;
-        if cfg!(target_os = "macos") {
-            if let Err(e) = result {
-                warn!("ignoring libcurl {} error: {}", $msg, e);
-            }
-        } else {
-            result.with_context(|| {
-                anyhow::format_err!("failed to enable {}, is curl not built right?", $msg)
-            })?;
-        }
-    };
-}
-
 impl<'a, 'cfg> Downloads<'a, 'cfg> {
     /// Starts to download the package for the `id` specified.
     ///
@@ -703,13 +684,17 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         let pkg = source
             .download(id)
             .with_context(|| "unable to get packages from source")?;
-        let (url, descriptor) = match pkg {
+        let (url, descriptor, authorization) = match pkg {
             MaybePackage::Ready(pkg) => {
                 debug!("{} doesn't need a download", id);
                 assert!(slot.fill(pkg).is_ok());
                 return Ok(Some(slot.borrow().unwrap()));
             }
-            MaybePackage::Download { url, descriptor } => (url, descriptor),
+            MaybePackage::Download {
+                url,
+                descriptor,
+                authorization,
+            } => (url, descriptor, authorization),
         };
 
         // Ok we're going to download this crate, so let's set up all our
@@ -726,6 +711,13 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         handle.url(&url)?;
         handle.follow_location(true)?; // follow redirects
 
+        // Add authorization header.
+        if let Some(authorization) = authorization {
+            let mut headers = curl::easy::List::new();
+            headers.append(&format!("Authorization: {}", authorization))?;
+            handle.http_headers(headers)?;
+        }
+
         // Enable HTTP/2 to be used as it'll allow true multiplexing which makes
         // downloads much faster.
         //
@@ -739,7 +731,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         // errors here on OSX, but consider this a fatal error to not activate
         // HTTP/2 on all other platforms.
         if self.set.multiplexing {
-            try_old_curl!(handle.http_version(HttpVersion::V2), "HTTP2");
+            crate::try_old_curl!(handle.http_version(HttpVersion::V2), "HTTP2");
         } else {
             handle.http_version(HttpVersion::V11)?;
         }
@@ -751,7 +743,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         // Once the main one is opened we realized that pipelining is possible
         // and multiplexing is possible with static.crates.io. All in all this
         // reduces the number of connections down to a more manageable state.
-        try_old_curl!(handle.pipewait(true), "pipewait");
+        crate::try_old_curl!(handle.pipewait(true), "pipewait");
 
         handle.write_function(move |buf| {
             debug!("{} - {} bytes of data", token, buf.len());
@@ -868,18 +860,19 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                         let code = handle.response_code()?;
                         if code != 200 && code != 0 {
                             let url = handle.effective_url()?.unwrap_or(url);
-                            return Err(HttpNot200 {
+                            return Err(HttpNotSuccessful {
                                 code,
                                 url: url.to_string(),
+                                body: data,
                             }
                             .into());
                         }
-                        Ok(())
+                        Ok(data)
                     })
                     .with_context(|| format!("failed to download from `{}`", dl.url))?
             };
             match ret {
-                Some(()) => break (dl, data),
+                Some(data) => break (dl, data),
                 None => {
                     self.pending_ids.insert(dl.id);
                     self.enqueue(dl, handle)?

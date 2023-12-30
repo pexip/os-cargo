@@ -1,0 +1,14 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -131,11 +131,5 @@
+ ]
+ default = [
+     "auto",
+-    "wincon",
+ ]
+ test = []
+-wincon = ["dep:anstyle-wincon"]
+-
+-[target."cfg(windows)".dependencies.anstyle-wincon]
+-version = "3.0.1"
+-optional = true

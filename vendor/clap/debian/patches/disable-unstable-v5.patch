@@ -1,0 +1,15 @@
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -425,10 +425,5 @@ string = ["clap_builder/string"]
+ suggestions = ["clap_builder/suggestions"]
+ unicode = ["clap_builder/unicode"]
+ unstable-styles = ["clap_builder/unstable-styles"]
+-unstable-v5 = [
+-    "clap_builder/unstable-v5",
+-    "clap_derive?/unstable-v5",
+-    "deprecated",
+-]
+ usage = ["clap_builder/usage"]
+ wrap_help = ["clap_builder/wrap_help"]

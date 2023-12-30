@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{env, fs};
 
-use crate::core::compiler::{CompileKind, DefaultExecutor, Executor, Freshness, UnitOutput};
-use crate::core::{Dependency, Edition, Package, PackageId, Source, SourceId, Workspace};
-use crate::ops::CompileFilter;
+use crate::core::compiler::{CompileKind, DefaultExecutor, Executor, UnitOutput};
+use crate::core::{Dependency, Edition, Package, PackageId, Source, SourceId, Target, Workspace};
 use crate::ops::{common_for_install_and_uninstall::*, FilterRule};
+use crate::ops::{CompileFilter, Packages};
 use crate::sources::{GitSource, PathSource, SourceConfigMap};
 use crate::util::errors::CargoResult;
 use crate::util::{Config, Filesystem, Rustc, ToSemver, VersionReqExt};
@@ -14,6 +14,7 @@ use crate::{drop_println, ops};
 
 use anyhow::{bail, format_err, Context as _};
 use cargo_util::paths;
+use itertools::Itertools;
 use semver::VersionReq;
 use tempfile::Builder as TempFileBuilder;
 
@@ -37,7 +38,7 @@ impl Drop for Transaction {
 
 struct InstallablePackage<'cfg, 'a> {
     config: &'cfg Config,
-    opts: &'a ops::CompileOptions,
+    opts: ops::CompileOptions,
     root: Filesystem,
     source_id: SourceId,
     vers: Option<&'a str>,
@@ -60,7 +61,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
         source_id: SourceId,
         from_cwd: bool,
         vers: Option<&'a str>,
-        opts: &'a ops::CompileOptions,
+        original_opts: &'a ops::CompileOptions,
         force: bool,
         no_track: bool,
         needs_update_if_source_is_index: bool,
@@ -69,7 +70,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             if name == "." {
                 bail!(
                     "To install the binaries for the package in current working \
-                     directory use `cargo install --path .`. \
+                     directory use `cargo install --path .`. \n\
                      Use `cargo build` if you want to simply build the package."
                 )
             }
@@ -145,7 +146,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
                     dep.clone(),
                     &mut source,
                     config,
-                    opts,
+                    original_opts,
                     &root,
                     &dst,
                     force,
@@ -167,7 +168,14 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             }
         };
 
-        let (ws, rustc, target) = make_ws_rustc_target(config, opts, &source_id, pkg.clone())?;
+        // When we build this package, we want to build the *specified* package only,
+        // and avoid building e.g. workspace default-members instead. Do so by constructing
+        // specialized compile options specific to the identified package.
+        // See test `path_install_workspace_root_despite_default_members`.
+        let mut opts = original_opts.clone();
+        opts.spec = Packages::Packages(vec![pkg.name().to_string()]);
+
+        let (ws, rustc, target) = make_ws_rustc_target(config, &opts, &source_id, pkg.clone())?;
         // If we're installing in --locked mode and there's no `Cargo.lock` published
         // ie. the bin was published before https://github.com/rust-lang/cargo/pull/7026
         if config.locked() && !ws.root().join("Cargo.lock").exists() {
@@ -209,8 +217,8 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             bail!(
                 "there is nothing to install in `{}`, because it has no binaries\n\
                  `cargo install` is only for installing programs, and can't be used with libraries.\n\
-                 To use a library crate, add it as a dependency in a Cargo project instead.",
-                pkg
+                 To use a library crate, add it as a dependency to a Cargo project with `cargo add`.",
+                pkg,
             );
         }
 
@@ -235,7 +243,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             // Check for conflicts.
             ip.no_track_duplicates(&dst)?;
         } else if is_installed(
-            &ip.pkg, config, opts, &ip.rustc, &ip.target, &ip.root, &dst, force,
+            &ip.pkg, config, &ip.opts, &ip.rustc, &ip.target, &ip.root, &dst, force,
         )? {
             let msg = format!(
                 "package `{}` is already installed, use --force to override",
@@ -297,10 +305,10 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
         self.check_yanked_install()?;
 
         let exec: Arc<dyn Executor> = Arc::new(DefaultExecutor);
-        let compile = ops::compile_ws(&self.ws, self.opts, &exec).with_context(|| {
+        let compile = ops::compile_ws(&self.ws, &self.opts, &exec).with_context(|| {
             if let Some(td) = td_opt.take() {
                 // preserve the temporary directory, so the user can inspect it
-                td.into_path();
+                drop(td.into_path());
             }
 
             format!(
@@ -353,10 +361,16 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             //
             // Note that we know at this point that _if_ bins or examples is set to `::Just`,
             // they're `::Just([])`, which is `FilterRule::none()`.
-            if self.pkg.targets().iter().any(|t| t.is_executable()) {
+            let binaries: Vec<_> = self
+                .pkg
+                .targets()
+                .iter()
+                .filter(|t| t.is_executable())
+                .collect();
+            if !binaries.is_empty() {
                 self.config
                     .shell()
-                    .warn("none of the package's binaries are available for install using the selected features")?;
+                    .warn(make_warning_about_missing_features(&binaries))?;
             }
 
             return Ok(false);
@@ -372,7 +386,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
                 &dst,
                 &self.pkg,
                 self.force,
-                self.opts,
+                &self.opts,
                 &self.target,
                 &self.rustc.verbose_version,
             )?;
@@ -439,7 +453,7 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
                 &self.pkg,
                 &successful_bins,
                 self.vers.map(|s| s.to_string()),
-                self.opts,
+                &self.opts,
                 &self.target,
                 &self.rustc.verbose_version,
             );
@@ -537,6 +551,45 @@ impl<'cfg, 'a> InstallablePackage<'cfg, 'a> {
             "consider running without --locked",
         )
     }
+}
+
+fn make_warning_about_missing_features(binaries: &[&Target]) -> String {
+    let max_targets_listed = 7;
+    let target_features_message = binaries
+        .iter()
+        .take(max_targets_listed)
+        .map(|b| {
+            let name = b.description_named();
+            let features = b
+                .required_features()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|f| format!("`{f}`"))
+                .join(", ");
+            format!("  {name} requires the features: {features}")
+        })
+        .join("\n");
+
+    let additional_bins_message = if binaries.len() > max_targets_listed {
+        format!(
+            "\n{} more targets also requires features not enabled. See them in the Cargo.toml file.",
+            binaries.len() - max_targets_listed
+        )
+    } else {
+        "".into()
+    };
+
+    let example_features = binaries[0]
+        .required_features()
+        .map(|f| f.join(" "))
+        .unwrap_or_default();
+
+    format!(
+        "\
+none of the package's binaries are available for install using the selected features
+{target_features_message}{additional_bins_message}
+Consider enabling some of the needed features by passing, e.g., `--features=\"{example_features}\"`"
+    )
 }
 
 pub fn install(
@@ -651,7 +704,7 @@ pub fn install(
     if installed_anything {
         // Print a warning that if this directory isn't in PATH that they won't be
         // able to run these commands.
-        let path = env::var_os("PATH").unwrap_or_default();
+        let path = config.get_env_os("PATH").unwrap_or_default();
         let dst_in_path = env::split_paths(&path).any(|path| path == dst);
 
         if !dst_in_path {
@@ -683,7 +736,7 @@ fn is_installed(
     let tracker = InstallTracker::load(config, root)?;
     let (freshness, _duplicates) =
         tracker.check_upgrade(dst, pkg, force, opts, target, &rustc.verbose_version)?;
-    Ok(freshness == Freshness::Fresh)
+    Ok(freshness.is_fresh())
 }
 
 /// Checks if vers can only be satisfied by exactly one version of a package in a registry, and it's

@@ -1,0 +1,12 @@
+Index: pasetors/Cargo.toml
+===================================================================
+--- pasetors.orig/Cargo.toml
++++ pasetors/Cargo.toml
+@@ -51,7 +51,6 @@ default-features = false
+ 
+ [dependencies.getrandom]
+ version = "0.2"
+-features = ["js"]
+ 
+ [dependencies.orion]
+ version = "0.17.0"

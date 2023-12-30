@@ -1,0 +1,22 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index b0e830a..2dfdda2 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -41,7 +41,7 @@ rustdoc-args = [
+ ]
+ 
+ [dependencies.arbitrary]
+-version = "1.2"
++version = "1.1"
+ features = ["derive"]
+ optional = true
+ 
+@@ -51,7 +51,7 @@ optional = true
+ default-features = false
+ 
+ [dependencies.der]
+-version = "0.7.2"
++version = "0.7.0"
+ features = ["oid"]
+ 
+ [dependencies.sha2]

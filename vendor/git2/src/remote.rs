@@ -1,5 +1,6 @@
 use libc;
 use raw::git_strarray;
+use std::iter::FusedIterator;
 use std::marker;
 use std::mem;
 use std::ops::Range;
@@ -10,7 +11,7 @@ use std::{ffi::CString, os::raw::c_char};
 
 use crate::string_array::StringArray;
 use crate::util::Binding;
-use crate::{raw, Buf, Direction, Error, FetchPrune, Oid, ProxyOptions, Refspec};
+use crate::{call, raw, Buf, Direction, Error, FetchPrune, Oid, ProxyOptions, Refspec};
 use crate::{AutotagOption, Progress, RemoteCallbacks, Repository};
 
 /// A structure representing a [remote][1] of a git repository.
@@ -40,6 +41,7 @@ pub struct RemoteHead<'remote> {
 /// Options which can be specified to various fetch operations.
 pub struct FetchOptions<'cb> {
     callbacks: Option<RemoteCallbacks<'cb>>,
+    depth: i32,
     proxy: Option<ProxyOptions<'cb>>,
     prune: FetchPrune,
     update_fetchhead: bool,
@@ -92,12 +94,20 @@ impl<'repo> Remote<'repo> {
     pub fn is_valid_name(remote_name: &str) -> bool {
         crate::init();
         let remote_name = CString::new(remote_name).unwrap();
-        unsafe { raw::git_remote_is_valid_name(remote_name.as_ptr()) == 1 }
+        let mut valid: libc::c_int = 0;
+        unsafe {
+            call::c_try(raw::git_remote_name_is_valid(
+                &mut valid,
+                remote_name.as_ptr(),
+            ))
+            .unwrap();
+        }
+        valid == 1
     }
 
     /// Create a detached remote
     ///
-    /// Create a remote with the given url in-memory. You can use this
+    /// Create a remote with the given URL in-memory. You can use this
     /// when you have a URL instead of a remote's name.
     /// Contrasted with an anonymous remote, a detached remote will not
     /// consider any repo configuration values.
@@ -126,14 +136,14 @@ impl<'repo> Remote<'repo> {
         unsafe { crate::opt_bytes(self, raw::git_remote_name(&*self.raw)) }
     }
 
-    /// Get the remote's url.
+    /// Get the remote's URL.
     ///
-    /// Returns `None` if the url is not valid utf-8
+    /// Returns `None` if the URL is not valid utf-8
     pub fn url(&self) -> Option<&str> {
         str::from_utf8(self.url_bytes()).ok()
     }
 
-    /// Get the remote's url as a byte array.
+    /// Get the remote's URL as a byte array.
     pub fn url_bytes(&self) -> &[u8] {
         unsafe { crate::opt_bytes(self, raw::git_remote_url(&*self.raw)).unwrap() }
     }
@@ -246,7 +256,7 @@ impl<'repo> Remote<'repo> {
     /// Cancel the operation
     ///
     /// At certain points in its operation, the network code checks whether the
-    /// operation has been cancelled and if so stops the operation.
+    /// operation has been canceled and if so stops the operation.
     pub fn stop(&mut self) -> Result<(), Error> {
         unsafe {
             try_call!(raw::git_remote_stop(self.raw));
@@ -454,6 +464,7 @@ impl<'repo> DoubleEndedIterator for Refspecs<'repo> {
             .and_then(|i| self.remote.get_refspec(i))
     }
 }
+impl<'repo> FusedIterator for Refspecs<'repo> {}
 impl<'repo> ExactSizeIterator for Refspecs<'repo> {}
 
 #[allow(missing_docs)] // not documented in libgit2 :(
@@ -499,6 +510,7 @@ impl<'cb> FetchOptions<'cb> {
             follow_redirects: RemoteRedirect::Initial,
             custom_headers: Vec::new(),
             custom_headers_ptrs: Vec::new(),
+            depth: 0, // Not limited depth
         }
     }
 
@@ -525,6 +537,17 @@ impl<'cb> FetchOptions<'cb> {
     /// Defaults to `true`.
     pub fn update_fetchhead(&mut self, update: bool) -> &mut Self {
         self.update_fetchhead = update;
+        self
+    }
+
+    /// Set fetch depth, a value less or equal to 0 is interpreted as pull
+    /// everything (effectively the same as not declaring a limit depth).
+
+    // FIXME(blyxyas): We currently don't have a test for shallow functions
+    // because libgit2 doesn't support local shallow clones.
+    // https://github.com/rust-lang/git2-rs/pull/979#issuecomment-1716299900
+    pub fn depth(&mut self, depth: i32) -> &mut Self {
+        self.depth = depth.max(0);
         self
     }
 
@@ -580,6 +603,7 @@ impl<'cb> Binding for FetchOptions<'cb> {
             prune: crate::call::convert(&self.prune),
             update_fetchhead: crate::call::convert(&self.update_fetchhead),
             download_tags: crate::call::convert(&self.download_tags),
+            depth: self.depth,
             follow_redirects: self.follow_redirects.raw(),
             custom_headers: git_strarray {
                 count: self.custom_headers_ptrs.len(),
@@ -851,9 +875,15 @@ mod tests {
     }
 
     #[test]
-    fn is_valid() {
+    fn is_valid_name() {
         assert!(Remote::is_valid_name("foobar"));
         assert!(!Remote::is_valid_name("\x01"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn is_valid_name_for_invalid_remote() {
+        Remote::is_valid_name("ab\012");
     }
 
     #[test]
@@ -999,5 +1029,95 @@ mod tests {
         });
         remote.prune(Some(callbacks)).unwrap();
         assert_branch_count(&repo, 0);
+    }
+
+    #[test]
+    fn push_negotiation() {
+        let (_td, repo) = crate::test::repo_init();
+        let oid = repo.head().unwrap().target().unwrap();
+
+        let td2 = TempDir::new().unwrap();
+        let url = crate::test::path2url(td2.path());
+        let mut opts = crate::RepositoryInitOptions::new();
+        opts.bare(true);
+        opts.initial_head("main");
+        let remote_repo = Repository::init_opts(td2.path(), &opts).unwrap();
+
+        // reject pushing a branch
+        let mut remote = repo.remote("origin", &url).unwrap();
+        let mut updated = false;
+        {
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.push_negotiation(|updates| {
+                assert!(!updated);
+                updated = true;
+                assert_eq!(updates.len(), 1);
+                let u = &updates[0];
+                assert_eq!(u.src_refname().unwrap(), "refs/heads/main");
+                assert!(u.src().is_zero());
+                assert_eq!(u.dst_refname().unwrap(), "refs/heads/main");
+                assert_eq!(u.dst(), oid);
+                Err(crate::Error::from_str("rejected"))
+            });
+            let mut options = PushOptions::new();
+            options.remote_callbacks(callbacks);
+            assert!(remote
+                .push(&["refs/heads/main"], Some(&mut options))
+                .is_err());
+        }
+        assert!(updated);
+        assert_eq!(remote_repo.branches(None).unwrap().count(), 0);
+
+        // push 3 branches
+        let commit = repo.find_commit(oid).unwrap();
+        repo.branch("new1", &commit, true).unwrap();
+        repo.branch("new2", &commit, true).unwrap();
+        let mut flag = 0;
+        updated = false;
+        {
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.push_negotiation(|updates| {
+                assert!(!updated);
+                updated = true;
+                assert_eq!(updates.len(), 3);
+                for u in updates {
+                    assert!(u.src().is_zero());
+                    assert_eq!(u.dst(), oid);
+                    let src_name = u.src_refname().unwrap();
+                    let dst_name = u.dst_refname().unwrap();
+                    match src_name {
+                        "refs/heads/main" => {
+                            assert_eq!(dst_name, src_name);
+                            flag |= 1;
+                        }
+                        "refs/heads/new1" => {
+                            assert_eq!(dst_name, "refs/heads/dev1");
+                            flag |= 2;
+                        }
+                        "refs/heads/new2" => {
+                            assert_eq!(dst_name, "refs/heads/dev2");
+                            flag |= 4;
+                        }
+                        _ => panic!("unexpected refname: {}", src_name),
+                    }
+                }
+                Ok(())
+            });
+            let mut options = PushOptions::new();
+            options.remote_callbacks(callbacks);
+            remote
+                .push(
+                    &[
+                        "refs/heads/main",
+                        "refs/heads/new1:refs/heads/dev1",
+                        "refs/heads/new2:refs/heads/dev2",
+                    ],
+                    Some(&mut options),
+                )
+                .unwrap();
+        }
+        assert!(updated);
+        assert_eq!(flag, 7);
+        assert_eq!(remote_repo.branches(None).unwrap().count(), 3);
     }
 }

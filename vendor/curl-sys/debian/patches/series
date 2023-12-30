@@ -2,3 +2,4 @@ avoid-spurious-rebuilds.patch
 disable-vendor.patch
 disable-libz-sys.patch
 disable-rustls.patch
+drop-non-linux.patch

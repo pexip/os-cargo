@@ -1,0 +1,43 @@
+From 51ebba2fc1c581e4ec30b308c07f7b70ef3d2f10 Mon Sep 17 00:00:00 2001
+From: Weihang Lo <me@weihanglo.tw>
+Date: Wed, 7 Jun 2023 22:47:25 +0100
+Subject: [PATCH] test: loose overly matches for git cli output
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The output format should be stable I believe, but it turns out not.
+This is how `git fetch` man page says [1]:
+
+```
+<flag> <summary> <from> -> <to> [<reason>]
+```
+
+In Git 2.41 they've changed the fetch output a bit [2].
+
+I think let's just loose it to prevent future breakages.
+
+[1]: https://git-scm.com/docs/git-fetch#_output
+[2]: https://github.blog/2023-06-01-highlights-from-git-2-41/
+
+Signed-off-by: Fabian Grünbichler <f.gruenbichler@proxmox.com>
+---
+ tests/testsuite/git.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/testsuite/git.rs b/tests/testsuite/git.rs
+index 091192037..7c717e967 100644
+--- a/tests/testsuite/git.rs
++++ b/tests/testsuite/git.rs
+@@ -2711,7 +2711,7 @@ fn use_the_cli() {
+ [UPDATING] git repository `[..]`
+ [RUNNING] `git fetch [..]`
+ From [..]
+- * [new ref]                    -> origin/HEAD
++ * [new ref] [..] -> origin/HEAD[..]
+ [CHECKING] dep1 [..]
+ [RUNNING] `rustc [..]`
+ [CHECKING] foo [..]
+-- 
+2.39.2
+

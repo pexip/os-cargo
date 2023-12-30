@@ -1,0 +1,143 @@
+Index: regex/Cargo.toml
+===================================================================
+--- regex.orig/Cargo.toml
++++ regex/Cargo.toml
+@@ -103,9 +103,6 @@ version = "1.17.1"
+ version = "1.0.3"
+ default-features = false
+ 
+-[dev-dependencies.regex-test]
+-version = "0.1.0"
+-
+ [features]
+ default = [
+     "std",
+Index: regex/tests/suite_string.rs
+===================================================================
+--- regex.orig/tests/suite_string.rs
++++ regex/tests/suite_string.rs
+@@ -1,12 +1,12 @@
+ use {
+     anyhow::Result,
+     regex::{Regex, RegexBuilder},
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, Span, TestResult, TestRunner,
+-    },
++    },*/
+ };
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
++/* /// Tests the default configuration of the hybrid NFA/DFA.
+ #[test]
+ fn default() -> Result<()> {
+     let mut runner = TestRunner::new()?;
+@@ -47,9 +47,9 @@ fn run_test(re: &Regex, test: &RegexTest
+         }
+         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+     }
+-}
++} */
+ 
+-/// Converts the given regex test to a closure that searches with a
++/* /// Converts the given regex test to a closure that searches with a
+ /// `bytes::Regex`. If the test configuration is unsupported, then a
+ /// `CompiledRegex` that skips the test is returned.
+ fn compiler(
+@@ -111,4 +111,4 @@ fn testify_captures(caps: &regex::Captur
+     // a match always gives a non-zero number of groups with the first group
+     // being non-None.
+     regex_test::Captures::new(0, spans).unwrap()
+-}
++} */
+Index: regex/tests/lib.rs
+===================================================================
+--- regex.orig/tests/lib.rs
++++ regex/tests/lib.rs
+@@ -16,7 +16,7 @@ const BLACKLIST: &[&str] = &[
+     // Nothing to blacklist yet!
+ ];
+ 
+-fn suite() -> anyhow::Result<regex_test::RegexTests> {
++/*fn suite() -> anyhow::Result<regex_test::RegexTests> {
+     let _ = env_logger::try_init();
+ 
+     let mut tests = regex_test::RegexTests::new();
+@@ -54,4 +54,4 @@ fn suite() -> anyhow::Result<regex_test:
+     load!("fowler/repetition");
+ 
+     Ok(tests)
+-}
++}*/
+Index: regex/tests/suite_bytes.rs
+===================================================================
+--- regex.orig/tests/suite_bytes.rs
++++ regex/tests/suite_bytes.rs
+@@ -1,12 +1,12 @@
+ use {
+     anyhow::Result,
+     regex::bytes::{Regex, RegexBuilder},
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, Span, TestResult, TestRunner,
+-    },
++    },*/
+ };
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
++/* /// Tests the default configuration of the hybrid NFA/DFA.
+ #[test]
+ fn default() -> Result<()> {
+     let mut runner = TestRunner::new()?;
+@@ -105,4 +105,4 @@ fn testify_captures(
+     // a match always gives a non-zero number of groups with the first group
+     // being non-None.
+     regex_test::Captures::new(0, spans).unwrap()
+-}
++} */
+Index: regex/tests/suite_bytes_set.rs
+===================================================================
+--- regex.orig/tests/suite_bytes_set.rs
++++ regex/tests/suite_bytes_set.rs
+@@ -1,10 +1,10 @@
+ use {
+     anyhow::Result,
+     regex::bytes::{RegexSet, RegexSetBuilder},
+-    regex_test::{CompiledRegex, RegexTest, TestResult, TestRunner},
++    //regex_test::{CompiledRegex, RegexTest, TestResult, TestRunner},
+ };
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
++/* /// Tests the default configuration of the hybrid NFA/DFA.
+ #[test]
+ fn default() -> Result<()> {
+     let mut runner = TestRunner::new()?;
+@@ -68,4 +68,4 @@ fn compiler(
+         .line_terminator(test.line_terminator())
+         .build()?;
+     Ok(CompiledRegex::compiled(move |test| run_test(&re, test)))
+-}
++} */
+Index: regex/tests/suite_string_set.rs
+===================================================================
+--- regex.orig/tests/suite_string_set.rs
++++ regex/tests/suite_string_set.rs
+@@ -1,10 +1,10 @@
+ use {
+     anyhow::Result,
+     regex::{RegexSet, RegexSetBuilder},
+-    regex_test::{CompiledRegex, RegexTest, TestResult, TestRunner},
++    //regex_test::{CompiledRegex, RegexTest, TestResult, TestRunner},
+ };
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
++/* /// Tests the default configuration of the hybrid NFA/DFA.
+ #[test]
+ fn default() -> Result<()> {
+     let mut runner = TestRunner::new()?;
+@@ -76,4 +76,4 @@ fn compiler(
+         .line_terminator(test.line_terminator())
+         .build()?;
+     Ok(CompiledRegex::compiled(move |test| run_test(&re, test)))
+-}
++} */

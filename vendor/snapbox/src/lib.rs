@@ -114,6 +114,7 @@ pub use action::DEFAULT_ACTION_ENV;
 pub use assert::Assert;
 pub use data::Data;
 pub use data::DataFormat;
+pub use data::{Normalize, NormalizeMatches, NormalizeNewlines, NormalizePaths};
 pub use error::Error;
 pub use snapbox_macros::debug;
 pub use substitutions::Substitutions;
@@ -127,7 +128,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// ```rust
 /// let output = "something";
 /// let expected = "something";
-/// snapbox::assert_matches(expected, output);
+/// snapbox::assert_eq(expected, output);
 /// ```
 #[track_caller]
 pub fn assert_eq(expected: impl Into<crate::Data>, actual: impl Into<crate::Data>) {

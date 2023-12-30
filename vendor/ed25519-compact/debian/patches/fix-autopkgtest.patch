@@ -1,0 +1,104 @@
+Index: ed25519-compact/src/ed25519.rs
+===================================================================
+--- ed25519-compact.orig/src/ed25519.rs
++++ ed25519-compact/src/ed25519.rs
+@@ -857,7 +857,7 @@ mod blind_keys {
+ pub use blind_keys::*;
+ 
+ #[test]
+-#[cfg(feature = "blind-keys")]
++#[cfg(all(feature = "blind-keys", feature = "random"))]
+ fn test_blind_ed25519() {
+     use ct_codecs::{Decoder, Hex};
+ 
+@@ -914,6 +914,7 @@ fn test_blind_ed25519() {
+ }
+ 
+ #[test]
++#[cfg(feature = "random")]
+ fn test_streaming() {
+     let kp = KeyPair::generate();
+ 
+Index: ed25519-compact/src/lib.rs
+===================================================================
+--- ed25519-compact.orig/src/lib.rs
++++ ed25519-compact/src/lib.rs
+@@ -15,6 +15,8 @@
+ //! ```rust
+ //! use ed25519_compact::*;
+ //!
++//! #[cfg(feature = "random")]
++//! fn test() {
+ //! // A message to sign and verify.
+ //! let message = b"test";
+ //!
+@@ -40,6 +42,13 @@
+ //! // All these structures can be viewed as raw bytes simply by dereferencing them:
+ //! let signature_as_bytes: &[u8] = signature.as_ref();
+ //! println!("Signature as bytes: {:?}", signature_as_bytes);
++//!
++//! }
++//!
++//! #[cfg(not(feature = "random"))]
++//! fn test() {}
++//!
++//! test()
+ //! ```
+ //!
+ //! ## Incremental API example usage
+@@ -50,6 +59,8 @@
+ //! ```rust
+ //! use ed25519_compact::*;
+ //!
++//! #[cfg(feature = "random")]
++//! fn test() {
+ //! /// Creates a new key pair.
+ //! let kp = KeyPair::generate();
+ //!
+@@ -68,6 +79,12 @@
+ //! st.absorb("mess");
+ //! st.absorb("age");
+ //! assert!(st.verify().is_ok());
++//! }
++//!
++//! #[cfg(not(feature = "random"))]
++//! fn test() {}
++//!
++//! test()
+ //! ```
+ //!
+ //! Cargo features:
+Index: ed25519-compact/src/pem.rs
+===================================================================
+--- ed25519-compact.orig/src/pem.rs
++++ ed25519-compact/src/pem.rs
+@@ -142,6 +142,7 @@ MCowBQYDK2VwAyEAyrRjJfTnhMcW5igzYvPirFW5
+ }
+ 
+ #[test]
++#[cfg(feature = "random")]
+ fn test_der() {
+     let kp = KeyPair::generate();
+     let sk_der = kp.sk.to_der();
+Index: ed25519-compact/src/x25519.rs
+===================================================================
+--- ed25519-compact.orig/src/x25519.rs
++++ ed25519-compact/src/x25519.rs
+@@ -312,6 +312,7 @@ mod from_ed25519 {
+ pub use from_ed25519::*;
+ 
+ #[test]
++#[cfg(feature = "random")]
+ fn test_x25519() {
+     let sk_1 = SecretKey::from_slice(&[
+         1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+@@ -327,8 +328,8 @@ fn test_x25519() {
+     assert_eq!(output_a, output_b);
+ }
+ 
+-#[cfg(not(feature = "disable-signatures"))]
+ #[test]
++#[cfg(all(not(feature = "disable-signatures"), feature = "random"))]
+ fn test_x25519_map() {
+     use super::KeyPair as EdKeyPair;
+     let edkp_a = EdKeyPair::generate();

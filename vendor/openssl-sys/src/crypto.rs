@@ -1,5 +1,5 @@
+use super::*;
 use libc::*;
-use *;
 
 extern "C" {
     #[deprecated(note = "use CRYPTO_set_locking_callback__fixed_rust instead")]
@@ -106,7 +106,7 @@ pub const CRYPTO_LOCK_SSL_CTX: c_int = 12;
 pub const CRYPTO_LOCK_SSL_SESSION: c_int = 14;
 
 cfg_if! {
-    if #[cfg(ossl110)] {
+    if #[cfg(any(ossl110, libressl381))] {
         pub const CRYPTO_EX_INDEX_SSL: c_int = 0;
         pub const CRYPTO_EX_INDEX_SSL_CTX: c_int = 1;
     } else if #[cfg(libressl)] {

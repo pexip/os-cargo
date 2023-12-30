@@ -34,7 +34,7 @@
 //! The steps for adding new Cargo.toml syntax are:
 //!
 //! 1. Add the cargo-features unstable gate. Search below for "look here" to
-//!    find the `features!` macro and add your feature to the list.
+//!    find the [`features!`] macro invocation and add your feature to the list.
 //!
 //! 2. Update the Cargo.toml parsing code to handle your new feature.
 //!
@@ -58,16 +58,55 @@
 //!
 //! ## `-Z` options
 //!
+//! New `-Z` options cover all other functionality that isn't covered with
+//! `cargo-features` or `-Z unstable-options`.
+//!
 //! The steps to add a new `-Z` option are:
 //!
 //! 1. Add the option to the [`CliUnstable`] struct below. Flags can take an
 //!    optional value if you want.
-//! 2. Update the [`CliUnstable::add`][CliUnstable] function to parse the flag.
+//! 2. Update the [`CliUnstable::add`] function to parse the flag.
 //! 3. Wherever the new functionality is implemented, call
-//!    [`Config::cli_unstable`][crate::util::config::Config::cli_unstable] to
-//!    get an instance of `CliUnstable` and check if the option has been
-//!    enabled on the `CliUnstable` instance. Nightly gating is already
-//!    handled, so no need to worry about that.
+//!    [`Config::cli_unstable`] to get an instance of [`CliUnstable`]
+//!    and check if the option has been enabled on the [`CliUnstable`] instance.
+//!    Nightly gating is already handled, so no need to worry about that.
+//!
+//! ### `-Z` vs `cargo-features`
+//!
+//! In some cases there might be some changes that `cargo-features` is unable
+//! to sufficiently encompass. An example would be a syntax change in
+//! `Cargo.toml` that also impacts the index or resolver. The resolver doesn't
+//! know about `cargo-features`, so it needs a `-Z` flag to enable the
+//! experimental functionality.
+//!
+//! In those cases, you usually should introduce both a `-Z` flag (to enable
+//! the changes outside of the manifest) and a `cargo-features` entry (to
+//! enable the new syntax in `Cargo.toml`). The `cargo-features` entry ensures
+//! that any experimental syntax that gets uploaded to crates.io is clearly
+//! intended for nightly-only builds. Otherwise, users accessing those crates
+//! may get confusing errors, particularly if the syntax changes during the
+//! development cycle, and the user tries to access it with a stable release.
+//!
+//! ### `-Z` with external files
+//!
+//! Some files, such as `config.toml` config files, or the `config.json` index
+//! file, are used in a global location which can make interaction with stable
+//! releases problematic. In general, before the feature is stabilized, stable
+//! Cargo should behave roughly similar to how it behaved *before* the
+//! unstable feature was introduced. If Cargo would normally have ignored or
+//! warned about the introduction of something, then it probably should
+//! continue to do so.
+//!
+//! For example, Cargo generally ignores (or warns) about `config.toml`
+//! entries it doesn't know about. This allows a limited degree of
+//! forwards-compatibility with future versions of Cargo that add new entries.
+//!
+//! Whether or not to warn on stable may need to be decided on a case-by-case
+//! basis. For example, you may want to avoid generating a warning for options
+//! that are not critical to Cargo's operation in order to reduce the
+//! annoyance of constant warnings. However, ignoring some options may prevent
+//! proper operation, so a warning may be valuable for a user trying to
+//! diagnose why it isn't working correctly.
 //!
 //! ## Stabilization
 //!
@@ -77,13 +116,14 @@
 //! The steps for stabilizing are roughly:
 //!
 //! 1. Update the feature to be stable, based on the kind of feature:
-//!   1. `cargo-features`: Change the feature to `stable` in the `features!`
-//!      macro below, and include the version and a URL for the documentation.
-//!   2. `-Z unstable-options`: Find the call to `fail_if_stable_opt` and
+//!   1. `cargo-features`: Change the feature to `stable` in the [`features!`]
+//!      macro invocation below, and include the version and a URL for the
+//!      documentation.
+//!   2. `-Z unstable-options`: Find the call to [`fail_if_stable_opt`] and
 //!      remove it. Be sure to update the man pages if necessary.
-//!   3. `-Z` flag: Change the parsing code in [`CliUnstable::add`][CliUnstable]
-//!      to call `stabilized_warn` or `stabilized_err` and remove the field from
-//!      `CliUnstable. Remove the `(unstable)` note in the clap help text if
+//!   3. `-Z` flag: Change the parsing code in [`CliUnstable::add`] to call
+//!      `stabilized_warn` or `stabilized_err` and remove the field from
+//!      [`CliUnstable`]. Remove the `(unstable)` note in the clap help text if
 //!      necessary.
 //! 2. Remove `masquerade_as_nightly_cargo` from any tests, and remove
 //!    `cargo-features` from `Cargo.toml` test files if any. You can
@@ -92,6 +132,10 @@
 //! 3. Update the docs in unstable.md to move the section to the bottom
 //!    and summarize it similar to the other entries. Update the rest of the
 //!    documentation to add the new feature.
+//!
+//! [`Config::cli_unstable`]: crate::util::config::Config::cli_unstable
+//! [`fail_if_stable_opt`]: CliUnstable::fail_if_stable_opt
+//! [`features!`]: macro.features.html
 
 use std::collections::BTreeSet;
 use std::env;
@@ -112,7 +156,47 @@ pub const SEE_CHANNELS: &str =
     "See https://doc.rust-lang.org/book/appendix-07-nightly-rust.html for more information \
      about Rust release channels.";
 
-/// The edition of the compiler (RFC 2052)
+/// The edition of the compiler ([RFC 2052])
+///
+/// The following sections will guide you how to add and stabilize an edition.
+///
+/// ## Adding a new edition
+///
+/// - Add the next edition to the enum.
+/// - Update every match expression that now fails to compile.
+/// - Update the [`FromStr`] impl.
+/// - Update [`CLI_VALUES`] to include the new edition.
+/// - Set [`LATEST_UNSTABLE`] to Some with the new edition.
+/// - Add an unstable feature to the [`features!`] macro invocation below for the new edition.
+/// - Gate on that new feature in [`TomlManifest::to_real_manifest`].
+/// - Update the shell completion files.
+/// - Update any failing tests (hopefully there are very few).
+/// - Update unstable.md to add a new section for this new edition (see [this example]).
+///
+/// ## Stabilization instructions
+///
+/// - Set [`LATEST_UNSTABLE`] to None.
+/// - Set [`LATEST_STABLE`] to the new version.
+/// - Update [`is_stable`] to `true`.
+/// - Set the editionNNNN feature to stable in the [`features!`] macro invocation below.
+/// - Update any tests that are affected.
+/// - Update the man page for the `--edition` flag.
+/// - Update unstable.md to move the edition section to the bottom.
+/// - Update the documentation:
+///   - Update any features impacted by the edition.
+///   - Update manifest.md#the-edition-field.
+///   - Update the `--edition` flag (options-new.md).
+///   - Rebuild man pages.
+///
+/// [RFC 2052]: https://rust-lang.github.io/rfcs/2052-epochs.html
+/// [`FromStr`]: Edition::from_str
+/// [`CLI_VALUES`]: Edition::CLI_VALUES
+/// [`LATEST_UNSTABLE`]: Edition::LATEST_UNSTABLE
+/// [`LATEST_STABLE`]: Edition::LATEST_STABLE
+/// [this example]: https://github.com/rust-lang/cargo/blob/3ebb5f15a940810f250b68821149387af583a79e/src/doc/src/reference/unstable.md?plain=1#L1238-L1264
+/// [`is_stable`]: Edition::is_stable
+/// [`TomlManifest::to_real_manifest`]: crate::util::toml::TomlManifest::to_real_manifest
+/// [`features!`]: macro.features.html
 #[derive(Clone, Copy, Debug, Hash, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Edition {
     /// The 2015 edition
@@ -123,33 +207,6 @@ pub enum Edition {
     Edition2021,
 }
 
-// Adding a new edition:
-// - Add the next edition to the enum.
-// - Update every match expression that now fails to compile.
-// - Update the `FromStr` impl.
-// - Update CLI_VALUES to include the new edition.
-// - Set LATEST_UNSTABLE to Some with the new edition.
-// - Add an unstable feature to the features! macro below for the new edition.
-// - Gate on that new feature in TomlManifest::to_real_manifest.
-// - Update the shell completion files.
-// - Update any failing tests (hopefully there are very few).
-// - Update unstable.md to add a new section for this new edition (see
-//   https://github.com/rust-lang/cargo/blob/3ebb5f15a940810f250b68821149387af583a79e/src/doc/src/reference/unstable.md?plain=1#L1238-L1264
-//   as an example).
-//
-// Stabilization instructions:
-// - Set LATEST_UNSTABLE to None.
-// - Set LATEST_STABLE to the new version.
-// - Update `is_stable` to `true`.
-// - Set the editionNNNN feature to stable in the features macro below.
-// - Update any tests that are affected.
-// - Update the man page for the --edition flag.
-// - Update unstable.md to move the edition section to the bottom.
-// - Update the documentation:
-//   - Update any features impacted by the edition.
-//   - Update manifest.md#the-edition-field.
-//   - Update the --edition flag (options-new.md).
-//   - Rebuild man pages.
 impl Edition {
     /// The latest edition that is unstable.
     ///
@@ -650,6 +707,7 @@ unstable_cli_options!(
     #[serde(deserialize_with = "deserialize_build_std")]
     build_std: Option<Vec<String>>  = ("Enable Cargo to compile the standard library itself as part of a crate graph compilation"),
     build_std_features: Option<Vec<String>>  = ("Configure features enabled for the standard library itself when building the standard library"),
+    codegen_backend: bool = ("Enable the `codegen-backend` option in profiles in .cargo/config.toml file"),
     config_include: bool = ("Enable the `include` key in config files"),
     credential_process: bool = ("Add a config setting to fetch registry authentication tokens by calling an external process"),
     #[serde(deserialize_with = "deserialize_check_cfg")]
@@ -661,20 +719,19 @@ unstable_cli_options!(
     jobserver_per_rustc: bool = (HIDDEN),
     minimal_versions: bool = ("Resolve minimal dependency versions instead of maximum"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
-    multitarget: bool = ("Allow passing multiple `--target` flags to the cargo subcommand selected"),
     no_index_update: bool = ("Do not update the registry index even if the cache is outdated"),
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
+    profile_rustflags: bool = ("Enable the `rustflags` option in profiles in .cargo/config.toml file"),
     host_config: bool = ("Enable the [host] section in the .cargo/config.toml file"),
-    sparse_registry: bool = ("Support plain-HTTP-based crate registries"),
+    sparse_registry: bool = ("Use the sparse protocol when accessing crates.io"),
+    registry_auth: bool = ("Authentication for alternative registries, and generate registry authentication tokens using asymmetric cryptography"),
     target_applies_to_host: bool = ("Enable the `target-applies-to-host` key in the .cargo/config.toml file"),
     rustdoc_map: bool = ("Allow passing external documentation mappings to rustdoc"),
     separate_nightlies: bool = (HIDDEN),
-    terminal_width: Option<Option<usize>>  = ("Provide a terminal width to rustc for error truncation"),
+    publish_timeout: bool = ("Enable the `publish.timeout` key in .cargo/config.toml file"),
     unstable_options: bool = ("Allow the usage of unstable options"),
-    // TODO(wcrichto): move scrape example configuration into Cargo.toml before stabilization
-    // See: https://github.com/rust-lang/cargo/pull/9525#discussion_r728470927
-    rustdoc_scrape_examples: Option<String> = ("Allow rustdoc to scrape examples from reverse-dependencies for documentation"),
     skip_rustdoc_fingerprint: bool = (HIDDEN),
+    rustdoc_scrape_examples: bool = ("Allows Rustdoc to scrape code examples from reverse-dependencies"),
 );
 
 const STABILIZED_COMPILE_PROGRESS: &str = "The progress bar is now always \
@@ -732,6 +789,14 @@ const STABILISED_NAMESPACED_FEATURES: &str = "Namespaced features are now always
 const STABILIZED_TIMINGS: &str = "The -Ztimings option has been stabilized as --timings.";
 
 const STABILISED_MULTITARGET: &str = "Multiple `--target` options are now always available.";
+
+const STABILIZED_TERMINAL_WIDTH: &str =
+    "The -Zterminal-width option is now always enabled for terminal output.";
+
+const STABILISED_SPARSE_REGISTRY: &str = "This flag currently still sets the default protocol \
+    to `sparse` when accessing crates.io. However, this will be removed in the future. \n\
+    The stable equivalent is to set the config value `registries.crates-io.protocol = 'sparse'`\n\
+    or environment variable `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse`";
 
 fn deserialize_build_std<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
@@ -846,16 +911,6 @@ impl CliUnstable {
             Ok(true)
         }
 
-        fn parse_usize_opt(value: Option<&str>) -> CargoResult<Option<usize>> {
-            Ok(match value {
-                Some(value) => match value.parse::<usize>() {
-                    Ok(value) => Some(value),
-                    Err(e) => bail!("expected a number, found: {}", e),
-                },
-                None => None,
-            })
-        }
-
         let mut stabilized_warn = |key: &str, version: &str, message: &str| {
             warnings.push(format!(
                 "flag `-Z {}` has been stabilized in the {} release, \
@@ -914,11 +969,15 @@ impl CliUnstable {
             "jobserver-per-rustc" => self.jobserver_per_rustc = parse_empty(k, v)?,
             "host-config" => self.host_config = parse_empty(k, v)?,
             "target-applies-to-host" => self.target_applies_to_host = parse_empty(k, v)?,
+            "publish-timeout" => self.publish_timeout = parse_empty(k, v)?,
             "features" => {
-                // For now this is still allowed (there are still some
-                // unstable options like "compare"). This should be removed at
-                // some point, and migrate to a new -Z flag for any future
-                // things.
+                // `-Z features` has been stabilized since 1.51,
+                // but `-Z features=compare` is still allowed for convenience
+                // to validate that the feature resolver resolves features
+                // in the same way as the dependency resolver,
+                // until we feel confident to remove entirely.
+                //
+                // See rust-lang/cargo#11168
                 let feats = parse_features(v);
                 let stab_is_not_empty = feats.iter().any(|feat| {
                     matches!(
@@ -935,20 +994,18 @@ impl CliUnstable {
             "separate-nightlies" => self.separate_nightlies = parse_empty(k, v)?,
             "multitarget" => stabilized_warn(k, "1.64", STABILISED_MULTITARGET),
             "rustdoc-map" => self.rustdoc_map = parse_empty(k, v)?,
-            "terminal-width" => self.terminal_width = Some(parse_usize_opt(v)?),
-            "sparse-registry" => self.sparse_registry = parse_empty(k, v)?,
+            "terminal-width" => stabilized_warn(k, "1.68", STABILIZED_TERMINAL_WIDTH),
+            "sparse-registry" => {
+                // Once sparse-registry becomes the default for crates.io, `sparse_registry` should
+                // be removed entirely from `CliUnstable`.
+                stabilized_warn(k, "1.68", STABILISED_SPARSE_REGISTRY);
+                self.sparse_registry = parse_empty(k, v)?;
+            }
+            "registry-auth" => self.registry_auth = parse_empty(k, v)?,
             "namespaced-features" => stabilized_warn(k, "1.60", STABILISED_NAMESPACED_FEATURES),
             "weak-dep-features" => stabilized_warn(k, "1.60", STABILIZED_WEAK_DEP_FEATURES),
             "credential-process" => self.credential_process = parse_empty(k, v)?,
-            "rustdoc-scrape-examples" => {
-                if let Some(s) = v {
-                    self.rustdoc_scrape_examples = Some(s.to_string())
-                } else {
-                    bail!(
-                        r#"-Z rustdoc-scrape-examples must take "all" or "examples" as an argument"#
-                    )
-                }
-            }
+            "rustdoc-scrape-examples" => self.rustdoc_scrape_examples = parse_empty(k, v)?,
             "skip-rustdoc-fingerprint" => self.skip_rustdoc_fingerprint = parse_empty(k, v)?,
             "compile-progress" => stabilized_warn(k, "1.30", STABILIZED_COMPILE_PROGRESS),
             "offline" => stabilized_err(k, "1.36", STABILIZED_OFFLINE)?,
@@ -964,6 +1021,8 @@ impl CliUnstable {
                 stabilized_warn(k, "1.59.0", STABILIZED_FUTURE_INCOMPAT_REPORT)
             }
             "timings" => stabilized_warn(k, "1.60", STABILIZED_TIMINGS),
+            "codegen-backend" => self.codegen_backend = parse_empty(k, v)?,
+            "profile-rustflags" => self.profile_rustflags = parse_empty(k, v)?,
             _ => bail!("unknown `-Z` flag specified: {}", k),
         }
 
@@ -975,29 +1034,22 @@ impl CliUnstable {
     pub fn fail_if_stable_opt(&self, flag: &str, issue: u32) -> CargoResult<()> {
         if !self.unstable_options {
             let see = format!(
-                "See https://github.com/rust-lang/cargo/issues/{} for more \
-                 information about the `{}` flag.",
-                issue, flag
+                "See https://github.com/rust-lang/cargo/issues/{issue} for more \
+                 information about the `{flag}` flag."
             );
             // NOTE: a `config` isn't available here, check the channel directly
             let channel = channel();
             if channel == "nightly" || channel == "dev" {
                 bail!(
-                    "the `{}` flag is unstable, pass `-Z unstable-options` to enable it\n\
-                     {}",
-                    flag,
-                    see
+                    "the `{flag}` flag is unstable, pass `-Z unstable-options` to enable it\n\
+                     {see}"
                 );
             } else {
                 bail!(
-                    "the `{}` flag is unstable, and only available on the nightly channel \
-                     of Cargo, but this is the `{}` channel\n\
-                     {}\n\
-                     {}",
-                    flag,
-                    channel,
-                    SEE_CHANNELS,
-                    see
+                    "the `{flag}` flag is unstable, and only available on the nightly channel \
+                     of Cargo, but this is the `{channel}` channel\n\
+                     {SEE_CHANNELS}\n\
+                     {see}"
                 );
             }
         }

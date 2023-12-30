@@ -1,0 +1,20 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 63a431c..c806b95 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -71,9 +71,9 @@ replace = """
+ [Unreleased]: https://github.com/rust-cli/anstyle/compare/{{tag_name}}...HEAD"""
+ exactly = 1
+ 
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.48.0"
+-features = [
+-    "Win32_System_Console",
+-    "Win32_Foundation",
+-]
++#[target."cfg(windows)".dependencies.windows-sys]
++#version = "0.48.0"
++#features = [
++#    "Win32_System_Console",
++#    "Win32_Foundation",
++#]

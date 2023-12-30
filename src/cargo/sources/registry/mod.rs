@@ -162,12 +162,12 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::task::Poll;
 
 use anyhow::Context as _;
-use cargo_util::paths::exclude_from_backups_and_indexing;
+use cargo_util::paths::{self, exclude_from_backups_and_indexing};
 use flate2::read::GzDecoder;
 use log::debug;
 use semver::Version;
@@ -182,7 +182,9 @@ use crate::util::hex;
 use crate::util::interning::InternedString;
 use crate::util::into_url::IntoUrl;
 use crate::util::network::PollExt;
-use crate::util::{restricted_names, CargoResult, Config, Filesystem, OptVersionReq};
+use crate::util::{
+    restricted_names, CargoResult, Config, Filesystem, LimitErrorReader, OptVersionReq,
+};
 
 const PACKAGE_SOURCE_LOCK: &str = ".cargo-ok";
 pub const CRATES_IO_INDEX: &str = "https://github.com/rust-lang/crates.io-index";
@@ -194,6 +196,8 @@ const VERSION_TEMPLATE: &str = "{version}";
 const PREFIX_TEMPLATE: &str = "{prefix}";
 const LOWER_PREFIX_TEMPLATE: &str = "{lowerprefix}";
 const CHECKSUM_TEMPLATE: &str = "{sha256-checksum}";
+const MAX_UNPACK_SIZE: u64 = 512 * 1024 * 1024;
+const MAX_COMPRESSION_RATIO: usize = 20; // 20:1
 
 /// A "source" for a local (see `local::LocalRegistry`) or remote (see
 /// `remote::RemoteRegistry`) registry.
@@ -247,6 +251,10 @@ pub struct RegistryConfig {
     /// operations like yanks, owner modifications, publish new crates, etc.
     /// If this is None, the registry does not support API commands.
     pub api: Option<String>,
+
+    /// Whether all operations require authentication.
+    #[serde(default)]
+    pub auth_required: bool,
 }
 
 /// The maximum version of the `v` field in the index this version of cargo
@@ -399,7 +407,7 @@ impl<'a> RegistryDependency<'a> {
 
         // In index, "registry" is null if it is from the same index.
         // In Cargo.toml, "registry" is None if it is from the default
-        if !id.is_default_registry() {
+        if !id.is_crates_io() {
             dep.set_registry_id(id);
         }
 
@@ -414,6 +422,7 @@ impl<'a> RegistryDependency<'a> {
     }
 }
 
+/// Result from loading data from a registry.
 pub enum LoadResponse {
     /// The cache is valid. The cached data should be used.
     CacheValid,
@@ -524,7 +533,11 @@ pub enum MaybeLock {
     ///
     /// `descriptor` is just a text string to display to the user of what is
     /// being downloaded.
-    Download { url: String, descriptor: String },
+    Download {
+        url: String,
+        descriptor: String,
+        authorization: Option<String>,
+    },
 }
 
 mod download;
@@ -545,8 +558,9 @@ impl<'cfg> RegistrySource<'cfg> {
         yanked_whitelist: &HashSet<PackageId>,
         config: &'cfg Config,
     ) -> CargoResult<RegistrySource<'cfg>> {
+        assert!(source_id.is_remote_registry());
         let name = short_name(source_id);
-        let ops = if source_id.url().scheme().starts_with("sparse+") {
+        let ops = if source_id.is_sparse() {
             Box::new(http_remote::HttpRegistry::new(source_id, config, &name)?) as Box<_>
         } else {
             Box::new(remote::RemoteRegistry::new(source_id, config, &name)) as Box<_>
@@ -605,17 +619,66 @@ impl<'cfg> RegistrySource<'cfg> {
         // unpacked.
         let package_dir = format!("{}-{}", pkg.name(), pkg.version());
         let dst = self.src_path.join(&package_dir);
-        dst.create_dir()?;
         let path = dst.join(PACKAGE_SOURCE_LOCK);
         let path = self.config.assert_package_cache_locked(&path);
         let unpack_dir = path.parent().unwrap();
-        if let Ok(meta) = path.metadata() {
-            if meta.len() > 0 {
-                return Ok(unpack_dir.to_path_buf());
+        match path.metadata() {
+            Ok(meta) if meta.len() > 0 => return Ok(unpack_dir.to_path_buf()),
+            Ok(_meta) => {
+                // The `.cargo-ok` file is not in a state we expect it to be
+                // (with two bytes containing "ok").
+                //
+                // Cargo has always included a `.cargo-ok` file to detect if
+                // extraction was interrupted, but it was originally empty.
+                //
+                // In 1.34, Cargo was changed to create the `.cargo-ok` file
+                // before it started extraction to implement fine-grained
+                // locking. After it was finished extracting, it wrote two
+                // bytes to indicate it was complete. It would use the length
+                // check to detect if it was possibly interrupted.
+                //
+                // In 1.36, Cargo changed to not use fine-grained locking, and
+                // instead used a global lock. The use of `.cargo-ok` was no
+                // longer needed for locking purposes, but was kept to detect
+                // when extraction was interrupted.
+                //
+                // In 1.49, Cargo changed to not create the `.cargo-ok` file
+                // before it started extraction to deal with `.crate` files
+                // that inexplicably had a `.cargo-ok` file in them.
+                //
+                // In 1.64, Cargo changed to detect `.crate` files with
+                // `.cargo-ok` files in them in response to CVE-2022-36113,
+                // which dealt with malicious `.crate` files making
+                // `.cargo-ok` a symlink causing cargo to write "ok" to any
+                // arbitrary file on the filesystem it has permission to.
+                //
+                // This is all a long-winded way of explaining the
+                // circumstances that might cause a directory to contain a
+                // `.cargo-ok` file that is empty or otherwise corrupted.
+                // Either this was extracted by a version of Rust before 1.34,
+                // in which case everything should be fine. However, an empty
+                // file created by versions 1.36 to 1.49 indicates that the
+                // extraction was interrupted and that we need to start again.
+                //
+                // Another possibility is that the filesystem is simply
+                // corrupted, in which case deleting the directory might be
+                // the safe thing to do. That is probably unlikely, though.
+                //
+                // To be safe, this deletes the directory and starts over
+                // again.
+                log::warn!("unexpected length of {path:?}, clearing cache");
+                paths::remove_dir_all(dst.as_path_unlocked())?;
             }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => anyhow::bail!("failed to access package completion {path:?}: {e}"),
         }
-        let gz = GzDecoder::new(tarball);
-        let mut tar = Archive::new(gz);
+        dst.create_dir()?;
+        let mut tar = {
+            let size_limit = max_unpack_size(self.config, tarball.metadata()?.len());
+            let gz = GzDecoder::new(tarball);
+            let gz = LimitErrorReader::new(gz, size_limit);
+            Archive::new(gz)
+        };
         let prefix = unpack_dir.file_name().unwrap();
         let parent = unpack_dir.parent().unwrap();
         for entry in tar.entries()? {
@@ -639,6 +702,13 @@ impl<'cfg> RegistrySource<'cfg> {
                     prefix
                 )
             }
+            // Prevent unpacking the lockfile from the crate itself.
+            if entry_path
+                .file_name()
+                .map_or(false, |p| p == PACKAGE_SOURCE_LOCK)
+            {
+                continue;
+            }
             // Unpacking failed
             let mut result = entry.unpack_in(parent).map_err(anyhow::Error::from);
             if cfg!(windows) && restricted_names::is_windows_reserved_path(&entry_path) {
@@ -654,16 +724,14 @@ impl<'cfg> RegistrySource<'cfg> {
                 .with_context(|| format!("failed to unpack entry at `{}`", entry_path.display()))?;
         }
 
-        // The lock file is created after unpacking so we overwrite a lock file
-        // which may have been extracted from the package.
+        // Now that we've finished unpacking, create and write to the lock file to indicate that
+        // unpacking was successful.
         let mut ok = OpenOptions::new()
-            .create(true)
+            .create_new(true)
             .read(true)
             .write(true)
             .open(&path)
             .with_context(|| format!("failed to open `{}`", path.display()))?;
-
-        // Write to the lock file to indicate that unpacking was successful.
         write!(ok, "ok")?;
 
         Ok(unpack_dir.to_path_buf())
@@ -773,9 +841,15 @@ impl<'cfg> Source for RegistrySource<'cfg> {
         };
         match self.ops.download(package, hash)? {
             MaybeLock::Ready(file) => self.get_pkg(package, &file).map(MaybePackage::Ready),
-            MaybeLock::Download { url, descriptor } => {
-                Ok(MaybePackage::Download { url, descriptor })
-            }
+            MaybeLock::Download {
+                url,
+                descriptor,
+                authorization,
+            } => Ok(MaybePackage::Download {
+                url,
+                descriptor,
+                authorization,
+            }),
         }
     }
 
@@ -824,6 +898,51 @@ impl<'cfg> Source for RegistrySource<'cfg> {
 
         self.ops.block_until_ready()
     }
+}
+
+/// Get the maximum upack size that Cargo permits
+/// based on a given `size of your compressed file.
+///
+/// Returns the larger one between `size * max compression ratio`
+/// and a fixed max unpacked size.
+///
+/// In reality, the compression ratio usually falls in the range of 2:1 to 10:1.
+/// We choose 20:1 to cover almost all possible cases hopefully.
+/// Any ratio higher than this is considered as a zip bomb.
+///
+/// In the future we might want to introduce a configurable size.
+///
+/// Some of the real world data from common compression algorithms:
+///
+/// * <https://www.zlib.net/zlib_tech.html>
+/// * <https://cran.r-project.org/web/packages/brotli/vignettes/brotli-2015-09-22.pdf>
+/// * <https://blog.cloudflare.com/results-experimenting-brotli/>
+/// * <https://tukaani.org/lzma/benchmarks.html>
+fn max_unpack_size(config: &Config, size: u64) -> u64 {
+    const SIZE_VAR: &str = "__CARGO_TEST_MAX_UNPACK_SIZE";
+    const RATIO_VAR: &str = "__CARGO_TEST_MAX_UNPACK_RATIO";
+    let max_unpack_size = if cfg!(debug_assertions) && config.get_env(SIZE_VAR).is_ok() {
+        // For integration test only.
+        config
+            .get_env(SIZE_VAR)
+            .unwrap()
+            .parse()
+            .expect("a max unpack size in bytes")
+    } else {
+        MAX_UNPACK_SIZE
+    };
+    let max_compression_ratio = if cfg!(debug_assertions) && config.get_env(RATIO_VAR).is_ok() {
+        // For integration test only.
+        config
+            .get_env(RATIO_VAR)
+            .unwrap()
+            .parse()
+            .expect("a max compression ratio in bytes")
+    } else {
+        MAX_COMPRESSION_RATIO
+    };
+
+    u64::max(max_unpack_size, size * max_compression_ratio as u64)
 }
 
 fn make_dep_prefix(name: &str) -> String {

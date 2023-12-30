@@ -16,7 +16,7 @@ Index: pkg-config/src/lib.rs
  //! There are also a number of environment variables which can configure how a
  //! library is linked to (dynamically vs statically). These variables control
  //! whether the `--static` flag is passed. Note that this behavior can be
-@@ -111,11 +104,8 @@ pub enum Error {
+@@ -117,11 +110,8 @@ pub enum Error {
      /// Contains the name of the responsible environment variable.
      EnvNoPkgConfig(String),
  
@@ -30,7 +30,7 @@ Index: pkg-config/src/lib.rs
      CrossCompilation,
  
      /// Failed to run `pkg-config`.
-@@ -155,14 +145,6 @@ impl fmt::Display for Error {
+@@ -161,14 +151,6 @@ impl fmt::Display for Error {
      fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
          match *self {
              Error::EnvNoPkgConfig(ref name) => write!(f, "Aborted because {} is set", name),
@@ -45,7 +45,7 @@ Index: pkg-config/src/lib.rs
              Error::Command {
                  ref command,
                  ref cause,
-@@ -219,7 +201,7 @@ impl fmt::Display for Error {
+@@ -226,7 +208,7 @@ impl fmt::Display for Error {
                  )?;
                  format_output(output, f)
              }
@@ -54,7 +54,7 @@ Index: pkg-config/src/lib.rs
          }
      }
  }
-@@ -411,6 +393,8 @@ impl Config {
+@@ -420,6 +402,8 @@ impl Config {
          if host == target {
              return true;
          }
@@ -67,7 +67,7 @@ Index: pkg-config/tests/test.rs
 ===================================================================
 --- pkg-config.orig/tests/test.rs
 +++ pkg-config/tests/test.rs
-@@ -34,7 +34,6 @@ fn find(name: &str) -> Result<pkg_config
+@@ -31,7 +31,6 @@ fn find(name: &str) -> Result<pkg_config
      pkg_config::probe_library(name)
  }
  
@@ -75,7 +75,7 @@ Index: pkg-config/tests/test.rs
  fn cross_disabled() {
      let _g = LOCK.lock();
      reset();
-@@ -46,7 +45,6 @@ fn cross_disabled() {
+@@ -43,7 +42,6 @@ fn cross_disabled() {
      }
  }
  
@@ -83,7 +83,7 @@ Index: pkg-config/tests/test.rs
  fn cross_enabled() {
      let _g = LOCK.lock();
      reset();
-@@ -66,7 +64,6 @@ fn cross_enabled_if_customized() {
+@@ -63,7 +61,6 @@ fn cross_enabled_if_customized() {
      find("foo").unwrap();
  }
  
@@ -91,7 +91,7 @@ Index: pkg-config/tests/test.rs
  fn cross_disabled_if_customized() {
      let _g = LOCK.lock();
      reset();
-@@ -74,10 +71,10 @@ fn cross_disabled_if_customized() {
+@@ -71,10 +68,10 @@ fn cross_disabled_if_customized() {
      env::set_var("HOST", "bar");
      env::set_var("PKG_CONFIG_ALLOW_CROSS", "0");
      env::set_var("PKG_CONFIG_SYSROOT_DIR", "/tmp/cross-test");

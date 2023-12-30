@@ -1,12 +1,9 @@
-//extern crate criterion;
-extern crate thread_local;
-
-//use criterion::{black_box, BatchSize};
+/*use criterion::{black_box, BatchSize};
 
 use thread_local::ThreadLocal;
 
 fn main() {
-    /*let mut c = criterion::Criterion::default().configure_from_args();
+    let mut c = criterion::Criterion::default().configure_from_args();
 
     c.bench_function("get", |b| {
         let local = ThreadLocal::new();
@@ -24,5 +21,5 @@ fn main() {
             },
             BatchSize::SmallInput,
         )
-    });*/
-}
+    });
+}*/

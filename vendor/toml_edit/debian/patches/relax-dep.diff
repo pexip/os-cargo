@@ -1,0 +1,22 @@
+Index: toml-edit/Cargo.toml
+===================================================================
+--- toml-edit.orig/Cargo.toml
++++ toml-edit/Cargo.toml
+@@ -95,7 +95,7 @@ name = "visit"
+ test = true
+ 
+ [dependencies.indexmap]
+-version = "2.0.0"
++version = ">= 1.9.1"
+ features = ["std"]
+ 
+ [dependencies.kstring]
+@@ -125,7 +125,7 @@ version = "0.6.0"
+ version = "1.0.96"
+ 
+ [dev-dependencies.snapbox]
+-version = "0.4.11"
++version = "0.4.8"
+ features = ["harness"]
+ 
+ [features]

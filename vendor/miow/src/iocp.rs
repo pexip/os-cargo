@@ -1,19 +1,20 @@
 //! Bindings to IOCP, I/O Completion Ports
 
+use crate::FALSE;
 use std::cmp;
 use std::fmt;
 use std::io;
 use std::mem;
-use std::os::windows::io::*;
+use std::os::windows::io::{AsRawHandle, AsRawSocket, FromRawHandle, IntoRawHandle, RawHandle};
 use std::time::Duration;
 
 use crate::handle::Handle;
 use crate::Overlapped;
-use winapi::shared::basetsd::*;
-use winapi::shared::ntdef::*;
-use winapi::um::handleapi::*;
-use winapi::um::ioapiset::*;
-use winapi::um::minwinbase::*;
+use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::System::IO::{
+    CreateIoCompletionPort, GetQueuedCompletionStatus, GetQueuedCompletionStatusEx,
+    PostQueuedCompletionStatus, OVERLAPPED, OVERLAPPED_ENTRY,
+};
 
 /// A handle to an Windows I/O Completion Port.
 #[derive(Debug)]
@@ -27,6 +28,7 @@ pub struct CompletionPort {
 /// provided to a completion port, or they are read out of a completion port.
 /// The fields of each status are read through its accessor methods.
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct CompletionStatus(OVERLAPPED_ENTRY);
 
 impl fmt::Debug for CompletionStatus {
@@ -45,8 +47,8 @@ impl CompletionPort {
     /// allowed for threads associated with this port. Consult the Windows
     /// documentation for more information about this value.
     pub fn new(threads: u32) -> io::Result<CompletionPort> {
-        let ret = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0 as *mut _, 0, threads) };
-        if ret.is_null() {
+        let ret = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, threads) };
+        if ret == 0 {
             Err(io::Error::last_os_error())
         } else {
             Ok(CompletionPort {
@@ -65,7 +67,7 @@ impl CompletionPort {
     /// trait can be provided to this function, such as `std::fs::File` and
     /// friends.
     pub fn add_handle<T: AsRawHandle + ?Sized>(&self, token: usize, t: &T) -> io::Result<()> {
-        self._add(token, t.as_raw_handle())
+        self._add(token, t.as_raw_handle() as HANDLE)
     }
 
     /// Associates a new `SOCKET` to this I/O completion port.
@@ -82,10 +84,9 @@ impl CompletionPort {
     }
 
     fn _add(&self, token: usize, handle: HANDLE) -> io::Result<()> {
-        assert_eq!(mem::size_of_val(&token), mem::size_of::<ULONG_PTR>());
-        let ret =
-            unsafe { CreateIoCompletionPort(handle, self.handle.raw(), token as ULONG_PTR, 0) };
-        if ret.is_null() {
+        assert_eq!(mem::size_of_val(&token), mem::size_of::<usize>());
+        let ret = unsafe { CreateIoCompletionPort(handle, self.handle.raw(), token as usize, 0) };
+        if ret == 0 {
             Err(io::Error::last_os_error())
         } else {
             debug_assert_eq!(ret, self.handle.raw());
@@ -150,7 +151,7 @@ impl CompletionPort {
         );
         let mut removed = 0;
         let timeout = crate::dur2ms(timeout);
-        let len = cmp::min(list.len(), <ULONG>::max_value() as usize) as ULONG;
+        let len = cmp::min(list.len(), <u32>::max_value() as usize) as u32;
         let ret = unsafe {
             GetQueuedCompletionStatusEx(
                 self.handle.raw(),
@@ -186,22 +187,22 @@ impl CompletionPort {
 }
 
 impl AsRawHandle for CompletionPort {
-    fn as_raw_handle(&self) -> HANDLE {
-        self.handle.raw()
+    fn as_raw_handle(&self) -> RawHandle {
+        self.handle.raw() as RawHandle
     }
 }
 
 impl FromRawHandle for CompletionPort {
-    unsafe fn from_raw_handle(handle: HANDLE) -> CompletionPort {
+    unsafe fn from_raw_handle(handle: RawHandle) -> CompletionPort {
         CompletionPort {
-            handle: Handle::new(handle),
+            handle: Handle::new(handle as HANDLE),
         }
     }
 }
 
 impl IntoRawHandle for CompletionPort {
-    fn into_raw_handle(self) -> HANDLE {
-        self.handle.into_raw()
+    fn into_raw_handle(self) -> RawHandle {
+        self.handle.into_raw() as RawHandle
     }
 }
 
@@ -212,10 +213,10 @@ impl CompletionStatus {
     /// the `post` method. The parameters are opaquely passed through and not
     /// interpreted by the system at all.
     pub fn new(bytes: u32, token: usize, overlapped: *mut Overlapped) -> CompletionStatus {
-        assert_eq!(mem::size_of_val(&token), mem::size_of::<ULONG_PTR>());
+        assert_eq!(mem::size_of_val(&token), mem::size_of::<usize>());
         CompletionStatus(OVERLAPPED_ENTRY {
             dwNumberOfBytesTransferred: bytes,
-            lpCompletionKey: token as ULONG_PTR,
+            lpCompletionKey: token as usize,
             lpOverlapped: overlapped as *mut _,
             Internal: 0,
         })
@@ -227,6 +228,9 @@ impl CompletionStatus {
     /// This method will wrap the `OVERLAPPED_ENTRY` in a `CompletionStatus`,
     /// returning the wrapped structure.
     pub fn from_entry(entry: &OVERLAPPED_ENTRY) -> &CompletionStatus {
+        // Safety: CompletionStatus is repr(transparent) w/ OVERLAPPED_ENTRY, so
+        // a reference to one is guaranteed to be layout compatible with the
+        // reference to another.
         unsafe { &*(entry as *const _ as *const _) }
     }
 
@@ -267,13 +271,10 @@ impl CompletionStatus {
 
 #[cfg(test)]
 mod tests {
+    use crate::iocp::{CompletionPort, CompletionStatus};
     use std::mem;
     use std::time::Duration;
-
-    use winapi::shared::basetsd::*;
-    use winapi::shared::winerror::*;
-
-    use crate::iocp::{CompletionPort, CompletionStatus};
+    use windows_sys::Win32::Foundation::*;
 
     #[test]
     fn is_send_sync() {
@@ -283,7 +284,7 @@ mod tests {
 
     #[test]
     fn token_right_size() {
-        assert_eq!(mem::size_of::<usize>(), mem::size_of::<ULONG_PTR>());
+        assert_eq!(mem::size_of::<usize>(), mem::size_of::<usize>());
     }
 
     #[test]

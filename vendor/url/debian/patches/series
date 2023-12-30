@@ -1,2 +1,2 @@
 remove-benchmarks.diff
-remove-debugger-test.diff
+disable-debugger-visualizer.diff

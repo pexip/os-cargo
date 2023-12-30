@@ -1,6 +1,8 @@
---- a/crates/cargo-test-macro/src/lib.rs
-+++ b/crates/cargo-test-macro/src/lib.rs
-@@ -203,6 +203,14 @@
+Index: cargo/crates/cargo-test-macro/src/lib.rs
+===================================================================
+--- cargo.orig/crates/cargo-test-macro/src/lib.rs
++++ cargo/crates/cargo-test-macro/src/lib.rs
+@@ -223,6 +223,14 @@ fn has_command(command: &str) -> bool {
          }
      };
      if !output.status.success() {

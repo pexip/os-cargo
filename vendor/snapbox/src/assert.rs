@@ -1,4 +1,11 @@
-use crate::data::DataFormat;
+#[cfg(feature = "color")]
+use anstream::panic;
+#[cfg(feature = "color")]
+use anstream::stderr;
+#[cfg(not(feature = "color"))]
+use std::io::stderr;
+
+use crate::data::{DataFormat, NormalizeMatches, NormalizeNewlines, NormalizePaths};
 use crate::Action;
 
 /// Snapshot assertion against a file's contents
@@ -178,16 +185,14 @@ impl Assert {
         expected: crate::Result<crate::Data>,
         mut actual: crate::Data,
     ) -> (crate::Result<crate::Data>, crate::Data) {
-        let expected = expected.map(|d| d.map_text(crate::utils::normalize_lines));
+        let expected = expected.map(|d| d.normalize(NormalizeNewlines));
         // On `expected` being an error, make a best guess
         let format = expected
             .as_ref()
             .map(|d| d.format())
             .unwrap_or(DataFormat::Text);
 
-        actual = actual
-            .try_coerce(format)
-            .map_text(|s| crate::utils::normalize_lines(s));
+        actual = actual.try_coerce(format).normalize(NormalizeNewlines);
 
         (expected, actual)
     }
@@ -197,17 +202,20 @@ impl Assert {
         expected: crate::Result<crate::Data>,
         mut actual: crate::Data,
     ) -> (crate::Result<crate::Data>, crate::Data) {
-        let expected = expected.map(|d| d.map_text(crate::utils::normalize_lines));
+        let expected = expected.map(|d| d.normalize(NormalizeNewlines));
         // On `expected` being an error, make a best guess
-        if let (Some(expected), format) = expected
-            .as_ref()
-            .map(|d| (d.as_str(), d.format()))
-            .unwrap_or((Some(""), DataFormat::Text))
-        {
-            actual = actual
-                .try_coerce(format)
-                .map_text(|s| self.normalize_text(s))
-                .map_text(|t| self.substitutions.normalize(t, expected));
+        let format = expected.as_ref().map(|e| e.format()).unwrap_or_default();
+        actual = actual.try_coerce(format);
+
+        if self.normalize_paths {
+            actual = actual.normalize(NormalizePaths);
+        }
+        // Always normalize new lines
+        actual = actual.normalize(NormalizeNewlines);
+
+        // If expected is not an error normalize matches
+        if let Ok(expected) = expected.as_ref() {
+            actual = actual.normalize(NormalizeMatches::new(&self.substitutions, expected));
         }
 
         (expected, actual)
@@ -231,36 +239,25 @@ impl Assert {
                     use std::io::Write;
 
                     let _ = writeln!(
-                        std::io::stderr(),
+                        stderr(),
                         "{}: {}",
                         self.palette.warn("Ignoring failure"),
                         err
                     );
                 }
                 Action::Verify => {
-                    use std::fmt::Write;
-                    let mut buffer = String::new();
-                    write!(&mut buffer, "{}", err).unwrap();
-                    if let Some(action_var) = self.action_var.as_deref() {
-                        writeln!(
-                            &mut buffer,
-                            "{}",
-                            self.palette
-                                .hint(format_args!("Update with {}=overwrite", action_var))
-                        )
-                        .unwrap();
-                    }
-                    panic!("{}", buffer);
+                    let message = if let Some(action_var) = self.action_var.as_deref() {
+                        self.palette
+                            .hint(format!("Update with {}=overwrite", action_var))
+                    } else {
+                        crate::report::Styled::new(String::new(), Default::default())
+                    };
+                    panic!("{err}{message}");
                 }
                 Action::Overwrite => {
                     use std::io::Write;
 
-                    let _ = writeln!(
-                        std::io::stderr(),
-                        "{}: {}",
-                        self.palette.warn("Fixing"),
-                        err
-                    );
+                    let _ = writeln!(stderr(), "{}: {}", self.palette.warn("Fixing"), err);
                     actual.write_to(expected_path).unwrap();
                 }
             }
@@ -289,14 +286,6 @@ impl Assert {
         } else {
             Ok(())
         }
-    }
-
-    fn normalize_text(&self, data: &str) -> String {
-        let mut data = crate::utils::normalize_lines(data);
-        if self.normalize_paths {
-            data = crate::utils::normalize_paths(&data);
-        }
-        data
     }
 }
 
@@ -422,20 +411,17 @@ impl Assert {
             }
             if ok {
                 use std::io::Write;
-                let _ = write!(std::io::stderr(), "{}", buffer);
+                let _ = write!(stderr(), "{}", buffer);
                 match self.action {
                     Action::Skip => unreachable!("Bailed out earlier"),
                     Action::Ignore => {
-                        let _ = write!(
-                            std::io::stderr(),
-                            "{}",
-                            self.palette.warn("Ignoring above failures")
-                        );
+                        let _ =
+                            write!(stderr(), "{}", self.palette.warn("Ignoring above failures"));
                     }
                     Action::Verify => unreachable!("Something had to fail to get here"),
                     Action::Overwrite => {
                         let _ = write!(
-                            std::io::stderr(),
+                            stderr(),
                             "{}",
                             self.palette.warn("Overwrote above failures")
                         );
@@ -526,7 +512,7 @@ impl Default for Assert {
             action_var: Default::default(),
             normalize_paths: true,
             substitutions: Default::default(),
-            palette: crate::report::Palette::auto(),
+            palette: crate::report::Palette::color(),
             data_format: Default::default(),
         }
         .substitutions(crate::Substitutions::with_exe())

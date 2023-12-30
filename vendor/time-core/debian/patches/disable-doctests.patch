@@ -1,0 +1,13 @@
+Description: Disable doctests which back depend on parent package time
+Last-Update: 2023-03-02
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -33,3 +33,6 @@
+ rustdoc-args = ["--generate-link-to-definition"]
+ 
+ [dependencies]
++
++[lib]
++doctest = false

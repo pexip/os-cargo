@@ -141,7 +141,7 @@ impl CargoPathExt for Path {
         // actually performing the removal, but we don't care all that much
         // for our tests.
         if meta.is_dir() {
-            if let Err(e) = remove_dir_all::remove_dir_all(self) {
+            if let Err(e) = fs::remove_dir_all(self) {
                 panic!("failed to remove {:?}: {:?}", self, e)
             }
         } else if let Err(e) = fs::remove_file(self) {
@@ -305,7 +305,7 @@ pub fn windows_reserved_names_are_allowed() -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::ptr;
-    use winapi::um::fileapi::GetFullPathNameW;
+    use windows_sys::Win32::Storage::FileSystem::GetFullPathNameW;
 
     let test_file_name: Vec<_> = OsStr::new("aux.rs").encode_wide().collect();
 

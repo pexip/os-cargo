@@ -51,7 +51,7 @@ use crate::ssl::SslFiletype;
 use crate::stack::StackRef;
 #[cfg(any(ossl102, libressl261))]
 use crate::x509::verify::{X509VerifyFlags, X509VerifyParamRef};
-use crate::x509::{X509Object, X509};
+use crate::x509::{X509Object, X509PurposeId, X509};
 use crate::{cvt, cvt_p};
 use openssl_macros::corresponds;
 #[cfg(not(boringssl))]
@@ -125,6 +125,13 @@ impl X509StoreBuilderRef {
         unsafe { cvt(ffi::X509_STORE_set_flags(self.as_ptr(), flags.bits())).map(|_| ()) }
     }
 
+    /// Sets the certificate purpose.
+    /// The purpose value can be obtained by `X509PurposeRef::get_by_sname()`
+    #[corresponds(X509_STORE_set_purpose)]
+    pub fn set_purpose(&mut self, purpose: X509PurposeId) -> Result<(), ErrorStack> {
+        unsafe { cvt(ffi::X509_STORE_set_purpose(self.as_ptr(), purpose.as_raw())).map(|_| ()) }
+    }
+
     /// Sets certificate chain validation related parameters.
     #[corresponds[X509_STORE_set1_param]]
     #[cfg(any(ossl102, libressl261))]
@@ -145,7 +152,7 @@ generic_foreign_type_and_impl_send_sync! {
 
 /// Marker type corresponding to the [`X509_LOOKUP_hash_dir`] lookup method.
 ///
-/// [`X509_LOOKUP_hash_dir`]: https://www.openssl.org/docs/man1.1.0/crypto/X509_LOOKUP_hash_dir.html
+/// [`X509_LOOKUP_hash_dir`]: https://www.openssl.org/docs/manmaster/crypto/X509_LOOKUP_hash_dir.html
 // FIXME should be an enum
 pub struct HashDir;
 
@@ -194,8 +201,9 @@ impl X509Lookup<File> {
 
 #[cfg(not(boringssl))]
 impl X509LookupRef<File> {
-    #[corresponds(X509_load_cert_file)]
     /// Specifies a file from which certificates will be loaded
+    #[corresponds(X509_load_cert_file)]
+    // FIXME should return 'Result<i32, ErrorStack' like load_crl_file
     pub fn load_cert_file<P: AsRef<Path>>(
         &mut self,
         file: P,
@@ -209,6 +217,23 @@ impl X509LookupRef<File> {
                 file_type.as_raw(),
             ))
             .map(|_| ())
+        }
+    }
+
+    /// Specifies a file from which certificate revocation lists will be loaded
+    #[corresponds(X509_load_crl_file)]
+    pub fn load_crl_file<P: AsRef<Path>>(
+        &mut self,
+        file: P,
+        file_type: SslFiletype,
+    ) -> Result<i32, ErrorStack> {
+        let file = CString::new(file.as_ref().as_os_str().to_str().unwrap()).unwrap();
+        unsafe {
+            cvt(ffi::X509_load_crl_file(
+                self.as_ptr(),
+                file.as_ptr(),
+                file_type.as_raw(),
+            ))
         }
     }
 }

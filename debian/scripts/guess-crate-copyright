@@ -5,7 +5,7 @@
 # Guess the copyright of a cargo crate by looking at its git history.
 
 import datetime
-import pytoml
+import toml
 import os
 import subprocess
 import sys
@@ -16,7 +16,7 @@ get_initial_commit = len(crates) == 1
 
 for crate in crates:
 	with open(os.path.join(crate, "Cargo.toml")) as fp:
-		data = pytoml.load(fp)
+		data = toml.load(fp)
 		repo = data["package"].get("repository", None)
 		if get_initial_commit and repo:
 			output = subprocess.check_output(

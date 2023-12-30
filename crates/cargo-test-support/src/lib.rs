@@ -3,7 +3,6 @@
 //! See <https://rust-lang.github.io/cargo/contrib/> for a guide on writing tests.
 
 #![allow(clippy::all)]
-#![cfg_attr(feature = "deny-warnings", deny(warnings))]
 
 use std::env;
 use std::ffi::OsStr;
@@ -70,6 +69,7 @@ pub fn panic_error(what: &str, err: impl Into<anyhow::Error>) -> ! {
 pub use cargo_test_macro::cargo_test;
 
 pub mod compare;
+pub mod containers;
 pub mod cross_compile;
 mod diff;
 pub mod git;
@@ -410,8 +410,10 @@ impl Project {
     /// Example:
     ///     p.cargo("build --bin foo").run();
     pub fn cargo(&self, cmd: &str) -> Execs {
-        let mut execs = self.process(&cargo_exe());
+        let cargo = cargo_exe();
+        let mut execs = self.process(&cargo);
         if let Some(ref mut p) = execs.process_builder {
+            p.env("CARGO", cargo);
             p.arg_line(cmd);
         }
         execs
@@ -818,12 +820,28 @@ impl Execs {
         self
     }
 
+    /// Overrides the crates.io URL for testing.
+    ///
+    /// Can be used for testing crates-io functionality where alt registries
+    /// cannot be used.
+    pub fn replace_crates_io(&mut self, url: &Url) -> &mut Self {
+        if let Some(ref mut p) = self.process_builder {
+            p.env("__CARGO_TEST_CRATES_IO_URL_DO_NOT_USE_THIS", url.as_str());
+        }
+        self
+    }
+
+    pub fn enable_split_debuginfo_packed(&mut self) -> &mut Self {
+        self.env("CARGO_PROFILE_DEV_SPLIT_DEBUGINFO", "packed")
+            .env("CARGO_PROFILE_TEST_SPLIT_DEBUGINFO", "packed")
+            .env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "packed")
+            .env("CARGO_PROFILE_BENCH_SPLIT_DEBUGINFO", "packed");
+        self
+    }
+
     pub fn enable_mac_dsym(&mut self) -> &mut Self {
         if cfg!(target_os = "macos") {
-            self.env("CARGO_PROFILE_DEV_SPLIT_DEBUGINFO", "packed")
-                .env("CARGO_PROFILE_TEST_SPLIT_DEBUGINFO", "packed")
-                .env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "packed")
-                .env("CARGO_PROFILE_BENCH_SPLIT_DEBUGINFO", "packed");
+            return self.enable_split_debuginfo_packed();
         }
         self
     }
@@ -1214,30 +1232,42 @@ pub trait TestEnv: Sized {
             // should hopefully not surprise us as we add cargo features over time and
             // cargo rides the trains.
             .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "stable")
-            // For now disable incremental by default as support hasn't ridden to the
-            // stable channel yet. Once incremental support hits the stable compiler we
-            // can switch this to one and then fix the tests.
+            // Keeps cargo within its sandbox.
+            .env("__CARGO_TEST_DISABLE_GLOBAL_KNOWN_HOST", "1")
+            // Incremental generates a huge amount of data per test, which we
+            // don't particularly need. Tests that specifically need to check
+            // the incremental behavior should turn this back on.
             .env("CARGO_INCREMENTAL", "0")
+            // Don't read the system git config which is out of our control.
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("__CARGO_DEFAULT_LIB_METADATA")
-            .env_remove("RUSTC")
-            .env_remove("RUSTDOC")
-            .env_remove("RUSTC_WRAPPER")
-            .env_remove("RUSTFLAGS")
-            .env_remove("RUSTDOCFLAGS")
-            .env_remove("XDG_CONFIG_HOME") // see #2345
-            .env("GIT_CONFIG_NOSYSTEM", "1") // keep trying to sandbox ourselves
+            .env_remove("ALL_PROXY")
             .env_remove("EMAIL")
-            .env_remove("USER") // not set on some rust-lang docker images
-            .env_remove("MFLAGS")
-            .env_remove("MAKEFLAGS")
-            .env_remove("GIT_AUTHOR_NAME")
             .env_remove("GIT_AUTHOR_EMAIL")
-            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("GIT_AUTHOR_NAME")
             .env_remove("GIT_COMMITTER_EMAIL")
-            .env_remove("MSYSTEM"); // assume cmd.exe everywhere on windows
+            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("http_proxy")
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("MAKEFLAGS")
+            .env_remove("MFLAGS")
+            .env_remove("MSYSTEM") // assume cmd.exe everywhere on windows
+            .env_remove("RUSTC")
+            .env_remove("RUSTC_WORKSPACE_WRAPPER")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("RUSTDOC")
+            .env_remove("RUSTDOCFLAGS")
+            .env_remove("RUSTFLAGS")
+            .env_remove("SSH_AUTH_SOCK") // ensure an outer agent is never contacted
+            .env_remove("USER") // not set on some rust-lang docker images
+            .env_remove("XDG_CONFIG_HOME"); // see #2345
         if cfg!(target_os = "macos") {
             // Work-around a bug in macOS 10.15, see `link_or_copy` for details.
             self = self.env("__CARGO_COPY_DONT_LINK_DO_NOT_USE_THIS", "1");
+        }
+        if cfg!(windows) {
+            self = self.env("USERPROFILE", paths::home());
         }
         self
     }
@@ -1317,7 +1347,9 @@ impl ArgLine for snapbox::cmd::Command {
 }
 
 pub fn cargo_process(s: &str) -> Execs {
-    let mut p = process(&cargo_exe());
+    let cargo = cargo_exe();
+    let mut p = process(&cargo);
+    p.env("CARGO", cargo);
     p.arg_line(s);
     execs().with_process_builder(p)
 }

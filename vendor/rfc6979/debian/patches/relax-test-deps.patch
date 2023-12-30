@@ -1,0 +1,13 @@
+Index: rfc6979/Cargo.toml
+===================================================================
+--- rfc6979.orig/Cargo.toml
++++ rfc6979/Cargo.toml
+@@ -42,7 +42,7 @@ version = "2"
+ default-features = false
+ 
+ [dev-dependencies.hex-literal]
+-version = "0.3"
++version = "0.4"
+ 
+ [dev-dependencies.sha2]
+ version = "0.10"

@@ -145,6 +145,16 @@ pub type CCRNGStatus = ::CCCryptorStatus;
 
 pub type copyfile_state_t = *mut ::c_void;
 pub type copyfile_flags_t = u32;
+pub type copyfile_callback_t = ::Option<
+    extern "C" fn(
+        ::c_int,
+        ::c_int,
+        copyfile_state_t,
+        *const ::c_char,
+        *const ::c_char,
+        *mut ::c_void,
+    ) -> ::c_int,
+>;
 
 pub type attrgroup_t = u32;
 pub type vol_capabilities_set_t = [u32; 4];
@@ -368,6 +378,25 @@ s! {
         pub fst_bytesalloc: ::off_t,
     }
 
+    pub struct fpunchhole_t {
+        pub fp_flags: ::c_uint, /* unused */
+        pub reserved: ::c_uint, /* (to maintain 8-byte alignment) */
+        pub fp_offset: ::off_t, /* IN: start of the region */
+        pub fp_length: ::off_t, /* IN: size of the region */
+    }
+
+    pub struct ftrimactivefile_t {
+        pub fta_offset: ::off_t,
+        pub fta_length: ::off_t,
+    }
+
+    pub struct fspecread_t {
+        pub fsr_flags: ::c_uint,
+        pub reserved: ::c_uint,
+        pub fsr_offset: ::off_t,
+        pub fsr_length: ::off_t,
+    }
+
     pub struct radvisory {
         pub ra_offset: ::off_t,
         pub ra_count: ::c_int,
@@ -433,6 +462,80 @@ s! {
         pub ifm_flags: ::c_int,
         pub ifm_index: ::c_ushort,
         pub ifm_data: if_data,
+    }
+
+    pub struct ifa_msghdr {
+        pub ifam_msglen: ::c_ushort,
+        pub ifam_version: ::c_uchar,
+        pub ifam_type: ::c_uchar,
+        pub ifam_addrs: ::c_int,
+        pub ifam_flags: ::c_int,
+        pub ifam_index: ::c_ushort,
+        pub ifam_metric: ::c_int,
+    }
+
+    pub struct ifma_msghdr {
+        pub ifmam_msglen: ::c_ushort,
+        pub ifmam_version: ::c_uchar,
+        pub ifmam_type: ::c_uchar,
+        pub ifmam_addrs: ::c_int,
+        pub ifmam_flags: ::c_int,
+        pub ifmam_index: ::c_ushort,
+    }
+
+    pub struct ifma_msghdr2 {
+        pub ifmam_msglen: ::c_ushort,
+        pub ifmam_version: ::c_uchar,
+        pub ifmam_type: ::c_uchar,
+        pub ifmam_addrs: ::c_int,
+        pub ifmam_flags: ::c_int,
+        pub ifmam_index: ::c_ushort,
+        pub ifmam_refcount: i32,
+    }
+
+    pub struct rt_metrics {
+        pub rmx_locks: u32,
+        pub rmx_mtu: u32,
+        pub rmx_hopcount: u32,
+        pub rmx_expire: i32,
+        pub rmx_recvpipe: u32,
+        pub rmx_sendpipe: u32,
+        pub rmx_ssthresh: u32,
+        pub rmx_rtt: u32,
+        pub rmx_rttvar: u32,
+        pub rmx_pksent: u32,
+        pub rmx_state: u32,
+        pub rmx_filler: [u32; 3],
+    }
+
+    pub struct rt_msghdr {
+        pub rtm_msglen: ::c_ushort,
+        pub rtm_version: ::c_uchar,
+        pub rtm_type: ::c_uchar,
+        pub rtm_index: ::c_ushort,
+        pub rtm_flags: ::c_int,
+        pub rtm_addrs: ::c_int,
+        pub rtm_pid: ::pid_t,
+        pub rtm_seq: ::c_int,
+        pub rtm_errno: ::c_int,
+        pub rtm_use: ::c_int,
+        pub rtm_inits: u32,
+        pub rtm_rmx: rt_metrics,
+    }
+
+    pub struct rt_msghdr2 {
+        pub rtm_msglen: ::c_ushort,
+        pub rtm_version: ::c_uchar,
+        pub rtm_type: ::c_uchar,
+        pub rtm_index: ::c_ushort,
+        pub rtm_flags: ::c_int,
+        pub rtm_addrs: ::c_int,
+        pub rtm_refcnt: i32,
+        pub rtm_parentflags: ::c_int,
+        pub rtm_reserved: ::c_int,
+        pub rtm_use: ::c_int,
+        pub rtm_inits: u32,
+        pub rtm_rmx: rt_metrics,
     }
 
     pub struct termios {
@@ -1306,6 +1409,15 @@ s_no_extra_traits! {
 
     pub struct os_unfair_lock_s {
         _os_unfair_lock_opaque: u32,
+    }
+
+   #[cfg_attr(libc_packedN, repr(packed(1)))]
+    pub struct sockaddr_vm {
+        pub svm_len: ::c_uchar,
+        pub svm_family: ::sa_family_t,
+        pub svm_reserved1: ::c_ushort,
+        pub svm_port: ::c_uint,
+        pub svm_cid: ::c_uint,
     }
 }
 
@@ -2609,6 +2721,52 @@ cfg_if! {
                 self._os_unfair_lock_opaque.hash(state);
             }
         }
+
+        impl PartialEq for sockaddr_vm {
+            fn eq(&self, other: &sockaddr_vm) -> bool {
+                self.svm_len == other.svm_len
+                    && self.svm_family == other.svm_family
+                    && self.svm_reserved1 == other.svm_reserved1
+                    && self.svm_port == other.svm_port
+                    && self.svm_cid == other.svm_cid
+            }
+        }
+
+        impl Eq for sockaddr_vm {}
+
+        impl ::fmt::Debug for sockaddr_vm {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                let svm_len = self.svm_len;
+                let svm_family = self.svm_family;
+                let svm_reserved1 = self.svm_reserved1;
+                let svm_port = self.svm_port;
+                let svm_cid = self.svm_cid;
+
+                f.debug_struct("sockaddr_vm")
+                    .field("svm_len",&svm_len)
+                    .field("svm_family",&svm_family)
+                    .field("svm_reserved1",&svm_reserved1)
+                    .field("svm_port",&svm_port)
+                    .field("svm_cid",&svm_cid)
+                    .finish()
+            }
+        }
+
+        impl ::hash::Hash for sockaddr_vm {
+            fn hash<H: ::hash::Hasher>(&self, state: &mut H) {
+                let svm_len = self.svm_len;
+                let svm_family = self.svm_family;
+                let svm_reserved1 = self.svm_reserved1;
+                let svm_port = self.svm_port;
+                let svm_cid = self.svm_cid;
+
+                svm_len.hash(state);
+                svm_family.hash(state);
+                svm_reserved1.hash(state);
+                svm_port.hash(state);
+                svm_cid.hash(state);
+            }
+        }
     }
 }
 
@@ -3102,6 +3260,9 @@ pub const F_GLOBAL_NOCACHE: ::c_int = 55;
 pub const F_NODIRECT: ::c_int = 62;
 pub const F_LOG2PHYS_EXT: ::c_int = 65;
 pub const F_BARRIERFSYNC: ::c_int = 85;
+pub const F_PUNCHHOLE: ::c_int = 99;
+pub const F_TRIM_ACTIVE_FILE: ::c_int = 100;
+pub const F_SPECULATIVE_READ: ::c_int = 101;
 pub const F_GETPATH_NOFIRMLINK: ::c_int = 102;
 
 pub const F_ALLOCATECONTIG: ::c_uint = 0x02;
@@ -3312,6 +3473,8 @@ pub const MINCORE_REFERENCED: ::c_int = 0x2;
 pub const MINCORE_MODIFIED: ::c_int = 0x4;
 pub const MINCORE_REFERENCED_OTHER: ::c_int = 0x8;
 pub const MINCORE_MODIFIED_OTHER: ::c_int = 0x10;
+
+pub const CTLIOCGINFO: c_ulong = 0xc0644e03;
 
 //
 // sys/netinet/in.h
@@ -3568,6 +3731,9 @@ pub const AF_SYSTEM: ::c_int = 32;
 pub const AF_NETBIOS: ::c_int = 33;
 pub const AF_PPP: ::c_int = 34;
 pub const pseudo_AF_HDRCMPLT: ::c_int = 35;
+pub const AF_IEEE80211: ::c_int = 37;
+pub const AF_UTUN: ::c_int = 38;
+pub const AF_VSOCK: ::c_int = 40;
 pub const AF_SYS_CONTROL: ::c_int = 2;
 
 pub const SYSPROTO_EVENT: ::c_int = 1;
@@ -3609,6 +3775,7 @@ pub const PF_NATM: ::c_int = AF_NATM;
 pub const PF_SYSTEM: ::c_int = AF_SYSTEM;
 pub const PF_NETBIOS: ::c_int = AF_NETBIOS;
 pub const PF_PPP: ::c_int = AF_PPP;
+pub const PF_VSOCK: ::c_int = AF_VSOCK;
 
 pub const NET_RT_DUMP: ::c_int = 1;
 pub const NET_RT_FLAGS: ::c_int = 2;
@@ -3716,12 +3883,13 @@ pub const MSG_HOLD: ::c_int = 0x800;
 pub const MSG_SEND: ::c_int = 0x1000;
 pub const MSG_HAVEMORE: ::c_int = 0x2000;
 pub const MSG_RCVMORE: ::c_int = 0x4000;
-// pub const MSG_COMPAT: ::c_int = 0x8000;
+pub const MSG_NEEDSA: ::c_int = 0x10000;
+pub const MSG_NOSIGNAL: ::c_int = 0x80000;
 
 pub const SCM_TIMESTAMP: ::c_int = 0x02;
 pub const SCM_CREDS: ::c_int = 0x03;
 
-// https://github.com/aosm/xnu/blob/master/bsd/net/if.h#L140-L156
+// https://github.com/aosm/xnu/blob/HEAD/bsd/net/if.h#L140-L156
 pub const IFF_UP: ::c_int = 0x1; // interface is up
 pub const IFF_BROADCAST: ::c_int = 0x2; // broadcast address valid
 pub const IFF_DEBUG: ::c_int = 0x4; // turn on debugging
@@ -4053,6 +4221,7 @@ pub const RTLD_FIRST: ::c_int = 0x100;
 pub const RTLD_NODELETE: ::c_int = 0x80;
 pub const RTLD_NOLOAD: ::c_int = 0x10;
 pub const RTLD_GLOBAL: ::c_int = 0x8;
+pub const RTLD_MAIN_ONLY: *mut ::c_void = -5isize as *mut ::c_void;
 
 pub const _WSTOPPED: ::c_int = 0o177;
 
@@ -4518,7 +4687,7 @@ pub const DLT_ATM_RFC1483: ::c_uint = 11; // LLC/SNAP encapsulated atm
 pub const DLT_RAW: ::c_uint = 12; // raw IP
 pub const DLT_LOOP: ::c_uint = 108;
 
-// https://github.com/apple/darwin-xnu/blob/master/bsd/net/bpf.h#L100
+// https://github.com/apple/darwin-xnu/blob/HEAD/bsd/net/bpf.h#L100
 // sizeof(i32)
 pub const BPF_ALIGNMENT: ::c_int = 4;
 
@@ -4774,6 +4943,19 @@ pub const COPYFILE_PROGRESS: ::c_int = 4;
 pub const COPYFILE_CONTINUE: ::c_int = 0;
 pub const COPYFILE_SKIP: ::c_int = 1;
 pub const COPYFILE_QUIT: ::c_int = 2;
+pub const COPYFILE_STATE_SRC_FD: ::c_int = 1;
+pub const COPYFILE_STATE_SRC_FILENAME: ::c_int = 2;
+pub const COPYFILE_STATE_DST_FD: ::c_int = 3;
+pub const COPYFILE_STATE_DST_FILENAME: ::c_int = 4;
+pub const COPYFILE_STATE_QUARANTINE: ::c_int = 5;
+pub const COPYFILE_STATE_STATUS_CB: ::c_int = 6;
+pub const COPYFILE_STATE_STATUS_CTX: ::c_int = 7;
+pub const COPYFILE_STATE_COPIED: ::c_int = 8;
+pub const COPYFILE_STATE_XATTRNAME: ::c_int = 9;
+pub const COPYFILE_STATE_WAS_CLONED: ::c_int = 10;
+pub const COPYFILE_STATE_SRC_BSIZE: ::c_int = 11;
+pub const COPYFILE_STATE_DST_BSIZE: ::c_int = 12;
+pub const COPYFILE_STATE_BSIZE: ::c_int = 13;
 
 // <sys/attr.h>
 pub const ATTR_BIT_MAP_COUNT: ::c_ushort = 5;
@@ -4914,6 +5096,25 @@ pub const VOL_CAP_INT_RENAME_SWAP: attrgroup_t = 0x00040000;
 pub const VOL_CAP_INT_RENAME_EXCL: attrgroup_t = 0x00080000;
 pub const VOL_CAP_INT_RENAME_OPENFAIL: attrgroup_t = 0x00100000;
 
+// <proc.h>
+/// Process being created by fork.
+pub const SIDL: u32 = 1;
+/// Currently runnable.
+pub const SRUN: u32 = 2;
+/// Sleeping on an address.
+pub const SSLEEP: u32 = 3;
+/// Process debugging or suspension.
+pub const SSTOP: u32 = 4;
+/// Awaiting collection by parent.
+pub const SZOMB: u32 = 5;
+
+// sys/vsock.h
+pub const VMADDR_CID_ANY: ::c_uint = 0xFFFFFFFF;
+pub const VMADDR_CID_HYPERVISOR: ::c_uint = 0;
+pub const VMADDR_CID_RESERVED: ::c_uint = 1;
+pub const VMADDR_CID_HOST: ::c_uint = 2;
+pub const VMADDR_PORT_ANY: ::c_uint = 0xFFFFFFFF;
+
 cfg_if! {
     if #[cfg(libc_const_extern_fn)] {
         const fn __DARWIN_ALIGN32(p: usize) -> usize {
@@ -5019,7 +5220,7 @@ f! {
             as ::c_uint
     }
 
-    pub fn CMSG_LEN(length: ::c_uint) -> ::c_uint {
+    pub {const} fn CMSG_LEN(length: ::c_uint) -> ::c_uint {
         (__DARWIN_ALIGN32(::mem::size_of::<::cmsghdr>()) + length as usize)
             as ::c_uint
     }
@@ -5119,6 +5320,23 @@ extern "C" {
     pub fn endutxent();
     pub fn utmpxname(file: *const ::c_char) -> ::c_int;
 
+    pub fn asctime(tm: *const ::tm) -> *mut ::c_char;
+    pub fn ctime(clock: *const time_t) -> *mut ::c_char;
+    pub fn getdate(datestr: *const ::c_char) -> *mut ::tm;
+    pub fn strftime(
+        buf: *mut ::c_char,
+        maxsize: ::size_t,
+        format: *const ::c_char,
+        timeptr: *const ::tm,
+    ) -> ::size_t;
+    pub fn strptime(
+        buf: *const ::c_char,
+        format: *const ::c_char,
+        timeptr: *mut ::tm,
+    ) -> *mut ::c_char;
+    pub fn asctime_r(tm: *const ::tm, result: *mut ::c_char) -> *mut ::c_char;
+    pub fn ctime_r(clock: *const time_t, result: *mut ::c_char) -> *mut ::c_char;
+
     pub fn getnameinfo(
         sa: *const ::sockaddr,
         salen: ::socklen_t,
@@ -5188,6 +5406,10 @@ extern "C" {
         f: extern "C" fn(*mut ::c_void) -> *mut ::c_void,
         value: *mut ::c_void,
     ) -> ::c_int;
+    pub fn pthread_stack_frame_decode_np(
+        frame_addr: ::uintptr_t,
+        return_addr: *mut ::uintptr_t,
+    ) -> ::uintptr_t;
     pub fn pthread_get_stackaddr_np(thread: ::pthread_t) -> *mut ::c_void;
     pub fn pthread_get_stacksize_np(thread: ::pthread_t) -> ::size_t;
     pub fn pthread_condattr_setpshared(attr: *mut pthread_condattr_t, pshared: ::c_int) -> ::c_int;
@@ -5195,6 +5417,7 @@ extern "C" {
         attr: *const pthread_condattr_t,
         pshared: *mut ::c_int,
     ) -> ::c_int;
+    pub fn pthread_main_np() -> ::c_int;
     pub fn pthread_mutexattr_setpshared(
         attr: *mut pthread_mutexattr_t,
         pshared: ::c_int,
@@ -5556,6 +5779,14 @@ extern "C" {
         subpref: *mut ::cpu_subtype_t,
         ocount: *mut ::size_t,
     ) -> ::c_int;
+    pub fn posix_spawnattr_set_qos_class_np(
+        attr: *mut posix_spawnattr_t,
+        qos_class: ::qos_class_t,
+    ) -> ::c_int;
+    pub fn posix_spawnattr_get_qos_class_np(
+        attr: *const posix_spawnattr_t,
+        qos_class: *mut ::qos_class_t,
+    ) -> ::c_int;
 
     pub fn posix_spawn_file_actions_init(actions: *mut posix_spawn_file_actions_t) -> ::c_int;
     pub fn posix_spawn_file_actions_destroy(actions: *mut posix_spawn_file_actions_t) -> ::c_int;
@@ -5633,6 +5864,10 @@ extern "C" {
         state: copyfile_state_t,
         flags: copyfile_flags_t,
     ) -> ::c_int;
+    pub fn copyfile_state_free(s: copyfile_state_t) -> ::c_int;
+    pub fn copyfile_state_alloc() -> copyfile_state_t;
+    pub fn copyfile_state_get(s: copyfile_state_t, flags: u32, dst: *mut ::c_void) -> ::c_int;
+    pub fn copyfile_state_set(s: copyfile_state_t, flags: u32, src: *const ::c_void) -> ::c_int;
 
     // Added in macOS 10.13
     // ISO/IEC 9899:2011 ("ISO C11") K.3.7.4.1
@@ -5873,6 +6108,15 @@ extern "C" {
 
     pub fn dirname(path: *mut ::c_char) -> *mut ::c_char;
     pub fn basename(path: *mut ::c_char) -> *mut ::c_char;
+
+    pub fn mkfifoat(dirfd: ::c_int, pathname: *const ::c_char, mode: ::mode_t) -> ::c_int;
+    pub fn mknodat(
+        dirfd: ::c_int,
+        pathname: *const ::c_char,
+        mode: ::mode_t,
+        dev: dev_t,
+    ) -> ::c_int;
+    pub fn freadlink(fd: ::c_int, buf: *mut ::c_char, size: ::size_t) -> ::c_int;
 }
 
 pub unsafe fn mach_task_self() -> ::mach_port_t {
@@ -5887,7 +6131,7 @@ cfg_if! {
     }
 }
 cfg_if! {
-    if #[cfg(any(target_os = "macos", target_os = "ios"))] {
+    if #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))] {
         extern "C" {
             pub fn memmem(
                 haystack: *const ::c_void,
@@ -5929,5 +6173,12 @@ cfg_if! {
         pub use self::b64::*;
     } else {
         // Unknown target_arch
+    }
+}
+
+cfg_if! {
+    if #[cfg(libc_long_array)] {
+        mod long_array;
+        pub use self::long_array::*;
     }
 }

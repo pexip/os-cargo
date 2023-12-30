@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::slice;
 
 use crate::ffi::{self, Backend, Deflate, DeflateBackend, ErrorMessage, Inflate, InflateBackend};
 use crate::Compression;
@@ -40,9 +39,10 @@ pub struct Decompress {
     inner: Inflate,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 /// Values which indicate the form of flushing to be used when compressing
 /// in-memory data.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum FlushCompress {
     /// A typical parameter for passing to compression/decompression functions,
     /// this indicates that the underlying stream to decide how much data to
@@ -80,14 +80,12 @@ pub enum FlushCompress {
     /// The return value may indicate that the stream is not yet done and more
     /// data has yet to be processed.
     Finish = ffi::MZ_FINISH as isize,
-
-    #[doc(hidden)]
-    _Nonexhaustive,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 /// Values which indicate the form of flushing to be used when
 /// decompressing in-memory data.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum FlushDecompress {
     /// A typical parameter for passing to compression/decompression functions,
     /// this indicates that the underlying stream to decide how much data to
@@ -108,9 +106,6 @@ pub enum FlushDecompress {
     /// The return value may indicate that the stream is not yet done and more
     /// data has yet to be processed.
     Finish = ffi::MZ_FINISH as isize,
-
-    #[doc(hidden)]
-    _Nonexhaustive,
 }
 
 /// The inner state for an error when decompressing
@@ -215,12 +210,7 @@ impl Compress {
     ///
     /// If `window_bits` does not fall into the range 9 ..= 15,
     /// `new_with_window_bits` will panic.
-    ///
-    /// # Note
-    ///
-    /// This constructor is only available when the `zlib` feature is used.
-    /// Other backends currently do not support custom window bits.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn new_with_window_bits(
         level: Compression,
         zlib_header: bool,
@@ -247,12 +237,7 @@ impl Compress {
     ///
     /// If `window_bits` does not fall into the range 9 ..= 15,
     /// `new_with_window_bits` will panic.
-    ///
-    /// # Note
-    ///
-    /// This constructor is only available when the `zlib` feature is used.
-    /// Other backends currently do not support gzip headers for Compress.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn new_gzip(level: Compression, window_bits: u8) -> Compress {
         assert!(
             window_bits > 8 && window_bits < 16,
@@ -278,7 +263,7 @@ impl Compress {
     /// Specifies the compression dictionary to use.
     ///
     /// Returns the Adler-32 checksum of the dictionary.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, CompressError> {
         let stream = &mut *self.inner.inner.stream_wrapper;
         stream.msg = std::ptr::null_mut();
@@ -311,7 +296,7 @@ impl Compress {
     /// the compression of the available input data before changing the
     /// compression level. Flushing the stream before calling this method
     /// ensures that the function will succeed on the first call.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn set_level(&mut self, level: Compression) -> Result<(), CompressError> {
         use std::os::raw::c_int;
         let stream = &mut *self.inner.inner.stream_wrapper;
@@ -356,19 +341,12 @@ impl Compress {
         output: &mut Vec<u8>,
         flush: FlushCompress,
     ) -> Result<Status, CompressError> {
-        let cap = output.capacity();
-        let len = output.len();
-
-        unsafe {
+        write_to_spare_capacity_of_vec(output, |out| {
             let before = self.total_out();
-            let ret = {
-                let ptr = output.as_mut_ptr().offset(len as isize);
-                let out = slice::from_raw_parts_mut(ptr, cap - len);
-                self.compress(input, out, flush)
-            };
-            output.set_len((self.total_out() - before) as usize + len);
-            ret
-        }
+            let ret = self.compress(input, out, flush);
+            let bytes_written = self.total_out() - before;
+            (bytes_written as usize, ret)
+        })
     }
 }
 
@@ -393,12 +371,7 @@ impl Decompress {
     ///
     /// If `window_bits` does not fall into the range 9 ..= 15,
     /// `new_with_window_bits` will panic.
-    ///
-    /// # Note
-    ///
-    /// This constructor is only available when the `zlib` feature is used.
-    /// Other backends currently do not support custom window bits.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn new_with_window_bits(zlib_header: bool, window_bits: u8) -> Decompress {
         assert!(
             window_bits > 8 && window_bits < 16,
@@ -418,12 +391,7 @@ impl Decompress {
     ///
     /// If `window_bits` does not fall into the range 9 ..= 15,
     /// `new_with_window_bits` will panic.
-    ///
-    /// # Note
-    ///
-    /// This constructor is only available when the `zlib` feature is used.
-    /// Other backends currently do not support gzip headers for Decompress.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn new_gzip(window_bits: u8) -> Decompress {
         assert!(
             window_bits > 8 && window_bits < 16,
@@ -497,23 +465,16 @@ impl Decompress {
         output: &mut Vec<u8>,
         flush: FlushDecompress,
     ) -> Result<Status, DecompressError> {
-        let cap = output.capacity();
-        let len = output.len();
-
-        unsafe {
+        write_to_spare_capacity_of_vec(output, |out| {
             let before = self.total_out();
-            let ret = {
-                let ptr = output.as_mut_ptr().offset(len as isize);
-                let out = slice::from_raw_parts_mut(ptr, cap - len);
-                self.decompress(input, out, flush)
-            };
-            output.set_len((self.total_out() - before) as usize + len);
-            ret
-        }
+            let ret = self.decompress(input, out, flush);
+            let bytes_written = self.total_out() - before;
+            (bytes_written as usize, ret)
+        })
     }
 
     /// Specifies the decompression dictionary to use.
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<u32, DecompressError> {
         let stream = &mut *self.inner.inner.stream_wrapper;
         stream.msg = std::ptr::null_mut();
@@ -598,6 +559,29 @@ impl fmt::Display for CompressError {
     }
 }
 
+/// Allows `writer` to write data into the spare capacity of the `output` vector.
+/// This will not reallocate the vector provided or attempt to grow it, so space
+/// for the `output` must be reserved by the caller before calling this
+/// function.
+///
+/// `writer` needs to return the number of bytes written (and can also return
+/// another arbitrary return value).
+fn write_to_spare_capacity_of_vec<T>(
+    output: &mut Vec<u8>,
+    writer: impl FnOnce(&mut [u8]) -> (usize, T),
+) -> T {
+    let cap = output.capacity();
+    let len = output.len();
+
+    output.resize(output.capacity(), 0);
+    let (bytes_written, ret) = writer(&mut output[len..]);
+
+    let new_len = core::cmp::min(len + bytes_written, cap); // Sanitizes `bytes_written`.
+    output.resize(new_len, 0 /* unused */);
+
+    ret
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -605,7 +589,7 @@ mod tests {
     use crate::write;
     use crate::{Compression, Decompress, FlushDecompress};
 
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     use crate::{Compress, FlushCompress};
 
     #[test]
@@ -666,7 +650,7 @@ mod tests {
         assert!(dst.starts_with(string));
     }
 
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     #[test]
     fn set_dictionary_with_zlib_header() {
         let string = "hello, hello!".as_bytes();
@@ -715,7 +699,7 @@ mod tests {
         assert_eq!(&decoded[..decoder.total_out() as usize], string);
     }
 
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     #[test]
     fn set_dictionary_raw() {
         let string = "hello, hello!".as_bytes();
@@ -746,7 +730,7 @@ mod tests {
         assert_eq!(&decoded[..decoder.total_out() as usize], string);
     }
 
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     #[test]
     fn test_gzip_flate() {
         let string = "hello, hello!".as_bytes();
@@ -772,7 +756,7 @@ mod tests {
         assert_eq!(&decoded[..decoder.total_out() as usize], string);
     }
 
-    #[cfg(feature = "zlib")]
+    #[cfg(feature = "any_zlib")]
     #[test]
     fn test_error_message() {
         let mut decoder = Decompress::new(false);

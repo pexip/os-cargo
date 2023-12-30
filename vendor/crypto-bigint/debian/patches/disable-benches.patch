@@ -1,0 +1,12 @@
+Index: crypto-bigint/Cargo.toml
+===================================================================
+--- crypto-bigint.orig/Cargo.toml
++++ crypto-bigint/Cargo.toml
+@@ -38,6 +38,7 @@ categories = [
+ license = "Apache-2.0 OR MIT"
+ repository = "https://github.com/RustCrypto/crypto-bigint"
+ resolver = "2"
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ all-features = true

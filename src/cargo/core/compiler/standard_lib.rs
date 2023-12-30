@@ -11,7 +11,6 @@ use crate::ops::{self, Packages};
 use crate::util::errors::CargoResult;
 use crate::Config;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::path::PathBuf;
 
 use super::BuildConfig;
@@ -193,10 +192,7 @@ pub fn generate_std_roots(
         // in time is minimal, and the difference in caching is
         // significant.
         let mode = CompileMode::Build;
-        let features = std_features.activated_features(
-            pkg.package_id(),
-            FeaturesFor::NormalOrDevOrArtifactTarget(None),
-        );
+        let features = std_features.activated_features(pkg.package_id(), FeaturesFor::NormalOrDev);
         for kind in kinds {
             let list = ret.entry(*kind).or_insert_with(Vec::new);
             let unit_for = UnitFor::new_normal(*kind);
@@ -217,6 +213,7 @@ pub fn generate_std_roots(
                 /*is_std*/ true,
                 /*dep_hash*/ 0,
                 IsArtifact::No,
+                None,
             ));
         }
     }
@@ -224,7 +221,7 @@ pub fn generate_std_roots(
 }
 
 fn detect_sysroot_src_path(target_data: &RustcTargetData<'_>) -> CargoResult<PathBuf> {
-    if let Some(s) = env::var_os("__CARGO_TESTS_ONLY_SRC_ROOT") {
+    if let Some(s) = target_data.config.get_env_os("__CARGO_TESTS_ONLY_SRC_ROOT") {
         return Ok(s.into());
     }
 
@@ -243,7 +240,7 @@ fn detect_sysroot_src_path(target_data: &RustcTargetData<'_>) -> CargoResult<Pat
              library, try:\n        rustup component add rust-src",
             lock
         );
-        match env::var("RUSTUP_TOOLCHAIN") {
+        match target_data.config.get_env("RUSTUP_TOOLCHAIN") {
             Ok(rustup_toolchain) => {
                 anyhow::bail!("{} --toolchain {}", msg, rustup_toolchain);
             }

@@ -42,7 +42,7 @@ override_dh_auto_build-arch:
 	$(CARGO) build
 
 override_dh_auto_build-indep:
-	$(CARGO) doc
+	$(CARGO) doc --no-deps
 
 override_dh_auto_test-arch:
 	CFG_DISABLE_CROSS_TESTS=1 $(CARGO) test $(CARGO_TEST_FLAGS)

@@ -25,7 +25,7 @@ pub struct Transport {
 
 /// Interface used by smart transports.
 ///
-/// The full-fledged definiton of transports has to deal with lots of
+/// The full-fledged definition of transports has to deal with lots of
 /// nitty-gritty details of the git protocol, but "smart transports" largely
 /// only need to deal with read() and write() of data over a channel.
 ///
@@ -251,7 +251,7 @@ extern "C" fn subtransport_action(
             n => panic!("unknown action: {}", n),
         };
 
-        let mut transport = &mut *(raw_transport as *mut RawSmartSubtransport);
+        let transport = &mut *(raw_transport as *mut RawSmartSubtransport);
         // Note: we only need to generate if rpc is on. Else, for receive-pack and upload-pack
         // libgit2 reuses the stream generated for receive-pack-ls or upload-pack-ls.
         let generate_stream =

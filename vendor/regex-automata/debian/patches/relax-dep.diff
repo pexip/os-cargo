@@ -1,0 +1,19 @@
+Index: regex-automata/Cargo.toml
+===================================================================
+--- regex-automata.orig/Cargo.toml
++++ regex-automata/Cargo.toml
+@@ -70,11 +70,11 @@ default-features = false
+ version = "0.3.3"
+ 
+ [dev-dependencies.env_logger]
+-version = "0.9.3"
++version = "0.10"
+ features = [
+-    "atty",
++    "auto-color",
+     "humantime",
+-    "termcolor",
++    "color",
+ ]
+ default-features = false
+ 

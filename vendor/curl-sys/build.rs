@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let host = env::var("HOST").unwrap();
     let target = env::var("TARGET").unwrap();
     let windows = target.contains("windows");
 
@@ -16,13 +15,6 @@ fn main() {
     // usage of the system library to ensure that we're always building an
     // ABI-compatible Cargo.
     if cfg!(feature = "force-system-lib-on-osx") && target.contains("apple") {
-        return println!("cargo:rustc-flags=-l curl");
-    }
-
-    // When cross-compiling for Haiku, use the system's default supplied
-    // libcurl (it supports http2). This is in the case where rustc and
-    // cargo are built for Haiku, which is done from a Linux host.
-    if host != target && target.contains("haiku") {
         return println!("cargo:rustc-flags=-l curl");
     }
 
@@ -47,7 +39,7 @@ fn main() {
 
     if !Path::new("curl/.git").exists() {
         let _ = Command::new("git")
-            .args(&["submodule", "update", "--init"])
+            .args(&["submodule", "update", "--init", "curl"])
             .status();
     }
 
@@ -108,7 +100,7 @@ fn main() {
             .replace("@LIBCURL_LIBS@", "")
             .replace("@SUPPORT_FEATURES@", "")
             .replace("@SUPPORT_PROTOCOLS@", "")
-            .replace("@CURLVERSION@", "7.61.1"),
+            .replace("@CURLVERSION@", "8.4.0"),
     )
     .unwrap();
 
@@ -140,7 +132,13 @@ fn main() {
         .file("curl/lib/asyn-thread.c")
         .file("curl/lib/altsvc.c")
         .file("curl/lib/base64.c")
+        .file("curl/lib/bufq.c")
         .file("curl/lib/bufref.c")
+        .file("curl/lib/cfilters.c")
+        .file("curl/lib/cf-h1-proxy.c")
+        .file("curl/lib/cf-haproxy.c")
+        .file("curl/lib/cf-https-connect.c")
+        .file("curl/lib/cf-socket.c")
         .file("curl/lib/conncache.c")
         .file("curl/lib/connect.c")
         .file("curl/lib/content_encoding.c")
@@ -150,8 +148,10 @@ fn main() {
         .file("curl/lib/curl_memrchr.c")
         .file("curl/lib/curl_range.c")
         .file("curl/lib/curl_threads.c")
+        .file("curl/lib/curl_trc.c")
         .file("curl/lib/doh.c")
         .file("curl/lib/dynbuf.c")
+        .file("curl/lib/dynhds.c")
         .file("curl/lib/easy.c")
         .file("curl/lib/escape.c")
         .file("curl/lib/file.c")
@@ -168,16 +168,19 @@ fn main() {
         .file("curl/lib/hostip6.c")
         .file("curl/lib/hsts.c")
         .file("curl/lib/http.c")
+        .file("curl/lib/http1.c")
         .file("curl/lib/http_aws_sigv4.c")
         .file("curl/lib/http_chunks.c")
         .file("curl/lib/http_digest.c")
         .file("curl/lib/http_proxy.c")
+        .file("curl/lib/idn.c")
         .file("curl/lib/if2ip.c")
         .file("curl/lib/inet_ntop.c")
         .file("curl/lib/inet_pton.c")
         .file("curl/lib/llist.c")
         .file("curl/lib/md5.c")
         .file("curl/lib/mime.c")
+        .file("curl/lib/macos.c")
         .file("curl/lib/mprintf.c")
         .file("curl/lib/mqtt.c")
         .file("curl/lib/multi.c")
@@ -210,11 +213,14 @@ fn main() {
         .file("curl/lib/version.c")
         .file("curl/lib/vauth/digest.c")
         .file("curl/lib/vauth/vauth.c")
+        .file("curl/lib/vquic/curl_msh3.c")
+        .file("curl/lib/vquic/curl_ngtcp2.c")
+        .file("curl/lib/vquic/curl_quiche.c")
+        .file("curl/lib/vquic/vquic.c")
         .file("curl/lib/vtls/hostcheck.c")
         .file("curl/lib/vtls/keylog.c")
         .file("curl/lib/vtls/vtls.c")
         .file("curl/lib/warnless.c")
-        .file("curl/lib/wildcard.c")
         .file("curl/lib/timediff.c")
         .define("HAVE_GETADDRINFO", None)
         .define("HAVE_GETPEERNAME", None)
@@ -247,7 +253,7 @@ fn main() {
     if cfg!(feature = "http2") {
         cfg.define("USE_NGHTTP2", None)
             .define("NGHTTP2_STATICLIB", None)
-            .file("curl/lib/h2h3.c")
+            .file("curl/lib/cf-h2-proxy.c")
             .file("curl/lib/http2.c");
 
         println!("cargo:rustc-cfg=link_libnghttp2");
@@ -386,7 +392,6 @@ fn main() {
 
         if target.contains("-apple-") {
             cfg.define("__APPLE__", None)
-                .define("macintosh", None)
                 .define("HAVE_MACH_ABSOLUTE_TIME", None);
         } else {
             cfg.define("HAVE_CLOCK_GETTIME_MONOTONIC", None)
@@ -438,6 +443,7 @@ fn main() {
     if target.contains("-apple-") {
         println!("cargo:rustc-link-lib=framework=Security");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
+        println!("cargo:rustc-link-lib=framework=CoreServices");
         println!("cargo:rustc-link-lib=framework=SystemConfiguration");
     }
 }

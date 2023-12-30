@@ -1,0 +1,2 @@
+remove-windows-sys.patch
+reduce-rustc-version.patch

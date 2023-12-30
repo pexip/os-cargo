@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "flate2"
-version = "1.0.25"
+version = "1.0.28"
 authors = [
     "Alex Crichton <alex@alexcrichton.com>",
     "Josh Triplett <josh@joshtriplett.org>",
@@ -39,6 +39,13 @@ categories = [
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/flate2-rs"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.crc32fast]
 version = "1.2.0"
 
@@ -48,7 +55,7 @@ optional = true
 default-features = false
 
 [dependencies.miniz_oxide]
-version = "0.6.0"
+version = "0.7.1"
 features = ["with-alloc"]
 optional = true
 default-features = false
@@ -61,14 +68,24 @@ default-features = false
 version = "0.8"
 
 [features]
+any_impl = []
+any_zlib = ["any_impl"]
 default = ["rust_backend"]
 miniz-sys = ["rust_backend"]
-rust_backend = ["miniz_oxide"]
+rust_backend = [
+    "miniz_oxide",
+    "any_impl",
+]
 zlib = [
+    "any_zlib",
     "libz-sys",
+]
+zlib-default = [
+    "any_zlib",
+    "libz-sys/default",
 ]
 
 [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
-version = "0.6.0"
+version = "0.7.1"
 features = ["with-alloc"]
 default-features = false

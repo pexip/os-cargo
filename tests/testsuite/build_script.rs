@@ -1,12 +1,15 @@
 //! Tests for build.rs scripts.
 
 use cargo_test_support::compare::assert_match_exact;
+use cargo_test_support::install::cargo_home;
 use cargo_test_support::paths::CargoPathExt;
 use cargo_test_support::registry::Package;
 use cargo_test_support::tools;
-use cargo_test_support::{basic_manifest, cross_compile, is_coarse_mtime, project, project_in};
+use cargo_test_support::{
+    basic_manifest, cargo_exe, cross_compile, is_coarse_mtime, project, project_in,
+};
 use cargo_test_support::{rustc_host, sleep_ms, slow_cpu_multiplier, symlink_supported};
-use cargo_util::paths::remove_dir_all;
+use cargo_util::paths::{self, remove_dir_all};
 use std::env;
 use std::fs;
 use std::io;
@@ -18,7 +21,7 @@ fn custom_build_script_failed() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "foo"
                 version = "0.5.0"
@@ -45,12 +48,104 @@ Caused by:
 }
 
 #[cargo_test]
+fn custom_build_script_failed_backtraces_message() {
+    // In this situation (no dependency sharing), debuginfo is turned off in
+    // `dev.build-override`. However, if an error occurs running e.g. a build
+    // script, and backtraces are opted into: a message explaining how to
+    // improve backtraces is also displayed.
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+
+                name = "foo"
+                version = "0.5.0"
+                authors = ["wycats@example.com"]
+                build = "build.rs"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file("build.rs", "fn main() { std::process::exit(101); }")
+        .build();
+    p.cargo("build -v")
+        .env("RUST_BACKTRACE", "1")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo v0.5.0 ([CWD])
+[RUNNING] `rustc --crate-name build_script_build build.rs [..]--crate-type bin [..]`
+[RUNNING] `[..]/build-script-build`
+[ERROR] failed to run custom build command for `foo v0.5.0 ([CWD])`
+note: To improve backtraces for build dependencies, set the \
+CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG=true environment variable [..]
+
+Caused by:
+  process didn't exit successfully: `[..]/build-script-build` (exit [..]: 101)",
+        )
+        .run();
+
+    p.cargo("check -v")
+        .env("RUST_BACKTRACE", "1")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo v0.5.0 ([CWD])
+[RUNNING] `[..]/build-script-build`
+[ERROR] failed to run custom build command for `foo v0.5.0 ([CWD])`
+note: To improve backtraces for build dependencies, set the \
+CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG=true environment variable [..]
+
+Caused by:
+  process didn't exit successfully: `[..]/build-script-build` (exit [..]: 101)",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn custom_build_script_failed_backtraces_message_with_debuginfo() {
+    // This is the same test as `custom_build_script_failed_backtraces_message` above, this time
+    // ensuring that the message dedicated to improving backtraces by requesting debuginfo is not
+    // shown when debuginfo is already turned on.
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+
+                name = "foo"
+                version = "0.5.0"
+                authors = ["wycats@example.com"]
+                build = "build.rs"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file("build.rs", "fn main() { std::process::exit(101); }")
+        .build();
+    p.cargo("build -v")
+        .env("RUST_BACKTRACE", "1")
+        .env("CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG", "true")
+        .with_status(101)
+        .with_stderr(
+            "\
+[COMPILING] foo v0.5.0 ([CWD])
+[RUNNING] `rustc --crate-name build_script_build build.rs [..]--crate-type bin [..]`
+[RUNNING] `[..]/build-script-build`
+[ERROR] failed to run custom build command for `foo v0.5.0 ([CWD])`
+
+Caused by:
+  process didn't exit successfully: `[..]/build-script-build` (exit [..]: 101)",
+        )
+        .run();
+}
+
+#[cargo_test]
 fn custom_build_env_vars() {
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "foo"
                 version = "0.5.0"
@@ -67,7 +162,7 @@ fn custom_build_env_vars() {
         .file(
             "bar/Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "bar"
                 version = "0.5.0"
@@ -80,8 +175,15 @@ fn custom_build_env_vars() {
         )
         .file("bar/src/lib.rs", "pub fn hello() {}");
 
+    let cargo = cargo_exe().canonicalize().unwrap();
+    let cargo = cargo.to_str().unwrap();
+    let rustc = paths::resolve_executable("rustc".as_ref())
+        .unwrap()
+        .canonicalize()
+        .unwrap();
+    let rustc = rustc.to_str().unwrap();
     let file_content = format!(
-        r#"
+        r##"
             use std::env;
             use std::path::Path;
 
@@ -107,7 +209,12 @@ fn custom_build_env_vars() {
 
                 let _feat = env::var("CARGO_FEATURE_FOO").unwrap();
 
-                let _cargo = env::var("CARGO").unwrap();
+                let cargo = env::var("CARGO").unwrap();
+                if env::var_os("CHECK_CARGO_IS_RUSTC").is_some() {{
+                    assert_eq!(cargo, r#"{rustc}"#);
+                }} else {{
+                    assert_eq!(cargo, r#"{cargo}"#);
+                }}
 
                 let rustc = env::var("RUSTC").unwrap();
                 assert_eq!(rustc, "rustc");
@@ -124,7 +231,7 @@ fn custom_build_env_vars() {
                 let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap();
                 assert_eq!(rustflags, "");
             }}
-        "#,
+        "##,
         p.root()
             .join("target")
             .join("debug")
@@ -135,6 +242,11 @@ fn custom_build_env_vars() {
     let p = p.file("bar/build.rs", &file_content).build();
 
     p.cargo("build --features bar_feat").run();
+    p.cargo("build --features bar_feat")
+        // we use rustc since $CARGO is only used if it points to a path that exists
+        .env("CHECK_CARGO_IS_RUSTC", "1")
+        .env(cargo::CARGO_ENV, rustc)
+        .run();
 }
 
 #[cargo_test]
@@ -664,7 +776,7 @@ fn custom_build_script_wrong_rustc_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "foo"
                 version = "0.5.0"
@@ -694,7 +806,7 @@ fn custom_build_script_rustc_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "bar"
                 version = "0.5.0"
@@ -708,7 +820,7 @@ fn custom_build_script_rustc_flags() {
         .file(
             "foo/Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "foo"
                 version = "0.5.0"
@@ -753,7 +865,7 @@ fn custom_build_script_rustc_flags_no_space() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "bar"
                 version = "0.5.0"
@@ -767,7 +879,7 @@ fn custom_build_script_rustc_flags_no_space() {
         .file(
             "foo/Cargo.toml",
             r#"
-                [project]
+                [package]
 
                 name = "foo"
                 version = "0.5.0"
@@ -812,7 +924,7 @@ fn links_no_build_cmd() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -843,7 +955,7 @@ fn links_duplicates() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -859,7 +971,7 @@ fn links_duplicates() {
         .file(
             "a-sys/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a-sys"
                 version = "0.5.0"
                 authors = []
@@ -947,7 +1059,7 @@ fn links_duplicates_deep_dependency() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -963,7 +1075,7 @@ fn links_duplicates_deep_dependency() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -978,7 +1090,7 @@ fn links_duplicates_deep_dependency() {
         .file(
             "a/a-sys/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a-sys"
                 version = "0.5.0"
                 authors = []
@@ -1013,7 +1125,7 @@ fn overrides_and_links() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1051,7 +1163,7 @@ fn overrides_and_links() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1086,7 +1198,7 @@ fn unused_overrides() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1118,7 +1230,7 @@ fn links_passes_env_vars() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1142,7 +1254,7 @@ fn links_passes_env_vars() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1175,7 +1287,7 @@ fn only_rerun_build_script() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1195,6 +1307,7 @@ fn only_rerun_build_script() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([CWD]): the precalculated components changed
 [COMPILING] foo v0.5.0 ([CWD])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc --crate-name foo [..]`
@@ -1211,7 +1324,7 @@ fn rebuild_continues_to_pass_env_vars() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1239,7 +1352,7 @@ fn rebuild_continues_to_pass_env_vars() {
             "Cargo.toml",
             &format!(
                 r#"
-                    [project]
+                    [package]
                     name = "foo"
                     version = "0.5.0"
                     authors = []
@@ -1279,7 +1392,7 @@ fn testing_and_such() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1301,6 +1414,7 @@ fn testing_and_such() {
     p.cargo("test -vj1")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([CWD]): the precalculated components changed
 [COMPILING] foo v0.5.0 ([CWD])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc --crate-name foo [..]`
@@ -1344,7 +1458,7 @@ fn propagation_of_l_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1356,7 +1470,7 @@ fn propagation_of_l_flags() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1375,7 +1489,7 @@ fn propagation_of_l_flags() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -1415,7 +1529,7 @@ fn propagation_of_l_flags_new() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1427,7 +1541,7 @@ fn propagation_of_l_flags_new() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1450,7 +1564,7 @@ fn propagation_of_l_flags_new() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -1489,7 +1603,7 @@ fn build_deps_simple() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1533,7 +1647,7 @@ fn build_deps_not_for_normal() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1579,7 +1693,7 @@ fn build_cmd_with_a_build_cmd() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1601,7 +1715,7 @@ fn build_cmd_with_a_build_cmd() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -1629,14 +1743,14 @@ fn build_cmd_with_a_build_cmd() {
 [RUNNING] `rustc [..] a/build.rs [..] --extern b=[..]`
 [RUNNING] `[..]/a-[..]/build-script-build`
 [RUNNING] `rustc --crate-name a [..]lib.rs [..]--crate-type lib \
-    --emit=[..]link[..]-C debuginfo=2 \
+    --emit=[..]link[..] \
     -C metadata=[..] \
     --out-dir [..]target/debug/deps \
     -L [..]target/debug/deps`
 [COMPILING] foo v0.5.0 ([CWD])
 [RUNNING] `rustc --crate-name build_script_build build.rs [..]--crate-type bin \
     --emit=[..]link[..]\
-    -C debuginfo=2 -C metadata=[..] --out-dir [..] \
+    -C metadata=[..] --out-dir [..] \
     -L [..]target/debug/deps \
     --extern a=[..]liba[..].rlib`
 [RUNNING] `[..]/foo-[..]/build-script-build`
@@ -1657,7 +1771,7 @@ fn out_dir_is_preserved() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1698,6 +1812,7 @@ fn out_dir_is_preserved() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo [..]: the file `build.rs` has changed ([..])
 [COMPILING] foo [..]
 [RUNNING] `rustc --crate-name build_script_build [..]
 [RUNNING] `[..]/build-script-build`
@@ -1722,6 +1837,7 @@ fn out_dir_is_preserved() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo [..]: the precalculated components changed
 [COMPILING] foo [..]
 [RUNNING] `[..]build-script-build`
 [RUNNING] `rustc --crate-name foo [..]
@@ -1737,7 +1853,7 @@ fn output_separate_lines() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1775,7 +1891,7 @@ fn output_separate_lines_new() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1817,7 +1933,7 @@ fn code_generation() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1874,7 +1990,7 @@ fn release_with_build_script() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1899,7 +2015,7 @@ fn build_script_only() {
         .file(
             "Cargo.toml",
             r#"
-                  [project]
+                  [package]
                   name = "foo"
                   version = "0.0.0"
                   authors = []
@@ -1927,7 +2043,7 @@ fn shared_dep_with_a_build_script() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -1977,7 +2093,7 @@ fn transitive_dep_host() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2029,7 +2145,7 @@ fn test_a_lib_with_a_build_command() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2072,7 +2188,7 @@ fn test_dev_dep_build_script() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2085,7 +2201,7 @@ fn test_dev_dep_build_script() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -2283,7 +2399,7 @@ fn test_duplicate_deps() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
                 authors = []
@@ -2347,7 +2463,7 @@ fn cfg_override() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2714,7 +2830,7 @@ fn flags_go_into_tests() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2728,7 +2844,7 @@ fn flags_go_into_tests() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -2740,7 +2856,7 @@ fn flags_go_into_tests() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -2795,7 +2911,7 @@ fn diamond_passes_args_only_once() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2810,7 +2926,7 @@ fn diamond_passes_args_only_once() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -2823,7 +2939,7 @@ fn diamond_passes_args_only_once() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -2835,7 +2951,7 @@ fn diamond_passes_args_only_once() {
         .file(
             "c/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "c"
                 version = "0.5.0"
                 authors = []
@@ -2879,7 +2995,7 @@ fn adding_an_override_invalidates() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2940,7 +3056,7 @@ fn changing_an_override_invalidates() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -2986,6 +3102,7 @@ fn changing_an_override_invalidates() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([..]): the precalculated components changed
 [COMPILING] foo v0.5.0 ([..]
 [RUNNING] `rustc [..] -L native=bar`
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
@@ -3002,7 +3119,7 @@ fn fresh_builds_possible_with_link_libs() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3054,7 +3171,7 @@ fn fresh_builds_possible_with_multiple_metadata_overrides() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3110,7 +3227,7 @@ fn generate_good_d_files() {
         .file(
             "awoo/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "awoo"
                 version = "0.5.0"
                 build = "build.rs"
@@ -3129,7 +3246,7 @@ fn generate_good_d_files() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "meow"
                 version = "0.5.0"
                 [dependencies]
@@ -3189,7 +3306,7 @@ fn generate_good_d_files_for_external_tools() {
         .file(
             "awoo/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "awoo"
                 version = "0.5.0"
                 build = "build.rs"
@@ -3208,7 +3325,7 @@ fn generate_good_d_files_for_external_tools() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "meow"
                 version = "0.5.0"
                 [dependencies]
@@ -3250,7 +3367,7 @@ fn rebuild_only_on_explicit_paths() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3276,6 +3393,7 @@ fn rebuild_only_on_explicit_paths() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([..]): the file `foo` is missing
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
@@ -3294,6 +3412,7 @@ fn rebuild_only_on_explicit_paths() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([..]): the file `foo` has changed ([..])
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
@@ -3332,6 +3451,7 @@ fn rebuild_only_on_explicit_paths() {
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([..]): the file `foo` has changed ([..])
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
@@ -3341,11 +3461,12 @@ fn rebuild_only_on_explicit_paths() {
         .run();
 
     // .. as does deleting a file
-    println!("run foo delete");
+    println!("run bar delete");
     fs::remove_file(p.root().join("bar")).unwrap();
     p.cargo("build -v")
         .with_stderr(
             "\
+[DIRTY] foo v0.5.0 ([..]): the file `bar` is missing
 [COMPILING] foo v0.5.0 ([..])
 [RUNNING] `[..]/build-script-build`
 [RUNNING] `rustc [..] src/lib.rs [..]`
@@ -3361,7 +3482,7 @@ fn doctest_receives_build_link_args() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3373,7 +3494,7 @@ fn doctest_receives_build_link_args() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -3405,7 +3526,7 @@ fn please_respect_the_dag() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3427,7 +3548,7 @@ fn please_respect_the_dag() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -3457,7 +3578,7 @@ fn non_utf8_output() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3494,7 +3615,7 @@ fn custom_target_dir() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3514,7 +3635,7 @@ fn custom_target_dir() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -3534,7 +3655,7 @@ fn panic_abort_with_build_scripts() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3554,7 +3675,7 @@ fn panic_abort_with_build_scripts() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -3572,7 +3693,7 @@ fn panic_abort_with_build_scripts() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -3586,7 +3707,7 @@ fn panic_abort_with_build_scripts() {
     p.root().join("target").rm_rf();
 
     p.cargo("test --release -v")
-        .with_stderr_does_not_contain("[..]panic[..]")
+        .with_stderr_does_not_contain("[..]panic=abort[..]")
         .run();
 }
 
@@ -3596,7 +3717,7 @@ fn warnings_emitted() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3636,7 +3757,7 @@ fn warnings_emitted_when_build_script_panics() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3678,7 +3799,7 @@ fn warnings_hidden_for_upstream() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "bar"
                 version = "0.1.0"
                 authors = []
@@ -3692,7 +3813,7 @@ fn warnings_hidden_for_upstream() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3737,7 +3858,7 @@ fn warnings_printed_on_vv() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "bar"
                 version = "0.1.0"
                 authors = []
@@ -3751,7 +3872,7 @@ fn warnings_printed_on_vv() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3789,7 +3910,7 @@ fn output_shows_on_vv() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -3833,7 +3954,7 @@ fn links_with_dots() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -4055,7 +4176,7 @@ fn deterministic_rustc_dependency_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "dep1"
                 version = "0.1.0"
                 authors = []
@@ -4076,7 +4197,7 @@ fn deterministic_rustc_dependency_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "dep2"
                 version = "0.1.0"
                 authors = []
@@ -4097,7 +4218,7 @@ fn deterministic_rustc_dependency_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "dep3"
                 version = "0.1.0"
                 authors = []
@@ -4118,7 +4239,7 @@ fn deterministic_rustc_dependency_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "dep4"
                 version = "0.1.0"
                 authors = []
@@ -4140,7 +4261,7 @@ fn deterministic_rustc_dependency_flags() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
                 authors = []
@@ -4172,7 +4293,7 @@ fn links_duplicates_with_cycle() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -4191,7 +4312,7 @@ fn links_duplicates_with_cycle() {
         .file(
             "a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "a"
                 version = "0.5.0"
                 authors = []
@@ -4204,7 +4325,7 @@ fn links_duplicates_with_cycle() {
         .file(
             "b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "b"
                 version = "0.5.0"
                 authors = []
@@ -4258,7 +4379,7 @@ fn _rename_with_link_search_path(cross: bool) {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -4399,7 +4520,7 @@ fn optional_build_script_dep() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
                 authors = []
@@ -4499,6 +4620,7 @@ fn optional_build_dep_and_required_normal_dep() {
         .with_stdout("1")
         .with_stderr(
             "\
+[COMPILING] bar v0.5.0 ([..])
 [COMPILING] foo v0.1.0 ([..])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `[..]foo[EXE]`",
@@ -4673,12 +4795,29 @@ fn rerun_if_directory() {
         )
         .build();
 
-    let dirty = || {
-        p.cargo("check")
-            .with_stderr(
-                "[COMPILING] foo [..]\n\
-                 [FINISHED] [..]",
-            )
+    let dirty = |dirty_line: &str, compile_build_script: bool| {
+        let mut dirty_line = dirty_line.to_string();
+
+        if !dirty_line.is_empty() {
+            dirty_line.push('\n');
+        }
+
+        let compile_build_script_line = if compile_build_script {
+            "[RUNNING] `rustc --crate-name build_script_build [..]\n"
+        } else {
+            ""
+        };
+
+        p.cargo("check -v")
+            .with_stderr(format!(
+                "\
+{dirty_line}\
+[COMPILING] foo [..]
+{compile_build_script_line}\
+[RUNNING] `[..]build-script-build[..]`
+[RUNNING] `rustc --crate-name foo [..]
+[FINISHED] [..]",
+            ))
             .run();
     };
 
@@ -4687,10 +4826,13 @@ fn rerun_if_directory() {
     };
 
     // Start with a missing directory.
-    dirty();
+    dirty("", true);
     // Because the directory doesn't exist, it will trigger a rebuild every time.
     // https://github.com/rust-lang/cargo/issues/6003
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` is missing",
+        false,
+    );
 
     if is_coarse_mtime() {
         sleep_ms(1000);
@@ -4698,7 +4840,10 @@ fn rerun_if_directory() {
 
     // Empty directory.
     fs::create_dir(p.root().join("somedir")).unwrap();
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` has changed ([..])",
+        false,
+    );
     fresh();
 
     if is_coarse_mtime() {
@@ -4708,7 +4853,10 @@ fn rerun_if_directory() {
     // Add a file.
     p.change_file("somedir/foo", "");
     p.change_file("somedir/bar", "");
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` has changed ([..])",
+        false,
+    );
     fresh();
 
     if is_coarse_mtime() {
@@ -4717,7 +4865,10 @@ fn rerun_if_directory() {
 
     // Add a symlink.
     p.symlink("foo", "somedir/link");
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` has changed ([..])",
+        false,
+    );
     fresh();
 
     if is_coarse_mtime() {
@@ -4727,7 +4878,10 @@ fn rerun_if_directory() {
     // Move the symlink.
     fs::remove_file(p.root().join("somedir/link")).unwrap();
     p.symlink("bar", "somedir/link");
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` has changed ([..])",
+        false,
+    );
     fresh();
 
     if is_coarse_mtime() {
@@ -4736,8 +4890,89 @@ fn rerun_if_directory() {
 
     // Remove a file.
     fs::remove_file(p.root().join("somedir/foo")).unwrap();
-    dirty();
+    dirty(
+        "[DIRTY] foo v0.1.0 ([..]): the file `somedir` has changed ([..])",
+        false,
+    );
     fresh();
+}
+
+#[cargo_test]
+fn rerun_if_published_directory() {
+    // build script of a dependency contains a `rerun-if-changed` pointing to a directory
+    Package::new("mylib-sys", "1.0.0")
+        .file("mylib/balrog.c", "")
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                fn main() {
+                    // Changing to mylib/balrog.c will not trigger a rebuild
+                    println!("cargo:rerun-if-changed=mylib");
+                }
+            "#,
+        )
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [dependencies]
+                mylib-sys = "1.0.0"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check").run();
+
+    // Delete regitry src to make directories being recreated with the latest timestamp.
+    cargo_home().join("registry/src").rm_rf();
+
+    p.cargo("check --verbose")
+        .with_stderr(
+            "\
+[FRESH] mylib-sys v1.0.0
+[FRESH] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+
+    // Upgrade of a package should still trigger a rebuild
+    Package::new("mylib-sys", "1.0.1")
+        .file("mylib/balrog.c", "")
+        .file("mylib/balrog.h", "")
+        .file("src/lib.rs", "")
+        .file(
+            "build.rs",
+            r#"
+                    fn main() {
+                        println!("cargo:rerun-if-changed=mylib");
+                    }
+                "#,
+        )
+        .publish();
+    p.cargo("update").run();
+    p.cargo("fetch").run();
+
+    p.cargo("check -v")
+        .with_stderr(format!(
+            "\
+[COMPILING] mylib-sys [..]
+[RUNNING] `rustc --crate-name build_script_build [..]
+[RUNNING] `[..]build-script-build[..]`
+[RUNNING] `rustc --crate-name mylib_sys [..]
+[CHECKING] foo [..]
+[RUNNING] `rustc --crate-name foo [..]
+[FINISHED] [..]",
+        ))
+        .run();
 }
 
 #[cargo_test]

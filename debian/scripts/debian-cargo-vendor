@@ -133,8 +133,10 @@ for i in *; do (
 ); done; )
 
 # TODO: rm special logic from debcargo and put into debcargo-conf instead
-echo >&2 "$0: removing winapi archives"
+echo >&2 "$0: removing winapi/windows_* archives"
 rm -rf vendor/winapi-*-pc-windows-gnu/lib/*.a
+rm -rf vendor/windows_*_*/lib/*.lib
+rm -rf vendor/windows_*_*/lib/*.a
 
 echo >&2 "$0: pruning all checksums.."
 for i in vendor/*; do ${SCRIPTDIR}/prune-checksums "$i"; done

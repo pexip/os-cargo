@@ -1,0 +1,29 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -37,6 +37,7 @@
+ categories = ["command-line-interface"]
+ license = "MIT OR Apache-2.0"
+ repository = "https://github.com/rust-cli/anstyle.git"
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ cargo-args = [
+@@ -83,18 +84,6 @@
+ [Unreleased]: https://github.com/rust-cli/anstyle/compare/{{tag_name}}...HEAD"""
+ search = "<!-- next-url -->"
+ 
+-[[bench]]
+-name = "strip"
+-harness = false
+-
+-[[bench]]
+-name = "wincon"
+-harness = false
+-
+-[[bench]]
+-name = "stream"
+-harness = false
+-
+ [dependencies.anstyle]
+ version = "1.0.0"
+ 

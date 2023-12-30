@@ -1,0 +1,13 @@
+Index: clap-builder/Cargo.toml
+===================================================================
+--- clap-builder.orig/Cargo.toml
++++ clap-builder/Cargo.toml
+@@ -77,7 +77,7 @@ version = "0.10.0"
+ optional = true
+ 
+ [dependencies.terminal_size]
+-version = "0.3.0"
++version = ">= 0.2.6, < 1.0"
+ optional = true
+ 
+ [dependencies.unicase]

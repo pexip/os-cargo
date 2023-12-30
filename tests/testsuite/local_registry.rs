@@ -33,7 +33,7 @@ fn simple() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -73,7 +73,7 @@ fn not_found() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -88,7 +88,7 @@ fn not_found() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr(
             "\
@@ -109,7 +109,7 @@ fn depend_on_yanked() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -152,7 +152,7 @@ fn multiple_versions() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -167,12 +167,12 @@ fn multiple_versions() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr(
             "\
 [UNPACKING] bar v0.1.0 ([..])
-[COMPILING] bar v0.1.0
-[COMPILING] foo v0.0.1 ([CWD])
+[CHECKING] bar v0.1.0
+[CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
         )
@@ -204,7 +204,7 @@ fn multiple_names() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -227,14 +227,14 @@ fn multiple_names() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr(
             "\
 [UNPACKING] [..]
 [UNPACKING] [..]
-[COMPILING] [..]
-[COMPILING] [..]
-[COMPILING] foo v0.0.1 ([CWD])
+[CHECKING] [..]
+[CHECKING] [..]
+[CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
         )
@@ -258,7 +258,7 @@ fn interdependent() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -281,14 +281,14 @@ fn interdependent() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr(
             "\
 [UNPACKING] [..]
 [UNPACKING] [..]
-[COMPILING] bar v0.0.1
-[COMPILING] baz v0.1.0
-[COMPILING] foo v0.0.1 ([CWD])
+[CHECKING] bar v0.0.1
+[CHECKING] baz v0.1.0
+[CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
         )
@@ -308,7 +308,7 @@ fn path_dep_rewritten() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "baz"
                 version = "0.1.0"
                 authors = []
@@ -326,7 +326,7 @@ fn path_dep_rewritten() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -349,14 +349,14 @@ fn path_dep_rewritten() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr(
             "\
 [UNPACKING] [..]
 [UNPACKING] [..]
-[COMPILING] bar v0.0.1
-[COMPILING] baz v0.1.0
-[COMPILING] foo v0.0.1 ([CWD])
+[CHECKING] bar v0.0.1
+[CHECKING] baz v0.1.0
+[CHECKING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
         )
@@ -370,7 +370,7 @@ fn invalid_dir_bad() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -393,7 +393,7 @@ fn invalid_dir_bad() {
         )
         .build();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr(
             "\
@@ -429,7 +429,7 @@ fn different_directory_replacing_the_registry_is_bad() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -443,7 +443,7 @@ fn different_directory_replacing_the_registry_is_bad() {
 
     // Generate a lock file against the crates.io registry
     Package::new("bar", "0.0.1").publish();
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     // Switch back to our directory source, and now that we're replacing
     // crates.io make sure that this fails because we're replacing with a
@@ -455,7 +455,7 @@ fn different_directory_replacing_the_registry_is_bad() {
         .local(true)
         .publish();
 
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr(
             "\
@@ -498,7 +498,7 @@ fn crates_io_registry_url_is_optional() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []

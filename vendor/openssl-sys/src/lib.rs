@@ -1,24 +1,36 @@
 #![allow(
     clippy::missing_safety_doc,
-    clippy::unreadable_literal,
-    clippy::upper_case_acronyms,
     dead_code,
     non_camel_case_types,
     non_snake_case,
     non_upper_case_globals,
-    overflowing_literals,
     unused_imports
 )]
+#![cfg_attr(feature = "unstable_boringssl", allow(ambiguous_glob_reexports))]
 #![doc(html_root_url = "https://docs.rs/openssl-sys/0.9")]
 #![recursion_limit = "128"] // configure fixed limit across all rust versions
 
 extern crate libc;
 pub use libc::*;
 
-#[cfg(boringssl)]
+#[cfg(feature = "unstable_boringssl")]
 extern crate bssl_sys;
-#[cfg(boringssl)]
+#[cfg(feature = "unstable_boringssl")]
 pub use bssl_sys::*;
+
+#[cfg(all(boringssl, not(feature = "unstable_boringssl")))]
+#[path = "."]
+mod boringssl {
+    include!(concat!(env!("OUT_DIR"), "/bindgen.rs"));
+
+    pub fn init() {
+        unsafe {
+            CRYPTO_library_init();
+        }
+    }
+}
+#[cfg(all(boringssl, not(feature = "unstable_boringssl")))]
+pub use boringssl::*;
 
 #[cfg(openssl)]
 #[path = "."]
@@ -130,7 +142,7 @@ mod openssl {
         ) {
             let mutex = &(*MUTEXES)[n as usize];
 
-            if mode & ::CRYPTO_LOCK != 0 {
+            if mode & CRYPTO_LOCK != 0 {
                 (*GUARDS)[n as usize] = Some(mutex.lock().unwrap());
             } else {
                 if let None = (*GUARDS)[n as usize].take() {
@@ -165,7 +177,7 @@ mod openssl {
             SSL_load_error_strings();
             OPENSSL_add_all_algorithms_noconf();
 
-            let num_locks = ::CRYPTO_num_locks();
+            let num_locks = CRYPTO_num_locks();
             let mut mutexes = Box::new(Vec::new());
             for _ in 0..num_locks {
                 mutexes.push(Mutex::new(()));

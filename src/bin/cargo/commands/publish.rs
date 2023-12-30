@@ -2,7 +2,7 @@ use crate::command_prelude::*;
 
 use cargo::ops::{self, PublishOpts};
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     subcommand("publish")
         .about("Upload a package to the registry")
         .arg_quiet()
@@ -28,8 +28,6 @@ pub fn cli() -> App {
 }
 
 pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
-    config.load_credentials()?;
-
     let registry = args.registry(config)?;
     let ws = args.workspace(config)?;
     let index = args.index()?;
@@ -38,7 +36,9 @@ pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
         &ws,
         &PublishOpts {
             config,
-            token: args.get_one::<String>("token").map(|s| s.to_string()),
+            token: args
+                .get_one::<String>("token")
+                .map(|s| s.to_string().into()),
             index,
             verify: !args.flag("no-verify"),
             allow_dirty: args.flag("allow-dirty"),

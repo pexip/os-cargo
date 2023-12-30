@@ -1,0 +1,12 @@
+Index: cargo/tests/testsuite/build_script.rs
+===================================================================
+--- cargo.orig/tests/testsuite/build_script.rs
++++ cargo/tests/testsuite/build_script.rs
+@@ -33,6 +33,7 @@ fn custom_build_script_failed() {
+         .file("build.rs", "fn main() { std::process::exit(101); }")
+         .build();
+     p.cargo("build -v")
++        .env("RUST_BACKTRACE", "0")
+         .with_status(101)
+         .with_stderr(
+             "\

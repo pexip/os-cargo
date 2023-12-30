@@ -2,7 +2,7 @@
 
 Your crates can depend on other libraries from [crates.io] or other
 registries, `git` repositories, or subdirectories on your local file system.
-You can also temporarily override the location of a dependency — for example,
+You can also temporarily override the location of a dependency --- for example,
 to be able to test out a bug fix in the dependency that you are working on
 locally. You can have different dependencies for different platforms, and
 dependencies that are only used during development. Let's take a look at how
@@ -131,12 +131,12 @@ you need to specify is the location of the repository with the `git` key:
 
 ```toml
 [dependencies]
-regex = { git = "https://github.com/rust-lang/regex" }
+regex = { git = "https://github.com/rust-lang/regex.git" }
 ```
 
 Cargo will fetch the `git` repository at this location then look for a
 `Cargo.toml` for the requested crate anywhere inside the `git` repository
-(not necessarily at the root - for example, specifying a member crate name
+(not necessarily at the root --- for example, specifying a member crate name
 of a workspace and setting `git` to the repository containing the workspace).
 
 Since we haven’t specified any other information, Cargo assumes that
@@ -147,7 +147,7 @@ the latest commit on a branch named `next`:
 
 ```toml
 [dependencies]
-regex = { git = "https://github.com/rust-lang/regex", branch = "next" }
+regex = { git = "https://github.com/rust-lang/regex.git", branch = "next" }
 ```
 
 Anything that is not a branch or tag falls under `rev`. This can be a commit
@@ -227,7 +227,7 @@ bitflags = { path = "my-bitflags", version = "1.0" }
 
 # Uses the given git repo when used locally, and uses
 # version 1.0 from crates.io when published.
-smallvec = { git = "https://github.com/servo/rust-smallvec", version = "1.0" }
+smallvec = { git = "https://github.com/servo/rust-smallvec.git", version = "1.0" }
 
 # N.B. that if a version doesn't match, Cargo will fail to compile!
 ```
@@ -417,7 +417,7 @@ version = "0.0.1"
 
 [dependencies]
 foo = "0.1"
-bar = { git = "https://github.com/example/project", package = "foo" }
+bar = { git = "https://github.com/example/project.git", package = "foo" }
 baz = { version = "0.1", registry = "custom", package = "foo" }
 ```
 
@@ -472,7 +472,7 @@ Dependencies in the `[dependencies]`, `[dev-dependencies]`, `[build-dependencies
 `[workspace.dependencies]` definition of dependencies.
 
 ```toml
-[project]
+[package]
 name = "bar"
 version = "0.2.0"
 
@@ -489,7 +489,7 @@ rand = { workspace = true, optional = true }
 
 [crates.io]: https://crates.io/
 [dev-dependencies]: #development-dependencies
-[workspace.dependencies]: workspaces.md#the-workspacedependencies-table
+[workspace.dependencies]: workspaces.md#the-dependencies-table
 [optional]: features.md#optional-dependencies
 [features]: features.md
 
