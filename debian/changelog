@@ -1,3 +1,9 @@
+cargo (0.66.0+ds1-1+pexip24u5) pexip-bookworm; urgency=medium
+
+  * New versioning scheme
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 01 Feb 2024 15:53:34 +0000
+
 cargo (0.66.0+ds1-1pexip4) pexip-bookworm; urgency=medium
 
   * Bookworm build for product distribution
