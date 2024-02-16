@@ -1,3 +1,5 @@
+use crate::report::Styled;
+
 pub fn write_diff(
     writer: &mut dyn std::fmt::Write,
     expected: &crate::Data,
@@ -9,11 +11,11 @@ pub fn write_diff(
     #[allow(unused_mut)]
     let mut rendered = false;
     #[cfg(feature = "diff")]
-    if let (Some(expected), Some(actual)) = (expected.as_str(), actual.as_str()) {
+    if let (Some(expected), Some(actual)) = (expected.render(), actual.render()) {
         write_diff_inner(
             writer,
-            expected,
-            actual,
+            &expected,
+            &actual,
             expected_name,
             actual_name,
             palette,
@@ -23,17 +25,17 @@ pub fn write_diff(
 
     if !rendered {
         if let Some(expected_name) = expected_name {
-            writeln!(writer, "{} {}:", expected_name, palette.info("(expected)"))?;
+            writeln!(writer, "{} {}:", expected_name, palette.error("(expected)"))?;
         } else {
-            writeln!(writer, "{}:", palette.info("Expected"))?;
+            writeln!(writer, "{}:", palette.error("Expected"))?;
         }
-        writeln!(writer, "{}", palette.info(&expected))?;
+        writeln!(writer, "{}", palette.error(&expected))?;
         if let Some(actual_name) = actual_name {
-            writeln!(writer, "{} {}:", actual_name, palette.error("(actual)"))?;
+            writeln!(writer, "{} {}:", actual_name, palette.info("(actual)"))?;
         } else {
-            writeln!(writer, "{}:", palette.error("Actual"))?;
+            writeln!(writer, "{}:", palette.info("Actual"))?;
         }
-        writeln!(writer, "{}", palette.error(&actual))?;
+        writeln!(writer, "{}", palette.info(&actual))?;
     }
     Ok(())
 }
@@ -62,19 +64,19 @@ fn write_diff_inner(
         writeln!(
             writer,
             "{}",
-            palette.info(format_args!("{:->4} expected: {}", "", expected_name))
+            palette.error(format_args!("{:->4} expected: {}", "", expected_name))
         )?;
     } else {
-        writeln!(writer, "{}", palette.info(format_args!("--- Expected")))?;
+        writeln!(writer, "{}", palette.error(format_args!("--- Expected")))?;
     }
     if let Some(actual_name) = actual_name {
         writeln!(
             writer,
             "{}",
-            palette.error(format_args!("{:+>4} actual:   {}", "", actual_name))
+            palette.info(format_args!("{:+>4} actual:   {}", "", actual_name))
         )?;
     } else {
-        writeln!(writer, "{}", palette.error(format_args!("+++ Actual")))?;
+        writeln!(writer, "{}", palette.info(format_args!("+++ Actual")))?;
     }
     let changes = changes
         .ops()
@@ -135,10 +137,17 @@ fn write_diff_inner(
             elided = false;
             match change.tag() {
                 similar::ChangeTag::Insert => {
-                    write_change(writer, change, "+", palette.actual, palette.error, palette)?;
+                    write_change(writer, change, "+", palette.actual, palette.info, palette)?;
                 }
                 similar::ChangeTag::Delete => {
-                    write_change(writer, change, "-", palette.expected, palette.info, palette)?;
+                    write_change(
+                        writer,
+                        change,
+                        "-",
+                        palette.expected,
+                        palette.error,
+                        palette,
+                    )?;
                 }
                 similar::ChangeTag::Equal => {
                     write_change(writer, change, "|", palette.hint, palette.hint, palette)?;
@@ -169,13 +178,13 @@ fn write_change(
     } else {
         write!(writer, "{:>4} ", " ",)?;
     }
-    write!(writer, "{} ", style.paint(sign))?;
+    write!(writer, "{} ", Styled::new(sign, style))?;
     for &(emphasized, change) in change.values() {
         let cur_style = if emphasized { em_style } else { style };
-        write!(writer, "{}", cur_style.paint(change))?;
+        write!(writer, "{}", Styled::new(change, cur_style))?;
     }
     if change.missing_newline() {
-        writeln!(writer, "{}", em_style.paint("∅"))?;
+        writeln!(writer, "{}", Styled::new("∅", em_style))?;
     }
 
     Ok(())
@@ -192,7 +201,7 @@ mod test {
         let expected_name = "A";
         let actual = "Hello\nWorld\n";
         let actual_name = "B";
-        let palette = crate::report::Palette::never();
+        let palette = crate::report::Palette::plain();
 
         let mut actual_diff = String::new();
         write_diff_inner(
@@ -221,7 +230,7 @@ mod test {
         let expected_name = "A";
         let actual = "Hello\n";
         let actual_name = "B";
-        let palette = crate::report::Palette::never();
+        let palette = crate::report::Palette::plain();
 
         let mut actual_diff = String::new();
         write_diff_inner(
@@ -250,7 +259,7 @@ mod test {
         let expected_name = "A";
         let actual = "Hello\nWorld\n";
         let actual_name = "B";
-        let palette = crate::report::Palette::never();
+        let palette = crate::report::Palette::plain();
 
         let mut actual_diff = String::new();
         write_diff_inner(
@@ -280,7 +289,7 @@ mod test {
         let expected_name = "A";
         let actual = "Hello\nWorld";
         let actual_name = "B";
-        let palette = crate::report::Palette::never();
+        let palette = crate::report::Palette::plain();
 
         let mut actual_diff = String::new();
         write_diff_inner(
@@ -334,7 +343,7 @@ mod test {
         actual.push_str("?\n");
         let actual_name = "B";
 
-        let palette = crate::report::Palette::never();
+        let palette = crate::report::Palette::plain();
 
         let mut actual_diff = String::new();
         write_diff_inner(

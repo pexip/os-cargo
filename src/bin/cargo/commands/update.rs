@@ -3,7 +3,7 @@ use crate::command_prelude::*;
 use cargo::ops::{self, UpdateOptions};
 use cargo::util::print_available_packages;
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     subcommand("update")
         .about("Update dependencies as recorded in the local lock file")
         .arg_quiet()
@@ -19,7 +19,8 @@ pub fn cli() -> App {
                 "precise",
                 "Update a single dependency to exactly PRECISE when used with -p",
             )
-            .value_name("PRECISE"),
+            .value_name("PRECISE")
+            .requires("package"),
         )
         .arg_manifest_path()
         .after_help("Run `cargo help update` for more detailed information.\n")

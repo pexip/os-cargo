@@ -1,12 +1,22 @@
+Index: flate2/Cargo.toml
+===================================================================
 --- flate2.orig/Cargo.toml
 +++ flate2/Cargo.toml
-@@ -45,4 +44,0 @@
+@@ -49,10 +49,6 @@ rustdoc-args = [
+ [dependencies.crc32fast]
+ version = "1.2.0"
+ 
 -[dependencies.libz-ng-sys]
 -version = "1.1.8"
 -optional = true
 -
-@@ -74,8 +69,0 @@
--]
+ [dependencies.libz-sys]
+ version = "1.1.8"
+ optional = true
+@@ -84,14 +80,6 @@ zlib-default = [
+     "any_zlib",
+     "libz-sys/default",
+ ]
 -zlib-ng = [
 -    "any_zlib",
 -    "libz-ng-sys",
@@ -14,3 +24,7 @@
 -zlib-ng-compat = [
 -    "zlib",
 -    "libz-sys/zlib-ng",
+-]
+ 
+ [target."cfg(all(target_arch = \"wasm32\", not(target_os = \"emscripten\")))".dependencies.miniz_oxide]
+ version = "0.7.1"

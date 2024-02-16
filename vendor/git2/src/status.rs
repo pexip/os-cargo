@@ -1,5 +1,6 @@
 use libc::{c_char, c_uint, size_t};
 use std::ffi::CString;
+use std::iter::FusedIterator;
 use std::marker;
 use std::mem;
 use std::ops::Range;
@@ -303,7 +304,16 @@ impl<'a> DoubleEndedIterator for StatusIter<'a> {
         self.range.next_back().and_then(|i| self.statuses.get(i))
     }
 }
+impl<'a> FusedIterator for StatusIter<'a> {}
 impl<'a> ExactSizeIterator for StatusIter<'a> {}
+
+impl<'a> IntoIterator for &'a Statuses<'a> {
+    type Item = StatusEntry<'a>;
+    type IntoIter = StatusIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
 
 impl<'statuses> StatusEntry<'statuses> {
     /// Access the bytes for this entry's corresponding pathname

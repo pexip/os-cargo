@@ -1,0 +1,10 @@
+--- a/src/format_description/well_known/iso8601/adt_hack.rs
++++ b/src/format_description/well_known/iso8601/adt_hack.rs
+@@ -163,6 +163,7 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    extern crate std;
+ 
+     macro_rules! eq {
+         ($a:expr, $b:expr) => {{

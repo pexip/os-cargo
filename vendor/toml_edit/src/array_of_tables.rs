@@ -6,6 +6,7 @@ use crate::{Array, Item, Table};
 #[derive(Clone, Debug, Default)]
 pub struct ArrayOfTables {
     // Always Vec<Item::Table>, just `Item` to make `Index` work
+    pub(crate) span: Option<std::ops::Range<usize>>,
     pub(crate) values: Vec<Item>,
 }
 
@@ -29,6 +30,18 @@ impl ArrayOfTables {
         let mut a = Array::with_vec(self.values);
         a.fmt();
         a
+    }
+
+    /// Returns the location within the original document
+    pub(crate) fn span(&self) -> Option<std::ops::Range<usize>> {
+        self.span.clone()
+    }
+
+    pub(crate) fn despan(&mut self, input: &str) {
+        self.span = None;
+        for value in &mut self.values {
+            value.despan(input);
+        }
     }
 }
 
@@ -78,6 +91,20 @@ impl ArrayOfTables {
     pub fn remove(&mut self, index: usize) {
         self.values.remove(index);
     }
+
+    /// Retains only the elements specified by the `keep` predicate.
+    ///
+    /// In other words, remove all tables for which `keep(&table)` returns `false`.
+    ///
+    /// This method operates in place, visiting each element exactly once in the
+    /// original order, and preserves the order of the retained elements.
+    pub fn retain<F>(&mut self, mut keep: F)
+    where
+        F: FnMut(&Table) -> bool,
+    {
+        self.values
+            .retain(|item| item.as_table().map(&mut keep).unwrap_or(false));
+    }
 }
 
 /// An iterator type over `ArrayOfTables`'s values.
@@ -103,6 +130,7 @@ impl FromIterator<Table> for ArrayOfTables {
         let v = iter.into_iter().map(Item::Table);
         ArrayOfTables {
             values: v.collect(),
+            span: None,
         }
     }
 }

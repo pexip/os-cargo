@@ -1,10 +1,11 @@
 # cargo-add(1)
+
 {{*set actionverb="Add"}}
 {{*set nouns="adds"}}
 
 ## NAME
 
-cargo-add - Add dependencies to a Cargo.toml manifest file
+cargo-add --- Add dependencies to a Cargo.toml manifest file
 
 ## SYNOPSIS
 
@@ -91,6 +92,10 @@ Add as a dependency to the [given target platform](../reference/specifying-depen
 
 {{#options}}
 
+{{#option "`--dry-run`" }}
+Don't actually write the manifest
+{{/option}}
+
 {{#option "`--rename` _name_" }}
 [Rename](../reference/specifying-dependencies.html#renaming-dependencies-in-cargotoml) the dependency.
 {{/option}}
@@ -111,7 +116,7 @@ Disable the [default features](../reference/features.html#dependency-features).
 Re-enable the [default features](../reference/features.html#dependency-features).
 {{/option}}
 
-{{#option "`--features` _features_" }}
+{{#option "`-F` _features_" "`--features` _features_" }}
 Space or comma separated list of [features to
 activate](../reference/features.html#dependency-features). When adding multiple
 crates, the features for a specific crate may be enabled with
@@ -132,6 +137,12 @@ which enables all specified features.
 
 {{#options}}
 {{> options-manifest-path }}
+
+{{#option "`-p` _spec_" "`--package` _spec_" }}
+Add dependencies to only the specified package.
+{{/option}}
+
+{{> options-locked }}
 {{/options}}
 
 {{> section-options-common }}
@@ -159,4 +170,4 @@ which enables all specified features.
        cargo add serde serde_json -F serde/derive
 
 ## SEE ALSO
-{{man "cargo" 1}}
+{{man "cargo" 1}}, {{man "cargo-remove" 1}}

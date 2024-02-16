@@ -10,6 +10,7 @@ use std::{ffi::OsStr, path::Path};
 
 use memchr::{memchr, memmem, memrchr};
 
+use crate::escape_bytes::EscapeBytes;
 #[cfg(feature = "alloc")]
 use crate::ext_vec::ByteVec;
 #[cfg(feature = "unicode")]
@@ -101,12 +102,16 @@ impl<const N: usize> ByteSlice for [u8; N] {
 
 /// Ensure that callers cannot implement `ByteSlice` by making an
 /// umplementable trait its super trait.
-pub trait Sealed {}
-impl Sealed for [u8] {}
-impl<const N: usize> Sealed for [u8; N] {}
+mod private {
+    pub trait Sealed {}
+}
+impl private::Sealed for [u8] {}
+impl<const N: usize> private::Sealed for [u8; N] {}
 
 /// A trait that extends `&[u8]` with string oriented methods.
-pub trait ByteSlice: Sealed {
+///
+/// This trait is sealed and cannot be implemented outside of `bstr`.
+pub trait ByteSlice: private::Sealed {
     /// A method for accessing the raw bytes of this type. This is always a
     /// no-op and callers shouldn't care about it. This only exists for making
     /// the extension trait work.
@@ -2761,6 +2766,47 @@ pub trait ByteSlice: Sealed {
         self.as_bytes_mut().make_ascii_uppercase();
     }
 
+    /// Escapes this byte string into a sequence of `char` values.
+    ///
+    /// When the sequence of `char` values is concatenated into a string, the
+    /// result is always valid UTF-8. Any unprintable or invalid UTF-8 in this
+    /// byte string are escaped using using `\xNN` notation. Moreover, the
+    /// characters `\0`, `\r`, `\n`, `\t` and `\` are escaped as well.
+    ///
+    /// This is useful when one wants to get a human readable view of the raw
+    /// bytes that is also valid UTF-8.
+    ///
+    /// The iterator returned implements the `Display` trait. So one can do
+    /// `b"foo\xFFbar".escape_bytes().to_string()` to get a `String` with its
+    /// bytes escaped.
+    ///
+    /// The dual of this function is [`ByteVec::unescape_bytes`].
+    ///
+    /// Note that this is similar to, but not equivalent to the `Debug`
+    /// implementation on [`BStr`] and [`BString`]. The `Debug` implementations
+    /// also use the debug representation for all Unicode codepoints. However,
+    /// this escaping routine only escapes individual bytes. All Unicode
+    /// codepoints above `U+007F` are passed through unchanged without any
+    /// escaping.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "alloc")] {
+    /// use bstr::{B, ByteSlice};
+    ///
+    /// assert_eq!(r"foo\xFFbar", b"foo\xFFbar".escape_bytes().to_string());
+    /// assert_eq!(r"foo\nbar", b"foo\nbar".escape_bytes().to_string());
+    /// assert_eq!(r"foo\tbar", b"foo\tbar".escape_bytes().to_string());
+    /// assert_eq!(r"foo\\bar", b"foo\\bar".escape_bytes().to_string());
+    /// assert_eq!(r"foo☃bar", B("foo☃bar").escape_bytes().to_string());
+    /// # }
+    /// ```
+    #[inline]
+    fn escape_bytes(&self) -> EscapeBytes<'_> {
+        EscapeBytes::new(self.as_bytes())
+    }
+
     /// Reverse the bytes in this string, in place.
     ///
     /// This is not necessarily a well formed operation! For example, if this
@@ -3060,8 +3106,8 @@ impl<'a> Finder<'a> {
     /// If this is already an owned finder, then this is a no-op. Otherwise,
     /// this copies the needle.
     ///
-    /// This is only available when the `std` feature is enabled.
-    #[cfg(feature = "std")]
+    /// This is only available when the `alloc` feature is enabled.
+    #[cfg(feature = "alloc")]
     #[inline]
     pub fn into_owned(self) -> Finder<'static> {
         Finder(self.0.into_owned())
@@ -3143,8 +3189,8 @@ impl<'a> FinderReverse<'a> {
     /// If this is already an owned finder, then this is a no-op. Otherwise,
     /// this copies the needle.
     ///
-    /// This is only available when the `std` feature is enabled.
-    #[cfg(feature = "std")]
+    /// This is only available when the `alloc` feature is enabled.
+    #[cfg(feature = "alloc")]
     #[inline]
     pub fn into_owned(self) -> FinderReverse<'static> {
         FinderReverse(self.0.into_owned())

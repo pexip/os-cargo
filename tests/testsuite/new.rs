@@ -106,8 +106,8 @@ fn no_argument() {
         .with_status(1)
         .with_stderr_contains(
             "\
-error: The following required arguments were not provided:
-    <path>
+error: the following required arguments were not provided:
+  <path>
 ",
         )
         .run();
@@ -321,9 +321,7 @@ fn subpackage_git_with_vcs_arg() {
 fn unknown_flags() {
     cargo_process("new foo --flag")
         .with_status(1)
-        .with_stderr_contains(
-            "error: Found argument '--flag' which wasn't expected, or isn't valid in this context",
-        )
+        .with_stderr_contains("error: unexpected argument '--flag' found")
         .run();
 }
 
@@ -380,7 +378,7 @@ fn new_default_edition() {
 #[cargo_test]
 fn new_with_bad_edition() {
     cargo_process("new --edition something_else foo")
-        .with_stderr_contains("error: \"something_else\" isn't a valid value[..]")
+        .with_stderr_contains("error: invalid value 'something_else' for '--edition <YEAR>'")
         .with_status(1)
         .run();
 }
@@ -508,4 +506,38 @@ fn git_default_branch() {
     let repo = git2::Repository::open(paths::root().join("bar")).unwrap();
     let head = repo.find_reference("HEAD").unwrap();
     assert_eq!(head.symbolic_target().unwrap(), "refs/heads/hello");
+}
+
+#[cargo_test]
+fn non_utf8_str_in_ignore_file() {
+    let gitignore = paths::home().join(".gitignore");
+    File::create(gitignore).unwrap();
+
+    fs::write(paths::home().join(".gitignore"), &[0xFF, 0xFE]).unwrap();
+
+    cargo_process(&format!("init {} --vcs git", paths::home().display()))
+        .with_status(101)
+        .with_stderr(
+            "\
+error: Failed to create package `home` at `[..]`
+
+Caused by:
+  Character at line 0 is invalid. Cargo only supports UTF-8.
+",
+        )
+        .run();
+}
+
+#[cfg(unix)]
+#[cargo_test]
+fn path_with_invalid_character() {
+    cargo_process("new --name testing test:ing")
+        .with_stderr(
+            "\
+[WARNING] the path `[CWD]/test:ing` contains invalid PATH characters (usually `:`, `;`, or `\"`)
+It is recommended to use a different name to avoid problems.
+[CREATED] binary (application) `testing` package
+",
+        )
+        .run();
 }

@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/libgit2-sys/0.14")]
+#![doc(html_root_url = "https://docs.rs/libgit2-sys/0.16")]
 #![allow(non_camel_case_types, unused_extern_crates)]
 
 // This is required to link libz when libssh2-sys is not included.
@@ -25,6 +25,7 @@ pub const GIT_REFDB_BACKEND_VERSION: c_uint = 1;
 pub const GIT_CHERRYPICK_OPTIONS_VERSION: c_uint = 1;
 pub const GIT_APPLY_OPTIONS_VERSION: c_uint = 1;
 pub const GIT_REVERT_OPTIONS_VERSION: c_uint = 1;
+pub const GIT_INDEXER_OPTIONS_VERSION: c_uint = 1;
 
 macro_rules! git_enum {
     (pub enum $name:ident { $($variants:tt)* }) => {
@@ -91,6 +92,7 @@ pub enum git_odb_object {}
 pub enum git_worktree {}
 pub enum git_transaction {}
 pub enum git_mailmap {}
+pub enum git_indexer {}
 
 #[repr(C)]
 pub struct git_revspec {
@@ -334,7 +336,7 @@ pub struct git_checkout_perfdata {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct git_indexer_progress {
     pub total_objects: c_uint,
     pub indexed_objects: c_uint,
@@ -353,6 +355,14 @@ pub type git_indexer_progress_cb =
     note = "renamed to `git_indexer_progress` to match upstream"
 )]
 pub type git_transfer_progress = git_indexer_progress;
+
+#[repr(C)]
+pub struct git_indexer_options {
+    pub version: c_uint,
+    pub progress_cb: git_indexer_progress_cb,
+    pub progress_cb_payload: *mut c_void,
+    pub verify: c_uchar,
+}
 
 pub type git_remote_ready_cb = Option<extern "C" fn(*mut git_remote, c_int, *mut c_void) -> c_int>;
 
@@ -384,8 +394,18 @@ pub struct git_fetch_options {
     pub update_fetchhead: c_int,
     pub download_tags: git_remote_autotag_option_t,
     pub proxy_opts: git_proxy_options,
+    pub depth: c_int,
     pub follow_redirects: git_remote_redirect_t,
     pub custom_headers: git_strarray,
+}
+
+#[repr(C)]
+pub struct git_fetch_negotiation {
+    refs: *const *const git_remote_head,
+    refs_len: size_t,
+    shallow_roots: *mut git_oid,
+    shallow_roots_len: size_t,
+    depth: c_int,
 }
 
 git_enum! {
@@ -696,6 +716,7 @@ git_enum! {
         GIT_FILEMODE_UNREADABLE = 0o000000,
         GIT_FILEMODE_TREE = 0o040000,
         GIT_FILEMODE_BLOB = 0o100644,
+        GIT_FILEMODE_BLOB_GROUP_WRITABLE = 0o100664,
         GIT_FILEMODE_BLOB_EXECUTABLE = 0o100755,
         GIT_FILEMODE_LINK = 0o120000,
         GIT_FILEMODE_COMMIT = 0o160000,
@@ -1126,10 +1147,19 @@ pub struct git_diff_options {
     pub payload: *mut c_void,
     pub context_lines: u32,
     pub interhunk_lines: u32,
+    pub oid_type: git_oid_t,
     pub id_abbrev: u16,
     pub max_size: git_off_t,
     pub old_prefix: *const c_char,
     pub new_prefix: *const c_char,
+}
+
+git_enum! {
+    pub enum git_oid_t {
+        GIT_OID_SHA1 = 1,
+        // SHA256 is still experimental so we are not going to enable it.
+        /* GIT_OID_SHA256 = 2, */
+    }
 }
 
 git_enum! {
@@ -1160,37 +1190,40 @@ pub type git_diff_notify_cb = Option<
 pub type git_diff_progress_cb =
     Option<extern "C" fn(*const git_diff, *const c_char, *const c_char, *mut c_void) -> c_int>;
 
-pub type git_diff_option_t = i32;
-pub const GIT_DIFF_NORMAL: git_diff_option_t = 0;
-pub const GIT_DIFF_REVERSE: git_diff_option_t = 1 << 0;
-pub const GIT_DIFF_INCLUDE_IGNORED: git_diff_option_t = 1 << 1;
-pub const GIT_DIFF_RECURSE_IGNORED_DIRS: git_diff_option_t = 1 << 2;
-pub const GIT_DIFF_INCLUDE_UNTRACKED: git_diff_option_t = 1 << 3;
-pub const GIT_DIFF_RECURSE_UNTRACKED_DIRS: git_diff_option_t = 1 << 4;
-pub const GIT_DIFF_INCLUDE_UNMODIFIED: git_diff_option_t = 1 << 5;
-pub const GIT_DIFF_INCLUDE_TYPECHANGE: git_diff_option_t = 1 << 6;
-pub const GIT_DIFF_INCLUDE_TYPECHANGE_TREES: git_diff_option_t = 1 << 7;
-pub const GIT_DIFF_IGNORE_FILEMODE: git_diff_option_t = 1 << 8;
-pub const GIT_DIFF_IGNORE_SUBMODULES: git_diff_option_t = 1 << 9;
-pub const GIT_DIFF_IGNORE_CASE: git_diff_option_t = 1 << 10;
-pub const GIT_DIFF_DISABLE_PATHSPEC_MATCH: git_diff_option_t = 1 << 12;
-pub const GIT_DIFF_SKIP_BINARY_CHECK: git_diff_option_t = 1 << 13;
-pub const GIT_DIFF_ENABLE_FAST_UNTRACKED_DIRS: git_diff_option_t = 1 << 14;
-pub const GIT_DIFF_UPDATE_INDEX: git_diff_option_t = 1 << 15;
-pub const GIT_DIFF_INCLUDE_UNREADABLE: git_diff_option_t = 1 << 16;
-pub const GIT_DIFF_INCLUDE_UNREADABLE_AS_UNTRACKED: git_diff_option_t = 1 << 17;
-pub const GIT_DIFF_INDENT_HEURISTIC: git_diff_option_t = 1 << 18;
-pub const GIT_DIFF_IGNORE_BLANK_LINES: git_diff_option_t = 1 << 19;
-pub const GIT_DIFF_FORCE_TEXT: git_diff_option_t = 1 << 20;
-pub const GIT_DIFF_FORCE_BINARY: git_diff_option_t = 1 << 21;
-pub const GIT_DIFF_IGNORE_WHITESPACE: git_diff_option_t = 1 << 22;
-pub const GIT_DIFF_IGNORE_WHITESPACE_CHANGE: git_diff_option_t = 1 << 23;
-pub const GIT_DIFF_IGNORE_WHITESPACE_EOL: git_diff_option_t = 1 << 24;
-pub const GIT_DIFF_SHOW_UNTRACKED_CONTENT: git_diff_option_t = 1 << 25;
-pub const GIT_DIFF_SHOW_UNMODIFIED: git_diff_option_t = 1 << 26;
-pub const GIT_DIFF_PATIENCE: git_diff_option_t = 1 << 28;
-pub const GIT_DIFF_MINIMAL: git_diff_option_t = 1 << 29;
-pub const GIT_DIFF_SHOW_BINARY: git_diff_option_t = 1 << 30;
+git_enum! {
+    pub enum git_diff_option_t {
+        GIT_DIFF_NORMAL = 0,
+        GIT_DIFF_REVERSE = 1 << 0,
+        GIT_DIFF_INCLUDE_IGNORED = 1 << 1,
+        GIT_DIFF_RECURSE_IGNORED_DIRS = 1 << 2,
+        GIT_DIFF_INCLUDE_UNTRACKED = 1 << 3,
+        GIT_DIFF_RECURSE_UNTRACKED_DIRS = 1 << 4,
+        GIT_DIFF_INCLUDE_UNMODIFIED = 1 << 5,
+        GIT_DIFF_INCLUDE_TYPECHANGE = 1 << 6,
+        GIT_DIFF_INCLUDE_TYPECHANGE_TREES = 1 << 7,
+        GIT_DIFF_IGNORE_FILEMODE = 1 << 8,
+        GIT_DIFF_IGNORE_SUBMODULES = 1 << 9,
+        GIT_DIFF_IGNORE_CASE = 1 << 10,
+        GIT_DIFF_DISABLE_PATHSPEC_MATCH = 1 << 12,
+        GIT_DIFF_SKIP_BINARY_CHECK = 1 << 13,
+        GIT_DIFF_ENABLE_FAST_UNTRACKED_DIRS = 1 << 14,
+        GIT_DIFF_UPDATE_INDEX = 1 << 15,
+        GIT_DIFF_INCLUDE_UNREADABLE = 1 << 16,
+        GIT_DIFF_INCLUDE_UNREADABLE_AS_UNTRACKED = 1 << 17,
+        GIT_DIFF_INDENT_HEURISTIC = 1 << 18,
+        GIT_DIFF_IGNORE_BLANK_LINES = 1 << 19,
+        GIT_DIFF_FORCE_TEXT = 1 << 20,
+        GIT_DIFF_FORCE_BINARY = 1 << 21,
+        GIT_DIFF_IGNORE_WHITESPACE = 1 << 22,
+        GIT_DIFF_IGNORE_WHITESPACE_CHANGE = 1 << 23,
+        GIT_DIFF_IGNORE_WHITESPACE_EOL = 1 << 24,
+        GIT_DIFF_SHOW_UNTRACKED_CONTENT = 1 << 25,
+        GIT_DIFF_SHOW_UNMODIFIED = 1 << 26,
+        GIT_DIFF_PATIENCE = 1 << 28,
+        GIT_DIFF_MINIMAL = 1 << 29,
+        GIT_DIFF_SHOW_BINARY = 1 << 30,
+    }
+}
 
 #[repr(C)]
 pub struct git_diff_find_options {
@@ -1392,10 +1425,11 @@ pub struct git_transport {
         extern "C" fn(
             transport: *mut git_transport,
             repo: *mut git_repository,
-            refs: *const *const git_remote_head,
-            count: size_t,
+            fetch_data: *const git_fetch_negotiation,
         ) -> c_int,
     >,
+    pub shallow_roots:
+        Option<extern "C" fn(out: *mut git_oidarray, transport: *mut git_transport) -> c_int>,
     pub download_pack: Option<
         extern "C" fn(
             transport: *mut git_transport,
@@ -1717,6 +1751,7 @@ git_enum! {
         GIT_STASH_KEEP_INDEX = 1 << 0,
         GIT_STASH_INCLUDE_UNTRACKED = 1 << 1,
         GIT_STASH_INCLUDE_IGNORED = 1 << 2,
+        GIT_STASH_KEEP_ALL = 1 << 3,
     }
 }
 
@@ -1739,6 +1774,17 @@ git_enum! {
         GIT_STASH_APPLY_PROGRESS_DONE,
     }
 }
+
+#[repr(C)]
+pub struct git_stash_save_options {
+    pub version: c_uint,
+    pub flags: u32,
+    pub stasher: *const git_signature,
+    pub message: *const c_char,
+    pub paths: git_strarray,
+}
+
+pub const GIT_STASH_SAVE_OPTIONS_VERSION: c_uint = 1;
 
 #[repr(C)]
 pub struct git_stash_apply_options {
@@ -2251,6 +2297,7 @@ extern "C" {
     ) -> c_int;
     pub fn git_remote_get_refspec(remote: *const git_remote, n: size_t) -> *const git_refspec;
     pub fn git_remote_is_valid_name(remote_name: *const c_char) -> c_int;
+    pub fn git_remote_name_is_valid(valid: *mut c_int, remote_name: *const c_char) -> c_int;
     pub fn git_remote_list(out: *mut git_strarray, repo: *mut git_repository) -> c_int;
     pub fn git_remote_rename(
         problems: *mut git_strarray,
@@ -2402,6 +2449,7 @@ extern "C" {
     pub fn git_reference_is_remote(r: *const git_reference) -> c_int;
     pub fn git_reference_is_tag(r: *const git_reference) -> c_int;
     pub fn git_reference_is_valid_name(name: *const c_char) -> c_int;
+    pub fn git_reference_name_is_valid(valid: *mut c_int, refname: *const c_char) -> c_int;
     pub fn git_reference_lookup(
         out: *mut *mut git_reference,
         repo: *mut git_repository,
@@ -2439,6 +2487,12 @@ extern "C" {
         out: *mut *mut git_reference,
         r: *mut git_reference,
         id: *const git_oid,
+        log_message: *const c_char,
+    ) -> c_int;
+    pub fn git_reference_symbolic_set_target(
+        out: *mut *mut git_reference,
+        r: *mut git_reference,
+        target: *const c_char,
         log_message: *const c_char,
     ) -> c_int;
     pub fn git_reference_type(r: *const git_reference) -> git_reference_t;
@@ -2512,6 +2566,15 @@ extern "C" {
         flags: c_uint,
     ) -> c_int;
 
+    pub fn git_stash_save_options_init(opts: *mut git_stash_save_options, version: c_uint)
+        -> c_int;
+
+    pub fn git_stash_save_with_opts(
+        out: *mut git_oid,
+        repo: *mut git_repository,
+        options: *const git_stash_save_options,
+    ) -> c_int;
+
     pub fn git_stash_apply_init_options(
         opts: *mut git_stash_apply_options,
         version: c_uint,
@@ -2563,6 +2626,11 @@ extern "C" {
     pub fn git_submodule_ignore(submodule: *mut git_submodule) -> git_submodule_ignore_t;
     pub fn git_submodule_index_id(submodule: *mut git_submodule) -> *const git_oid;
     pub fn git_submodule_init(submodule: *mut git_submodule, overwrite: c_int) -> c_int;
+    pub fn git_submodule_repo_init(
+        repo: *mut *mut git_repository,
+        submodule: *const git_submodule,
+        use_gitlink: c_int,
+    ) -> c_int;
     pub fn git_submodule_location(status: *mut c_uint, submodule: *mut git_submodule) -> c_int;
     pub fn git_submodule_lookup(
         out: *mut *mut git_submodule,
@@ -2951,6 +3019,11 @@ extern "C" {
     pub fn git_index_entrycount(entry: *const git_index) -> size_t;
     pub fn git_index_find(at_pos: *mut size_t, index: *mut git_index, path: *const c_char)
         -> c_int;
+    pub fn git_index_find_prefix(
+        at_pos: *mut size_t,
+        index: *mut git_index,
+        prefix: *const c_char,
+    ) -> c_int;
     pub fn git_index_free(index: *mut git_index);
     pub fn git_index_get_byindex(index: *mut git_index, n: size_t) -> *const git_index_entry;
     pub fn git_index_get_bypath(
@@ -3213,6 +3286,7 @@ extern "C" {
     pub fn git_tag_target(target_out: *mut *mut git_object, tag: *const git_tag) -> c_int;
     pub fn git_tag_target_id(tag: *const git_tag) -> *const git_oid;
     pub fn git_tag_target_type(tag: *const git_tag) -> git_object_t;
+    pub fn git_tag_name_is_valid(valid: *mut c_int, tag_name: *const c_char) -> c_int;
 
     // checkout
     pub fn git_checkout_head(repo: *mut git_repository, opts: *const git_checkout_options)
@@ -3332,6 +3406,12 @@ extern "C" {
     ) -> c_int;
 
     // blame
+    pub fn git_blame_buffer(
+        out: *mut *mut git_blame,
+        reference: *mut git_blame,
+        buffer: *const c_char,
+        buffer_len: size_t,
+    ) -> c_int;
     pub fn git_blame_file(
         out: *mut *mut git_blame,
         repo: *mut git_repository,
@@ -3794,6 +3874,28 @@ extern "C" {
         progress_cb_payload: *mut c_void,
     ) -> c_int;
     pub fn git_packbuilder_free(pb: *mut git_packbuilder);
+
+    // indexer
+    pub fn git_indexer_new(
+        out: *mut *mut git_indexer,
+        path: *const c_char,
+        mode: c_uint,
+        odb: *mut git_odb,
+        opts: *mut git_indexer_options,
+    ) -> c_int;
+    pub fn git_indexer_append(
+        idx: *mut git_indexer,
+        data: *const c_void,
+        size: size_t,
+        stats: *mut git_indexer_progress,
+    ) -> c_int;
+    pub fn git_indexer_commit(idx: *mut git_indexer, stats: *mut git_indexer_progress) -> c_int;
+    #[deprecated = "use `git_indexer_name` to retrieve the filename"]
+    pub fn git_indexer_hash(idx: *const git_indexer) -> *const git_oid;
+    pub fn git_indexer_name(idx: *const git_indexer) -> *const c_char;
+    pub fn git_indexer_free(idx: *mut git_indexer);
+
+    pub fn git_indexer_options_init(opts: *mut git_indexer_options, version: c_uint) -> c_int;
 
     // odb
     pub fn git_repository_odb(out: *mut *mut git_odb, repo: *mut git_repository) -> c_int;

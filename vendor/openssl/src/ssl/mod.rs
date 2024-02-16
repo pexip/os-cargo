@@ -72,7 +72,7 @@ use crate::srtp::{SrtpProtectionProfile, SrtpProtectionProfileRef};
 use crate::ssl::bio::BioMethod;
 use crate::ssl::callbacks::*;
 use crate::ssl::error::InnerError;
-use crate::stack::{Stack, StackRef};
+use crate::stack::{Stack, StackRef, Stackable};
 use crate::util::{ForeignTypeExt, ForeignTypeRefExt};
 use crate::x509::store::{X509Store, X509StoreBuilderRef, X509StoreRef};
 #[cfg(any(ossl102, libressl261))]
@@ -143,6 +143,8 @@ cfg_if! {
 
 bitflags! {
     /// Options controlling the behavior of an `SslContext`.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct SslOptions: SslOptionsRepr {
         /// Disables a countermeasure against an SSLv3/TLSv1.0 vulnerability affecting CBC ciphers.
         const DONT_INSERT_EMPTY_FRAGMENTS = ffi::SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS as SslOptionsRepr;
@@ -281,6 +283,8 @@ bitflags! {
 
 bitflags! {
     /// Options controlling the behavior of an `SslContext`.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct SslMode: SslBitType {
         /// Enables "short writes".
         ///
@@ -378,6 +382,8 @@ unsafe impl Send for SslMethod {}
 
 bitflags! {
     /// Options controlling the behavior of certificate verification.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct SslVerifyMode: i32 {
         /// Verifies that the peer's certificate is trusted.
         ///
@@ -410,6 +416,8 @@ type SslTimeTy = c_long;
 
 bitflags! {
     /// Options controlling the behavior of session caching.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct SslSessionCacheMode: SslBitType {
         /// No session caching for the client or server takes place.
         const OFF = ffi::SSL_SESS_CACHE_OFF;
@@ -447,6 +455,8 @@ bitflags! {
 #[cfg(ossl111)]
 bitflags! {
     /// Which messages and under which conditions an extension should be added or expected.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct ExtensionContext: c_uint {
         /// This extension is only allowed in TLS
         const TLS_ONLY = ffi::SSL_EXT_TLS_ONLY;
@@ -599,7 +609,7 @@ impl AlpnError {
     /// Terminate the handshake with a fatal alert.
     ///
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(any(ossl110))]
+    #[cfg(ossl110)]
     pub const ALERT_FATAL: AlpnError = AlpnError(ffi::SSL_TLSEXT_ERR_ALERT_FATAL);
 
     /// Do not select a protocol, but continue the handshake.
@@ -644,6 +654,17 @@ impl SslVersion {
     /// Requires OpenSSL 1.1.1 or LibreSSL 3.4.0 or newer.
     #[cfg(any(ossl111, libressl340))]
     pub const TLS1_3: SslVersion = SslVersion(ffi::TLS1_3_VERSION);
+
+    /// DTLSv1.0
+    ///
+    /// DTLS 1.0 corresponds to TLS 1.1.
+    pub const DTLS1: SslVersion = SslVersion(ffi::DTLS1_VERSION);
+
+    /// DTLSv1.2
+    ///
+    /// DTLS 1.2 corresponds to TLS 1.2 to harmonize versions. There was never a DTLS 1.1.
+    #[cfg(any(ossl102, libressl332))]
+    pub const DTLS1_2: SslVersion = SslVersion(ffi::DTLS1_2_VERSION);
 }
 
 cfg_if! {
@@ -724,7 +745,7 @@ impl SslContextBuilder {
     #[corresponds(SSL_CTX_set_verify)]
     pub fn set_verify(&mut self, mode: SslVerifyMode) {
         unsafe {
-            ffi::SSL_CTX_set_verify(self.as_ptr(), mode.bits as c_int, None);
+            ffi::SSL_CTX_set_verify(self.as_ptr(), mode.bits() as c_int, None);
         }
     }
 
@@ -741,7 +762,7 @@ impl SslContextBuilder {
     {
         unsafe {
             self.set_ex_data(SslContext::cached_ex_index::<F>(), verify);
-            ffi::SSL_CTX_set_verify(self.as_ptr(), mode.bits as c_int, Some(raw_verify::<F>));
+            ffi::SSL_CTX_set_verify(self.as_ptr(), mode.bits() as c_int, Some(raw_verify::<F>));
         }
     }
 
@@ -828,7 +849,7 @@ impl SslContextBuilder {
     pub fn set_mode(&mut self, mode: SslMode) -> SslMode {
         unsafe {
             let bits = ffi::SSL_CTX_set_mode(self.as_ptr(), mode.bits() as MtuTy) as SslBitType;
-            SslMode { bits }
+            SslMode::from_bits_retain(bits)
         }
     }
 
@@ -1047,7 +1068,7 @@ impl SslContextBuilder {
     ///
     /// See [`ciphers`] for details on the format.
     ///
-    /// [`ciphers`]: https://www.openssl.org/docs/man1.1.0/apps/ciphers.html
+    /// [`ciphers`]: https://www.openssl.org/docs/manmaster/apps/ciphers.html
     #[corresponds(SSL_CTX_set_cipher_list)]
     pub fn set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> {
         let cipher_list = CString::new(cipher_list).unwrap();
@@ -1100,14 +1121,14 @@ impl SslContextBuilder {
     pub fn set_options(&mut self, option: SslOptions) -> SslOptions {
         let bits =
             unsafe { ffi::SSL_CTX_set_options(self.as_ptr(), option.bits()) } as SslOptionsRepr;
-        SslOptions { bits }
+        SslOptions::from_bits_retain(bits)
     }
 
     /// Returns the options used by the context.
     #[corresponds(SSL_CTX_get_options)]
     pub fn options(&self) -> SslOptions {
         let bits = unsafe { ffi::SSL_CTX_get_options(self.as_ptr()) } as SslOptionsRepr;
-        SslOptions { bits }
+        SslOptions::from_bits_retain(bits)
     }
 
     /// Clears the options used by the context, returning the old set.
@@ -1115,12 +1136,12 @@ impl SslContextBuilder {
     pub fn clear_options(&mut self, option: SslOptions) -> SslOptions {
         let bits =
             unsafe { ffi::SSL_CTX_clear_options(self.as_ptr(), option.bits()) } as SslOptionsRepr;
-        SslOptions { bits }
+        SslOptions::from_bits_retain(bits)
     }
 
     /// Sets the minimum supported protocol version.
     ///
-    /// A value of `None` will enable protocol versions down the the lowest version supported by
+    /// A value of `None` will enable protocol versions down to the lowest version supported by
     /// OpenSSL.
     ///
     /// Requires OpenSSL 1.1.0 or LibreSSL 2.6.1 or newer.
@@ -1138,7 +1159,7 @@ impl SslContextBuilder {
 
     /// Sets the maximum supported protocol version.
     ///
-    /// A value of `None` will enable protocol versions down the the highest version supported by
+    /// A value of `None` will enable protocol versions up to the highest version supported by
     /// OpenSSL.
     ///
     /// Requires OpenSSL 1.1.0 or or LibreSSL 2.6.1 or newer.
@@ -1156,7 +1177,7 @@ impl SslContextBuilder {
 
     /// Gets the minimum supported protocol version.
     ///
-    /// A value of `None` indicates that all versions down the the lowest version supported by
+    /// A value of `None` indicates that all versions down to the lowest version supported by
     /// OpenSSL are enabled.
     ///
     /// Requires OpenSSL 1.1.0g or LibreSSL 2.7.0 or newer.
@@ -1175,7 +1196,7 @@ impl SslContextBuilder {
 
     /// Gets the maximum supported protocol version.
     ///
-    /// A value of `None` indicates that all versions down the the highest version supported by
+    /// A value of `None` indicates that all versions up to the highest version supported by
     /// OpenSSL are enabled.
     ///
     /// Requires OpenSSL 1.1.0g or LibreSSL 2.7.0 or newer.
@@ -1464,7 +1485,7 @@ impl SslContextBuilder {
     pub fn set_session_cache_mode(&mut self, mode: SslSessionCacheMode) -> SslSessionCacheMode {
         unsafe {
             let bits = ffi::SSL_CTX_set_session_cache_mode(self.as_ptr(), mode.bits());
-            SslSessionCacheMode { bits }
+            SslSessionCacheMode::from_bits_retain(bits)
         }
     }
 
@@ -1687,6 +1708,16 @@ impl SslContextBuilder {
         }
     }
 
+    /// Sets the number of TLS 1.3 session tickets that will be sent to a client after a full
+    /// handshake.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    #[corresponds(SSL_CTX_set_num_tickets)]
+    #[cfg(ossl111)]
+    pub fn set_num_tickets(&mut self, num_tickets: usize) -> Result<(), ErrorStack> {
+        unsafe { cvt(ffi::SSL_CTX_set_num_tickets(self.as_ptr(), num_tickets)).map(|_| ()) }
+    }
+
     /// Consumes the builder, returning a new `SslContext`.
     pub fn build(self) -> SslContext {
         self.0
@@ -1880,6 +1911,16 @@ impl SslContextRef {
         let mode = unsafe { ffi::SSL_CTX_get_verify_mode(self.as_ptr()) };
         SslVerifyMode::from_bits(mode).expect("SSL_CTX_get_verify_mode returned invalid mode")
     }
+
+    /// Gets the number of TLS 1.3 session tickets that will be sent to a client after a full
+    /// handshake.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    #[corresponds(SSL_CTX_get_num_tickets)]
+    #[cfg(ossl111)]
+    pub fn num_tickets(&self) -> usize {
+        unsafe { ffi::SSL_CTX_get_num_tickets(self.as_ptr()) }
+    }
 }
 
 /// Information about the state of a cipher.
@@ -1907,6 +1948,10 @@ impl ForeignType for SslCipher {
     fn as_ptr(&self) -> *mut ffi::SSL_CIPHER {
         self.0
     }
+}
+
+impl Stackable for SslCipher {
+    type StackType = ffi::stack_st_SSL_CIPHER;
 }
 
 impl Deref for SslCipher {
@@ -2025,6 +2070,19 @@ impl SslCipherRef {
     }
 }
 
+impl fmt::Debug for SslCipherRef {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "{}", self.name())
+    }
+}
+
+/// A stack of selected ciphers, and a stack of selected signalling cipher suites
+#[derive(Debug)]
+pub struct CipherLists {
+    pub suites: Stack<SslCipher>,
+    pub signalling_suites: Stack<SslCipher>,
+}
+
 foreign_type_and_impl_send_sync! {
     type CType = ffi::SSL_SESSION;
     fn drop = ffi::SSL_SESSION_free;
@@ -2074,6 +2132,7 @@ impl SslSessionRef {
         unsafe {
             let mut len = 0;
             let p = ffi::SSL_SESSION_get_id(self.as_ptr(), &mut len);
+            #[allow(clippy::unnecessary_cast)]
             slice::from_raw_parts(p as *const u8, len as usize)
         }
     }
@@ -2200,7 +2259,7 @@ impl Ssl {
     ///
     /// This corresponds to [`SSL_new`].
     ///
-    /// [`SSL_new`]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_new.html
+    /// [`SSL_new`]: https://www.openssl.org/docs/manmaster/ssl/SSL_new.html
     #[corresponds(SSL_new)]
     pub fn new(ctx: &SslContextRef) -> Result<Ssl, ErrorStack> {
         let session_ctx_index = try_get_session_ctx_index()?;
@@ -2302,7 +2361,7 @@ impl SslRef {
     /// [`SslContextBuilder::set_verify`]: struct.SslContextBuilder.html#method.set_verify
     #[corresponds(SSL_set_verify)]
     pub fn set_verify(&mut self, mode: SslVerifyMode) {
-        unsafe { ffi::SSL_set_verify(self.as_ptr(), mode.bits as c_int, None) }
+        unsafe { ffi::SSL_set_verify(self.as_ptr(), mode.bits() as c_int, None) }
     }
 
     /// Returns the verify mode that was set using `set_verify`.
@@ -2323,7 +2382,11 @@ impl SslRef {
         unsafe {
             // this needs to be in an Arc since the callback can register a new callback!
             self.set_ex_data(Ssl::cached_ex_index(), Arc::new(verify));
-            ffi::SSL_set_verify(self.as_ptr(), mode.bits as c_int, Some(ssl_raw_verify::<F>));
+            ffi::SSL_set_verify(
+                self.as_ptr(),
+                mode.bits() as c_int,
+                Some(ssl_raw_verify::<F>),
+            );
         }
     }
 
@@ -2365,7 +2428,7 @@ impl SslRef {
     ///
     /// Requires OpenSSL 1.0.1 or 1.0.2.
     #[corresponds(SSL_set_tmp_ecdh_callback)]
-    #[cfg(any(all(ossl101, not(ossl110))))]
+    #[cfg(all(ossl101, not(ossl110)))]
     #[deprecated(note = "this function leaks memory and does not exist on newer OpenSSL versions")]
     pub fn set_tmp_ecdh_callback<F>(&mut self, callback: F)
     where
@@ -2507,10 +2570,8 @@ impl SslRef {
 
     /// Like [`SslContext::private_key`].
     ///
-    /// This corresponds to `SSL_get_privatekey`.
-    ///
     /// [`SslContext::private_key`]: struct.SslContext.html#method.private_key
-    #[corresponds(SSL_get_certificate)]
+    #[corresponds(SSL_get_privatekey)]
     pub fn private_key(&self) -> Option<&PKeyRef<Private>> {
         unsafe {
             let ptr = ffi::SSL_get_privatekey(self.as_ptr());
@@ -2863,6 +2924,10 @@ impl SslRef {
                 response.len() as c_long,
             ) as c_int)
             .map(|_| ())
+            .map_err(|e| {
+                ffi::OPENSSL_free(p);
+                e
+            })
         }
     }
 
@@ -3050,6 +3115,41 @@ impl SslRef {
         }
     }
 
+    /// Decodes a slice of wire-format cipher suite specification bytes. Unsupported cipher suites
+    /// are ignored.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    #[corresponds(SSL_bytes_to_cipher_list)]
+    #[cfg(ossl111)]
+    pub fn bytes_to_cipher_list(
+        &self,
+        bytes: &[u8],
+        isv2format: bool,
+    ) -> Result<CipherLists, ErrorStack> {
+        unsafe {
+            let ptr = bytes.as_ptr();
+            let len = bytes.len();
+            let mut sk = ptr::null_mut();
+            let mut scsvs = ptr::null_mut();
+            let res = ffi::SSL_bytes_to_cipher_list(
+                self.as_ptr(),
+                ptr,
+                len,
+                isv2format as c_int,
+                &mut sk,
+                &mut scsvs,
+            );
+            if res == 1 {
+                Ok(CipherLists {
+                    suites: Stack::from_ptr(sk),
+                    signalling_suites: Stack::from_ptr(scsvs),
+                })
+            } else {
+                Err(ErrorStack::get())
+            }
+        }
+    }
+
     /// Returns the compression methods field of the client's hello message.
     ///
     /// This can only be used inside of the client hello callback. Otherwise, `None` is returned.
@@ -3113,6 +3213,197 @@ impl SslRef {
             mem::forget(chain);
         }
         Ok(())
+    }
+
+    /// Sets a new default TLS/SSL method for SSL objects
+    #[cfg(not(boringssl))]
+    pub fn set_method(&mut self, method: SslMethod) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_set_ssl_method(self.as_ptr(), method.as_ptr()))?;
+        };
+        Ok(())
+    }
+
+    /// Loads the private key from a file.
+    #[corresponds(SSL_use_Private_Key_file)]
+    pub fn set_private_key_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        ssl_file_type: SslFiletype,
+    ) -> Result<(), ErrorStack> {
+        let p = path.as_ref().as_os_str().to_str().unwrap();
+        let key_file = CString::new(p).unwrap();
+        unsafe {
+            cvt(ffi::SSL_use_PrivateKey_file(
+                self.as_ptr(),
+                key_file.as_ptr(),
+                ssl_file_type.as_raw(),
+            ))?;
+        };
+        Ok(())
+    }
+
+    /// Sets the private key.
+    #[corresponds(SSL_use_PrivateKey)]
+    pub fn set_private_key(&mut self, pkey: &PKeyRef<Private>) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_use_PrivateKey(self.as_ptr(), pkey.as_ptr()))?;
+        };
+        Ok(())
+    }
+
+    /// Sets the certificate
+    #[corresponds(SSL_use_certificate)]
+    pub fn set_certificate(&mut self, cert: &X509Ref) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_use_certificate(self.as_ptr(), cert.as_ptr()))?;
+        };
+        Ok(())
+    }
+
+    /// Loads a certificate chain from a file.
+    ///
+    /// The file should contain a sequence of PEM-formatted certificates, the first being the leaf
+    /// certificate, and the remainder forming the chain of certificates up to and including the
+    /// trusted root certificate.
+    #[corresponds(SSL_use_certificate_chain_file)]
+    #[cfg(any(ossl110, libressl332))]
+    pub fn set_certificate_chain_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<(), ErrorStack> {
+        let p = path.as_ref().as_os_str().to_str().unwrap();
+        let cert_file = CString::new(p).unwrap();
+        unsafe {
+            cvt(ffi::SSL_use_certificate_chain_file(
+                self.as_ptr(),
+                cert_file.as_ptr(),
+            ))?;
+        };
+        Ok(())
+    }
+
+    /// Sets ca certificate that client trusted
+    #[corresponds(SSL_add_client_CA)]
+    pub fn add_client_ca(&mut self, cacert: &X509Ref) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_add_client_CA(self.as_ptr(), cacert.as_ptr()))?;
+        };
+        Ok(())
+    }
+
+    // Sets the list of CAs sent to the client when requesting a client certificate for the chosen ssl
+    #[corresponds(SSL_set_client_CA_list)]
+    pub fn set_client_ca_list(&mut self, list: Stack<X509Name>) {
+        unsafe { ffi::SSL_set_client_CA_list(self.as_ptr(), list.as_ptr()) }
+        mem::forget(list);
+    }
+
+    /// Sets the minimum supported protocol version.
+    ///
+    /// A value of `None` will enable protocol versions down to the lowest version supported by
+    /// OpenSSL.
+    ///
+    /// Requires OpenSSL 1.1.0 or LibreSSL 2.6.1 or newer.
+    #[corresponds(SSL_set_min_proto_version)]
+    #[cfg(any(ossl110, libressl261))]
+    pub fn set_min_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_set_min_proto_version(
+                self.as_ptr(),
+                version.map_or(0, |v| v.0 as _),
+            ))
+            .map(|_| ())
+        }
+    }
+
+    /// Sets the maximum supported protocol version.
+    ///
+    /// A value of `None` will enable protocol versions up to the highest version supported by
+    /// OpenSSL.
+    ///
+    /// Requires OpenSSL 1.1.0 or or LibreSSL 2.6.1 or newer.
+    #[corresponds(SSL_set_max_proto_version)]
+    #[cfg(any(ossl110, libressl261))]
+    pub fn set_max_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_set_max_proto_version(
+                self.as_ptr(),
+                version.map_or(0, |v| v.0 as _),
+            ))
+            .map(|_| ())
+        }
+    }
+
+    /// Sets the list of supported ciphers for the TLSv1.3 protocol.
+    ///
+    /// The `set_cipher_list` method controls the cipher suites for protocols before TLSv1.3.
+    ///
+    /// The format consists of TLSv1.3 cipher suite names separated by `:` characters in order of
+    /// preference.
+    ///
+    /// Requires OpenSSL 1.1.1 or LibreSSL 3.4.0 or newer.
+    #[corresponds(SSL_set_ciphersuites)]
+    #[cfg(any(ossl111, libressl340))]
+    pub fn set_ciphersuites(&mut self, cipher_list: &str) -> Result<(), ErrorStack> {
+        let cipher_list = CString::new(cipher_list).unwrap();
+        unsafe {
+            cvt(ffi::SSL_set_ciphersuites(
+                self.as_ptr(),
+                cipher_list.as_ptr() as *const _,
+            ))
+            .map(|_| ())
+        }
+    }
+
+    /// Sets the list of supported ciphers for protocols before TLSv1.3.
+    ///
+    /// The `set_ciphersuites` method controls the cipher suites for TLSv1.3.
+    ///
+    /// See [`ciphers`] for details on the format.
+    ///
+    /// [`ciphers`]: https://www.openssl.org/docs/manmaster/apps/ciphers.html
+    #[corresponds(SSL_set_cipher_list)]
+    pub fn set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> {
+        let cipher_list = CString::new(cipher_list).unwrap();
+        unsafe {
+            cvt(ffi::SSL_set_cipher_list(
+                self.as_ptr(),
+                cipher_list.as_ptr() as *const _,
+            ))
+            .map(|_| ())
+        }
+    }
+
+    /// Set the certificate store used for certificate verification
+    #[corresponds(SSL_set_cert_store)]
+    #[cfg(ossl102)]
+    pub fn set_verify_cert_store(&mut self, cert_store: X509Store) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::SSL_set0_verify_cert_store(self.as_ptr(), cert_store.as_ptr()) as c_int)?;
+            mem::forget(cert_store);
+            Ok(())
+        }
+    }
+
+    /// Sets the number of TLS 1.3 session tickets that will be sent to a client after a full
+    /// handshake.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    #[corresponds(SSL_set_num_tickets)]
+    #[cfg(ossl111)]
+    pub fn set_num_tickets(&mut self, num_tickets: usize) -> Result<(), ErrorStack> {
+        unsafe { cvt(ffi::SSL_set_num_tickets(self.as_ptr(), num_tickets)).map(|_| ()) }
+    }
+
+    /// Gets the number of TLS 1.3 session tickets that will be sent to a client after a full
+    /// handshake.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    #[corresponds(SSL_get_num_tickets)]
+    #[cfg(ossl111)]
+    pub fn num_tickets(&self) -> usize {
+        unsafe { ffi::SSL_get_num_tickets(self.as_ptr()) }
     }
 }
 
@@ -3442,7 +3733,7 @@ impl<S: Read + Write> SslStream<S> {
     pub fn get_shutdown(&mut self) -> ShutdownState {
         unsafe {
             let bits = ffi::SSL_get_shutdown(self.ssl.as_ptr());
-            ShutdownState { bits }
+            ShutdownState::from_bits_retain(bits)
         }
     }
 
@@ -3775,6 +4066,8 @@ pub enum ShutdownResult {
 
 bitflags! {
     /// The shutdown state of a session.
+    #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[repr(transparent)]
     pub struct ShutdownState: c_int {
         /// A close notify message has been sent to the peer.
         const SENT = ffi::SSL_SENT_SHUTDOWN;

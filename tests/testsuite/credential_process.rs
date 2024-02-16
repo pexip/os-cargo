@@ -2,7 +2,7 @@
 
 use cargo_test_support::registry::TestRegistry;
 use cargo_test_support::{basic_manifest, cargo_process, paths, project, registry, Project};
-use std::fs;
+use std::fs::{self, read_to_string};
 
 fn toml_bin(proj: &Project, name: &str) -> String {
     proj.bin(name).display().to_string().replace('\\', "\\\\")
@@ -15,7 +15,7 @@ fn gated() {
         .no_configure_token()
         .build();
 
-    let _cratesio = registry::RegistryBuilder::new()
+    let cratesio = registry::RegistryBuilder::new()
         .no_configure_token()
         .build();
 
@@ -32,12 +32,14 @@ fn gated() {
         .build();
 
     p.cargo("publish --no-verify")
+        .replace_crates_io(cratesio.index_url())
         .masquerade_as_nightly_cargo(&["credential-process"])
         .with_status(101)
         .with_stderr(
             "\
 [UPDATING] [..]
-[ERROR] no upload token found, please run `cargo login` or pass `--token`
+[ERROR] no token found, please run `cargo login`
+or use environment variable CARGO_REGISTRY_TOKEN
 ",
         )
         .run();
@@ -56,7 +58,8 @@ fn gated() {
         .with_stderr(
             "\
 [UPDATING] [..]
-[ERROR] no upload token found, please run `cargo login` or pass `--token`
+[ERROR] no token found for `alternative`, please run `cargo login --registry alternative`
+or use environment variable CARGO_REGISTRIES_ALTERNATIVE_TOKEN
 ",
         )
         .run();
@@ -66,6 +69,8 @@ fn gated() {
 fn warn_both_token_and_process() {
     // Specifying both credential-process and a token in config should issue a warning.
     let _server = registry::RegistryBuilder::new()
+        .http_api()
+        .http_index()
         .alternative()
         .no_configure_token()
         .build();
@@ -74,7 +79,7 @@ fn warn_both_token_and_process() {
             ".cargo/config",
             r#"
                 [registries.alternative]
-                token = "sekrit"
+                token = "alternative-sekrit"
                 credential-process = "false"
             "#,
         )
@@ -98,8 +103,8 @@ fn warn_both_token_and_process() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] both `registries.alternative.token` and `registries.alternative.credential-process` \
-were specified in the config\n\
+[UPDATING] [..]
+[ERROR] both `token` and `credential-process` were specified in the config for registry `alternative`.
 Only one of these values may be set, remove one or the other to proceed.
 ",
         )
@@ -114,7 +119,7 @@ Only one of these values may be set, remove one or the other to proceed.
             credential-process = "false"
 
             [registries.alternative]
-            token = "sekrit"
+            token = "alternative-sekrit"
         "#,
     );
     p.cargo("publish --no-verify --registry alternative -Z credential-process")
@@ -123,7 +128,9 @@ Only one of these values may be set, remove one or the other to proceed.
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.1.0 [..]
+[PACKAGED] [..]
 [UPLOADING] foo v0.1.0 [..]
+[UPDATING] [..]
 ",
         )
         .run();
@@ -138,21 +145,37 @@ Only one of these values may be set, remove one or the other to proceed.
 /// * Create a simple `foo` project to run the test against.
 /// * Configure the credential-process config.
 ///
-/// Returns returns the simple `foo` project to test against and the API server handle.
+/// Returns the simple `foo` project to test against and the API server handle.
 fn get_token_test() -> (Project, TestRegistry) {
     // API server that checks that the token is included correctly.
     let server = registry::RegistryBuilder::new()
         .no_configure_token()
-        .token("sekrit")
+        .token(cargo_test_support::registry::Token::Plaintext(
+            "sekrit".to_string(),
+        ))
         .alternative()
         .http_api()
         .build();
-
     // The credential process to use.
     let cred_proj = project()
         .at("cred_proj")
         .file("Cargo.toml", &basic_manifest("test-cred", "1.0.0"))
-        .file("src/main.rs", r#"fn main() { println!("sekrit"); } "#)
+        .file(
+            "src/main.rs",
+            r#"
+                use std::fs::File;
+                use std::io::Write;
+                fn main() {
+                    let mut f = File::options()
+                        .write(true)
+                        .create(true)
+                        .append(true)
+                        .open("runs.log")
+                        .unwrap();
+                    write!(f, "+");
+                    println!("sekrit");
+                } "#,
+        )
         .build();
     cred_proj.cargo("build").run();
 
@@ -197,16 +220,21 @@ fn publish() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.1.0 [..]
+[PACKAGED] [..]
 [UPLOADING] foo v0.1.0 [..]
+[UPDATING] [..]
 ",
         )
         .run();
+
+    let calls = read_to_string(p.root().join("runs.log")).unwrap().len();
+    assert_eq!(calls, 1);
 }
 
 #[cargo_test]
 fn basic_unsupported() {
     // Non-action commands don't support login/logout.
-    let _server = registry::RegistryBuilder::new()
+    let registry = registry::RegistryBuilder::new()
         .no_configure_token()
         .build();
     cargo_util::paths::append(
@@ -219,11 +247,12 @@ fn basic_unsupported() {
     .unwrap();
 
     cargo_process("login -Z credential-process abcdefg")
+        .replace_crates_io(registry.index_url())
         .masquerade_as_nightly_cargo(&["credential-process"])
         .with_status(101)
         .with_stderr(
             "\
-[UPDATING] [..]
+[UPDATING] crates.io index
 [ERROR] credential process `false` cannot be used to log in, \
 the credential-process configuration value must pass the \
 `{action}` argument in the config to support this command
@@ -232,6 +261,7 @@ the credential-process configuration value must pass the \
         .run();
 
     cargo_process("logout -Z credential-process")
+        .replace_crates_io(registry.index_url())
         .masquerade_as_nightly_cargo(&["credential-process", "cargo-logout"])
         .with_status(101)
         .with_stderr(
@@ -255,20 +285,19 @@ fn login() {
         .file("Cargo.toml", &basic_manifest("test-cred", "1.0.0"))
         .file(
             "src/main.rs",
-            &r#"
+                r#"
                 use std::io::Read;
 
-                fn main() {
-                    assert_eq!(std::env::var("CARGO_REGISTRY_NAME").unwrap(), "crates-io");
-                    assert_eq!(std::env::var("CARGO_REGISTRY_API_URL").unwrap(), "__API__");
+                fn main() {{
+                    assert_eq!(std::env::var("CARGO_REGISTRY_NAME_OPT").unwrap(), "crates-io");
+                    assert_eq!(std::env::var("CARGO_REGISTRY_INDEX_URL").unwrap(), "https://github.com/rust-lang/crates.io-index");
                     assert_eq!(std::env::args().skip(1).next().unwrap(), "store");
                     let mut buffer = String::new();
                     std::io::stdin().read_to_string(&mut buffer).unwrap();
                     assert_eq!(buffer, "abcdefg\n");
                     std::fs::write("token-store", buffer).unwrap();
-                }
-            "#
-            .replace("__API__", server.api_url().as_str()),
+                }}
+            "#,
         )
         .build();
     cred_proj.cargo("build").run();
@@ -288,6 +317,7 @@ fn login() {
 
     cargo_process("login -Z credential-process abcdefg")
         .masquerade_as_nightly_cargo(&["credential-process"])
+        .replace_crates_io(server.index_url())
         .with_stderr(
             "\
 [UPDATING] [..]
@@ -303,7 +333,7 @@ fn login() {
 
 #[cargo_test]
 fn logout() {
-    let _server = registry::RegistryBuilder::new()
+    let server = registry::RegistryBuilder::new()
         .no_configure_token()
         .build();
     // The credential process to use.
@@ -312,16 +342,16 @@ fn logout() {
         .file("Cargo.toml", &basic_manifest("test-cred", "1.0.0"))
         .file(
             "src/main.rs",
-            r#"
+                r#"
                 use std::io::Read;
 
-                fn main() {
-                    assert_eq!(std::env::var("CARGO_REGISTRY_NAME").unwrap(), "crates-io");
+                fn main() {{
+                    assert_eq!(std::env::var("CARGO_REGISTRY_NAME_OPT").unwrap(), "crates-io");
+                    assert_eq!(std::env::var("CARGO_REGISTRY_INDEX_URL").unwrap(), "https://github.com/rust-lang/crates.io-index");
                     assert_eq!(std::env::args().skip(1).next().unwrap(), "erase");
                     std::fs::write("token-store", "").unwrap();
-                    eprintln!("token for `{}` has been erased!",
-                        std::env::var("CARGO_REGISTRY_NAME").unwrap());
-                }
+                    eprintln!("token for `crates-io` has been erased!")
+                }}
             "#,
         )
         .build();
@@ -342,11 +372,11 @@ fn logout() {
 
     cargo_process("logout -Z credential-process")
         .masquerade_as_nightly_cargo(&["credential-process", "cargo-logout"])
+        .replace_crates_io(server.index_url())
         .with_stderr(
             "\
-[UPDATING] [..]
 token for `crates-io` has been erased!
-[LOGOUT] token for `crates.io` has been removed from local storage
+[LOGOUT] token for `crates-io` has been removed from local storage
 ",
         )
         .run();
@@ -389,7 +419,7 @@ fn owner() {
 #[cargo_test]
 fn libexec_path() {
     // cargo: prefixed names use the sysroot
-    let _server = registry::RegistryBuilder::new()
+    let server = registry::RegistryBuilder::new()
         .no_configure_token()
         .build();
     cargo_util::paths::append(
@@ -403,6 +433,7 @@ fn libexec_path() {
 
     cargo_process("login -Z credential-process abcdefg")
         .masquerade_as_nightly_cargo(&["credential-process"])
+        .replace_crates_io(server.index_url())
         .with_status(101)
         .with_stderr(
             // FIXME: Update "Caused by" error message once rust/pull/87704 is merged.

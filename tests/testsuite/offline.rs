@@ -12,7 +12,7 @@ fn offline_unused_target_dep() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
             [dependencies]
@@ -24,13 +24,13 @@ fn offline_unused_target_dep() {
         .file("src/lib.rs", "")
         .build();
     // Do a build that downloads only what is necessary.
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr_contains("[DOWNLOADED] used_dep [..]")
         .with_stderr_does_not_contain("[DOWNLOADED] unused_dep [..]")
         .run();
     p.cargo("clean").run();
     // Build offline, make sure it works.
-    p.cargo("build --offline").run();
+    p.cargo("check --offline").run();
 }
 
 #[cargo_test]
@@ -40,7 +40,7 @@ fn offline_missing_optional() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
             [dependencies]
@@ -50,13 +50,13 @@ fn offline_missing_optional() {
         .file("src/lib.rs", "")
         .build();
     // Do a build that downloads only what is necessary.
-    p.cargo("build")
+    p.cargo("check")
         .with_stderr_does_not_contain("[DOWNLOADED] opt_dep [..]")
         .run();
     p.cargo("clean").run();
     // Build offline, make sure it works.
-    p.cargo("build --offline").run();
-    p.cargo("build --offline --features=opt_dep")
+    p.cargo("check --offline").run();
+    p.cargo("check --offline --features=opt_dep")
         .with_stderr(
             "\
 [ERROR] failed to download `opt_dep v1.0.0`
@@ -89,7 +89,7 @@ fn cargo_compile_path_with_offline() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    p.cargo("build --offline").run();
+    p.cargo("check --offline").run();
 }
 
 #[cargo_test]
@@ -104,7 +104,7 @@ fn cargo_compile_with_downloaded_dependency_with_offline() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
 
@@ -114,14 +114,14 @@ fn cargo_compile_with_downloaded_dependency_with_offline() {
         )
         .file("src/lib.rs", "")
         .build();
-    p.cargo("build").run();
+    p.cargo("check").run();
 
     let p2 = project()
         .at("bar")
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "bar"
             version = "0.1.0"
 
@@ -132,11 +132,11 @@ fn cargo_compile_with_downloaded_dependency_with_offline() {
         .file("src/lib.rs", "")
         .build();
 
-    p2.cargo("build --offline")
+    p2.cargo("check --offline")
         .with_stderr(
             "\
-[COMPILING] present_dep v1.2.3
-[COMPILING] bar v0.1.0 ([..])
+[CHECKING] present_dep v1.2.3
+[CHECKING] bar v0.1.0 ([..])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]",
         )
         .run();
@@ -151,7 +151,7 @@ fn cargo_compile_offline_not_try_update() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "bar"
             version = "0.1.0"
 
@@ -171,14 +171,14 @@ surprising resolution failures, if this error is too confusing you may wish to \
 retry without the offline flag.
 ";
 
-    p.cargo("build --offline")
+    p.cargo("check --offline")
         .with_status(101)
         .with_stderr(msg)
         .run();
 
     // While we're here, also check the config works.
     p.change_file(".cargo/config", "net.offline = true");
-    p.cargo("build").with_status(101).with_stderr(msg).run();
+    p.cargo("check").with_status(101).with_stderr(msg).run();
 }
 
 #[cargo_test]
@@ -204,7 +204,7 @@ fn compile_offline_without_maxvers_cached() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
 
@@ -220,7 +220,7 @@ fn compile_offline_without_maxvers_cached() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
 
@@ -257,7 +257,7 @@ fn cargo_compile_forbird_git_httpsrepo_offline() {
             "Cargo.toml",
             r#"
 
-            [project]
+            [package]
             name = "foo"
             version = "0.5.0"
             authors = ["chabapok@example.com"]
@@ -269,7 +269,7 @@ fn cargo_compile_forbird_git_httpsrepo_offline() {
         .file("src/main.rs", "")
         .build();
 
-    p.cargo("build --offline").with_status(101).with_stderr("\
+    p.cargo("check --offline").with_status(101).with_stderr("\
 [ERROR] failed to get `dep1` as a dependency of package `foo v0.5.0 [..]`
 
 Caused by:
@@ -298,7 +298,7 @@ fn compile_offline_while_transitive_dep_not_cached() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.0.1"
 
@@ -310,7 +310,7 @@ fn compile_offline_while_transitive_dep_not_cached() {
         .build();
 
     // simulate download bar, but fail to download baz
-    p.cargo("build")
+    p.cargo("check")
         .with_status(101)
         .with_stderr_contains("[..]failed to verify the checksum of `baz[..]")
         .run();
@@ -318,7 +318,7 @@ fn compile_offline_while_transitive_dep_not_cached() {
     // Restore the file contents.
     fs::write(&baz_path, &baz_content).unwrap();
 
-    p.cargo("build --offline")
+    p.cargo("check --offline")
         .with_status(101)
         .with_stderr(
             "\
@@ -337,7 +337,7 @@ fn update_offline_not_cached() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.0.1"
             authors = []
@@ -393,7 +393,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
             "Cargo.toml",
             &format!(
                 r#"
-                [project]
+                [package]
                 name = "cache_git_dep"
                 version = "0.5.0"
 
@@ -413,7 +413,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
         "Cargo.toml",
         &format!(
             r#"
-            [project]
+            [package]
             name = "cache_git_dep"
             version = "0.5.0"
 
@@ -432,7 +432,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
             "Cargo.toml",
             &format!(
                 r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.5.0"
 
@@ -470,7 +470,7 @@ fn cargo_compile_offline_with_cached_git_dep() {
         "Cargo.toml",
         &format!(
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.5.0"
 
@@ -530,7 +530,7 @@ fn offline_resolve_optional_fail() {
         "#,
     );
 
-    p.cargo("build --offline")
+    p.cargo("check --offline")
         .with_status(101)
         .with_stderr(
             "\
@@ -591,7 +591,7 @@ fn update_offline_cached() {
             "Cargo.toml",
             format!(
                 r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
 
@@ -609,7 +609,7 @@ fn update_offline_cached() {
         .file(
             "Cargo.toml",
             r#"
-            [project]
+            [package]
             name = "foo"
             version = "0.1.0"
 
@@ -691,7 +691,7 @@ retry without the offline flag.
 #[cargo_test]
 fn offline_and_frozen_and_no_lock() {
     let p = project().file("src/lib.rs", "").build();
-    p.cargo("build --frozen --offline")
+    p.cargo("check --frozen --offline")
         .with_status(101)
         .with_stderr("\
 error: the lock file [ROOT]/foo/Cargo.lock needs to be updated but --frozen was passed to prevent this
@@ -704,7 +704,7 @@ remove the --frozen flag and use --offline instead.
 #[cargo_test]
 fn offline_and_locked_and_no_frozen() {
     let p = project().file("src/lib.rs", "").build();
-    p.cargo("build --locked --offline")
+    p.cargo("check --locked --offline")
         .with_status(101)
         .with_stderr("\
 error: the lock file [ROOT]/foo/Cargo.lock needs to be updated but --locked was passed to prevent this

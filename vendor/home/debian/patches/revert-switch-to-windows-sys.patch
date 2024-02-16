@@ -1,0 +1,38 @@
+This patch is based on a revert of upstream commit
+ae91d4ed41da98bdfa16041dbc6cd30287920120, adapted for use in the Debian package
+by Peter Michael Green.
+Index: home/Cargo.toml
+===================================================================
+--- home.orig/Cargo.toml
++++ home/Cargo.toml
+@@ -28,9 +28,10 @@ license = "MIT OR Apache-2.0"
+ repository = "https://github.com/rust-lang/cargo"
+ resolver = "2"
+ 
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.48.0"
++[target."cfg(windows)".dependencies.winapi]
++version = "0.3"
+ features = [
+-    "Win32_Foundation",
+-    "Win32_UI_Shell",
++    "shlobj",
++    "std",
++    "winerror",
+ ]
+Index: home/src/windows.rs
+===================================================================
+--- home.orig/src/windows.rs
++++ home/src/windows.rs
+@@ -3,8 +3,9 @@ use std::ffi::OsString;
+ use std::os::windows::ffi::OsStringExt;
+ use std::path::PathBuf;
+ 
+-use windows_sys::Win32::Foundation::{MAX_PATH, S_OK};
+-use windows_sys::Win32::UI::Shell::{SHGetFolderPathW, CSIDL_PROFILE};
++use winapi::shared::minwindef::MAX_PATH;
++use winapi::shared::winerror::S_OK;
++use winapi::um::shlobj::{SHGetFolderPathW, CSIDL_PROFILE};
+ 
+ pub fn home_dir_inner() -> Option<PathBuf> {
+     env::var_os("USERPROFILE")

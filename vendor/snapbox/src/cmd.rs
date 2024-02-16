@@ -1,5 +1,8 @@
 //! Run commands and assert on their behavior
 
+#[cfg(feature = "color")]
+use anstream::panic;
+
 /// Process spawning for testing of non-interactive commands
 #[derive(Debug)]
 pub struct Command {
@@ -477,7 +480,9 @@ impl OutputAssert {
             let desc = format!(
                 "Expected {}, was {}",
                 self.config.palette.info("success"),
-                self.config.palette.error(display_code(&self.output))
+                self.config
+                    .palette
+                    .error(display_exit_status(self.output.status))
             );
 
             use std::fmt::Write;
@@ -527,7 +532,9 @@ impl OutputAssert {
             let desc = format!(
                 "Expected {}, was {}",
                 self.config.palette.info("interrupted"),
-                self.config.palette.error(display_code(&self.output))
+                self.config
+                    .palette
+                    .error(display_exit_status(self.output.status))
             );
 
             use std::fmt::Write;
@@ -557,7 +564,9 @@ impl OutputAssert {
             let desc = format!(
                 "Expected {}, was {}",
                 self.config.palette.info(expected),
-                self.config.palette.error(display_code(&self.output))
+                self.config
+                    .palette
+                    .error(display_exit_status(self.output.status))
             );
 
             use std::fmt::Write;
@@ -851,7 +860,11 @@ impl OutputAssert {
     }
 
     fn write_status(&self, writer: &mut dyn std::fmt::Write) -> Result<(), std::fmt::Error> {
-        writeln!(writer, "Exit status: {}", display_code(&self.output))?;
+        writeln!(
+            writer,
+            "Exit status: {}",
+            display_exit_status(self.output.status)
+        )?;
         Ok(())
     }
 
@@ -876,8 +889,91 @@ impl OutputAssert {
     }
 }
 
-fn display_code(output: &std::process::Output) -> String {
-    if let Some(code) = output.status.code() {
+/// Converts an [`std::process::ExitStatus`]  to a human-readable value
+#[cfg(not(feature = "cmd"))]
+pub fn display_exit_status(status: std::process::ExitStatus) -> String {
+    basic_exit_status(status)
+}
+
+/// Converts an [`std::process::ExitStatus`]  to a human-readable value
+#[cfg(feature = "cmd")]
+pub fn display_exit_status(status: std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    fn detailed_exit_status(status: std::process::ExitStatus) -> Option<String> {
+        use std::os::unix::process::*;
+
+        let signal = status.signal()?;
+        let name = match signal as libc::c_int {
+            libc::SIGABRT => ", SIGABRT: process abort signal",
+            libc::SIGALRM => ", SIGALRM: alarm clock",
+            libc::SIGFPE => ", SIGFPE: erroneous arithmetic operation",
+            libc::SIGHUP => ", SIGHUP: hangup",
+            libc::SIGILL => ", SIGILL: illegal instruction",
+            libc::SIGINT => ", SIGINT: terminal interrupt signal",
+            libc::SIGKILL => ", SIGKILL: kill",
+            libc::SIGPIPE => ", SIGPIPE: write on a pipe with no one to read",
+            libc::SIGQUIT => ", SIGQUIT: terminal quit signal",
+            libc::SIGSEGV => ", SIGSEGV: invalid memory reference",
+            libc::SIGTERM => ", SIGTERM: termination signal",
+            libc::SIGBUS => ", SIGBUS: access to undefined memory",
+            #[cfg(not(target_os = "haiku"))]
+            libc::SIGSYS => ", SIGSYS: bad system call",
+            libc::SIGTRAP => ", SIGTRAP: trace/breakpoint trap",
+            _ => "",
+        };
+        Some(format!("signal: {}{}", signal, name))
+    }
+
+    #[cfg(windows)]
+    fn detailed_exit_status(status: std::process::ExitStatus) -> Option<String> {
+        use windows_sys::Win32::Foundation::*;
+
+        let extra = match status.code().unwrap() as NTSTATUS {
+            STATUS_ACCESS_VIOLATION => "STATUS_ACCESS_VIOLATION",
+            STATUS_IN_PAGE_ERROR => "STATUS_IN_PAGE_ERROR",
+            STATUS_INVALID_HANDLE => "STATUS_INVALID_HANDLE",
+            STATUS_INVALID_PARAMETER => "STATUS_INVALID_PARAMETER",
+            STATUS_NO_MEMORY => "STATUS_NO_MEMORY",
+            STATUS_ILLEGAL_INSTRUCTION => "STATUS_ILLEGAL_INSTRUCTION",
+            STATUS_NONCONTINUABLE_EXCEPTION => "STATUS_NONCONTINUABLE_EXCEPTION",
+            STATUS_INVALID_DISPOSITION => "STATUS_INVALID_DISPOSITION",
+            STATUS_ARRAY_BOUNDS_EXCEEDED => "STATUS_ARRAY_BOUNDS_EXCEEDED",
+            STATUS_FLOAT_DENORMAL_OPERAND => "STATUS_FLOAT_DENORMAL_OPERAND",
+            STATUS_FLOAT_DIVIDE_BY_ZERO => "STATUS_FLOAT_DIVIDE_BY_ZERO",
+            STATUS_FLOAT_INEXACT_RESULT => "STATUS_FLOAT_INEXACT_RESULT",
+            STATUS_FLOAT_INVALID_OPERATION => "STATUS_FLOAT_INVALID_OPERATION",
+            STATUS_FLOAT_OVERFLOW => "STATUS_FLOAT_OVERFLOW",
+            STATUS_FLOAT_STACK_CHECK => "STATUS_FLOAT_STACK_CHECK",
+            STATUS_FLOAT_UNDERFLOW => "STATUS_FLOAT_UNDERFLOW",
+            STATUS_INTEGER_DIVIDE_BY_ZERO => "STATUS_INTEGER_DIVIDE_BY_ZERO",
+            STATUS_INTEGER_OVERFLOW => "STATUS_INTEGER_OVERFLOW",
+            STATUS_PRIVILEGED_INSTRUCTION => "STATUS_PRIVILEGED_INSTRUCTION",
+            STATUS_STACK_OVERFLOW => "STATUS_STACK_OVERFLOW",
+            STATUS_DLL_NOT_FOUND => "STATUS_DLL_NOT_FOUND",
+            STATUS_ORDINAL_NOT_FOUND => "STATUS_ORDINAL_NOT_FOUND",
+            STATUS_ENTRYPOINT_NOT_FOUND => "STATUS_ENTRYPOINT_NOT_FOUND",
+            STATUS_CONTROL_C_EXIT => "STATUS_CONTROL_C_EXIT",
+            STATUS_DLL_INIT_FAILED => "STATUS_DLL_INIT_FAILED",
+            STATUS_FLOAT_MULTIPLE_FAULTS => "STATUS_FLOAT_MULTIPLE_FAULTS",
+            STATUS_FLOAT_MULTIPLE_TRAPS => "STATUS_FLOAT_MULTIPLE_TRAPS",
+            STATUS_REG_NAT_CONSUMPTION => "STATUS_REG_NAT_CONSUMPTION",
+            STATUS_HEAP_CORRUPTION => "STATUS_HEAP_CORRUPTION",
+            STATUS_STACK_BUFFER_OVERRUN => "STATUS_STACK_BUFFER_OVERRUN",
+            STATUS_ASSERTION_FAILURE => "STATUS_ASSERTION_FAILURE",
+            _ => return None,
+        };
+        Some(extra.to_owned())
+    }
+
+    if let Some(extra) = detailed_exit_status(status) {
+        format!("{} ({})", basic_exit_status(status), extra)
+    } else {
+        basic_exit_status(status)
+    }
+}
+
+fn basic_exit_status(status: std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
         code.to_string()
     } else {
         "interrupted".to_owned()
@@ -917,7 +1013,7 @@ pub use snapbox_macros::cargo_bin;
 pub fn cargo_bin(name: &str) -> std::path::PathBuf {
     let file_name = format!("{}{}", name, std::env::consts::EXE_SUFFIX);
     let target_dir = target_dir();
-    target_dir.join(&file_name)
+    target_dir.join(file_name)
 }
 
 // Adapted from
@@ -933,4 +1029,142 @@ fn target_dir() -> std::path::PathBuf {
             path
         })
         .unwrap()
+}
+
+#[cfg(feature = "examples")]
+pub use examples::{compile_example, compile_examples};
+
+#[cfg(feature = "examples")]
+pub(crate) mod examples {
+    /// Prepare an example for testing
+    ///
+    /// Unlike `cargo_bin!`, this does not inherit all of the current compiler settings.  It
+    /// will match the current target and profile but will not get feature flags.  Pass those arguments
+    /// to the compiler via `args`.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// snapbox::cmd::compile_example("snap-example-fixture", []);
+    /// ```
+    #[cfg(feature = "examples")]
+    pub fn compile_example<'a>(
+        target_name: &str,
+        args: impl IntoIterator<Item = &'a str>,
+    ) -> Result<std::path::PathBuf, crate::Error> {
+        crate::debug!("Compiling example {}", target_name);
+        let messages = escargot::CargoBuild::new()
+            .current_target()
+            .current_release()
+            .example(target_name)
+            .args(args)
+            .exec()
+            .map_err(|e| crate::Error::new(e.to_string()))?;
+        for message in messages {
+            let message = message.map_err(|e| crate::Error::new(e.to_string()))?;
+            let message = message
+                .decode()
+                .map_err(|e| crate::Error::new(e.to_string()))?;
+            crate::debug!("Message: {:?}", message);
+            if let Some(bin) = decode_example_message(&message) {
+                let (name, bin) = bin?;
+                assert_eq!(target_name, name);
+                return bin;
+            }
+        }
+
+        Err(crate::Error::new(format!(
+            "Unknown error building example {}",
+            target_name
+        )))
+    }
+
+    /// Prepare all examples for testing
+    ///
+    /// Unlike `cargo_bin!`, this does not inherit all of the current compiler settings.  It
+    /// will match the current target and profile but will not get feature flags.  Pass those arguments
+    /// to the compiler via `args`.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// let examples = snapbox::cmd::compile_examples([]).unwrap().collect::<Vec<_>>();
+    /// ```
+    #[cfg(feature = "examples")]
+    pub fn compile_examples<'a>(
+        args: impl IntoIterator<Item = &'a str>,
+    ) -> Result<
+        impl Iterator<Item = (String, Result<std::path::PathBuf, crate::Error>)>,
+        crate::Error,
+    > {
+        crate::debug!("Compiling examples");
+        let mut examples = std::collections::BTreeMap::new();
+
+        let messages = escargot::CargoBuild::new()
+            .current_target()
+            .current_release()
+            .examples()
+            .args(args)
+            .exec()
+            .map_err(|e| crate::Error::new(e.to_string()))?;
+        for message in messages {
+            let message = message.map_err(|e| crate::Error::new(e.to_string()))?;
+            let message = message
+                .decode()
+                .map_err(|e| crate::Error::new(e.to_string()))?;
+            crate::debug!("Message: {:?}", message);
+            if let Some(bin) = decode_example_message(&message) {
+                let (name, bin) = bin?;
+                examples.insert(name.to_owned(), bin);
+            }
+        }
+
+        Ok(examples.into_iter())
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn decode_example_message<'m>(
+        message: &'m escargot::format::Message,
+    ) -> Option<Result<(&'m str, Result<std::path::PathBuf, crate::Error>), crate::Error>> {
+        match message {
+            escargot::format::Message::CompilerMessage(msg) => {
+                let level = msg.message.level;
+                if level == escargot::format::diagnostic::DiagnosticLevel::Ice
+                    || level == escargot::format::diagnostic::DiagnosticLevel::Error
+                {
+                    let output = msg
+                        .message
+                        .rendered
+                        .as_deref()
+                        .unwrap_or_else(|| msg.message.message.as_ref())
+                        .to_owned();
+                    if is_example_target(&msg.target) {
+                        let bin = Err(crate::Error::new(output));
+                        Some(Ok((msg.target.name.as_ref(), bin)))
+                    } else {
+                        Some(Err(crate::Error::new(output)))
+                    }
+                } else {
+                    None
+                }
+            }
+            escargot::format::Message::CompilerArtifact(artifact) => {
+                if !artifact.profile.test && is_example_target(&artifact.target) {
+                    let path = artifact
+                        .executable
+                        .clone()
+                        .expect("cargo is new enough for this to be present");
+                    let bin = Ok(path.into_owned());
+                    Some(Ok((artifact.target.name.as_ref(), bin)))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn is_example_target(target: &escargot::format::Target) -> bool {
+        target.crate_types == ["bin"] && target.kind == ["example"]
+    }
 }

@@ -1,5 +1,5 @@
+use super::*;
 use libc::*;
-use *;
 
 pub const EVP_MAX_MD_SIZE: c_uint = 64;
 
@@ -11,8 +11,10 @@ pub const EVP_PKEY_DSA: c_int = NID_dsa;
 pub const EVP_PKEY_DH: c_int = NID_dhKeyAgreement;
 pub const EVP_PKEY_EC: c_int = NID_X9_62_id_ecPublicKey;
 #[cfg(ossl111)]
+pub const EVP_PKEY_SM2: c_int = NID_sm2;
+#[cfg(any(ossl111, libressl370))]
 pub const EVP_PKEY_X25519: c_int = NID_X25519;
-#[cfg(ossl111)]
+#[cfg(any(ossl111, libressl370))]
 pub const EVP_PKEY_ED25519: c_int = NID_ED25519;
 #[cfg(ossl111)]
 pub const EVP_PKEY_X448: c_int = NID_X448;
@@ -20,8 +22,13 @@ pub const EVP_PKEY_X448: c_int = NID_X448;
 pub const EVP_PKEY_ED448: c_int = NID_ED448;
 pub const EVP_PKEY_HMAC: c_int = NID_hmac;
 pub const EVP_PKEY_CMAC: c_int = NID_cmac;
+#[cfg(ossl111)]
+pub const EVP_PKEY_POLY1305: c_int = NID_poly1305;
 #[cfg(ossl110)]
 pub const EVP_PKEY_HKDF: c_int = NID_hkdf;
+
+#[cfg(ossl102)]
+pub const EVP_CIPHER_CTX_FLAG_WRAP_ALLOW: c_int = 0x1;
 
 pub const EVP_CTRL_GCM_SET_IVLEN: c_int = 0x9;
 pub const EVP_CTRL_GCM_GET_TAG: c_int = 0x10;
@@ -182,6 +189,8 @@ pub const EVP_PKEY_OP_TYPE_SIG: c_int = EVP_PKEY_OP_SIGN
 
 pub const EVP_PKEY_OP_TYPE_CRYPT: c_int = EVP_PKEY_OP_ENCRYPT | EVP_PKEY_OP_DECRYPT;
 
+pub const EVP_PKEY_CTRL_MD: c_int = 1;
+
 pub const EVP_PKEY_CTRL_SET_MAC_KEY: c_int = 6;
 
 pub const EVP_PKEY_CTRL_CIPHER: c_int = 12;
@@ -282,4 +291,32 @@ pub unsafe fn EVP_PKEY_CTX_add1_hkdf_info(
         infolen,
         info as *mut c_void,
     )
+}
+
+#[cfg(all(not(ossl300), not(boringssl)))]
+pub unsafe fn EVP_PKEY_CTX_set_signature_md(cxt: *mut EVP_PKEY_CTX, md: *mut EVP_MD) -> c_int {
+    EVP_PKEY_CTX_ctrl(
+        cxt,
+        -1,
+        EVP_PKEY_OP_TYPE_SIG,
+        EVP_PKEY_CTRL_MD,
+        0,
+        md as *mut c_void,
+    )
+}
+
+pub unsafe fn EVP_PKEY_assign_RSA(pkey: *mut EVP_PKEY, rsa: *mut RSA) -> c_int {
+    EVP_PKEY_assign(pkey, EVP_PKEY_RSA, rsa as *mut c_void)
+}
+
+pub unsafe fn EVP_PKEY_assign_DSA(pkey: *mut EVP_PKEY, dsa: *mut DSA) -> c_int {
+    EVP_PKEY_assign(pkey, EVP_PKEY_DSA, dsa as *mut c_void)
+}
+
+pub unsafe fn EVP_PKEY_assign_DH(pkey: *mut EVP_PKEY, dh: *mut DH) -> c_int {
+    EVP_PKEY_assign(pkey, EVP_PKEY_DH, dh as *mut c_void)
+}
+
+pub unsafe fn EVP_PKEY_assign_EC_KEY(pkey: *mut EVP_PKEY, ec_key: *mut EC_KEY) -> c_int {
+    EVP_PKEY_assign(pkey, EVP_PKEY_EC, ec_key as *mut c_void)
 }

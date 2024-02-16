@@ -1,0 +1,44 @@
+Index: clap/src/output/fmt.rs
+===================================================================
+--- clap.orig/src/output/fmt.rs
++++ clap/src/output/fmt.rs
+@@ -82,9 +82,10 @@ impl std::fmt::Display for Colorizer {
+ 
+ #[cfg(feature = "color")]
+ fn is_a_tty(stream: Stream) -> bool {
+-    use is_terminal::IsTerminal;
+-    match stream {
+-        Stream::Stdout => std::io::stdout().is_terminal(),
+-        Stream::Stderr => std::io::stderr().is_terminal(),
+-    }
++    let stream = match stream {
++        Stream::Stdout => atty::Stream::Stdout,
++        Stream::Stderr => atty::Stream::Stderr,
++    };
++
++    atty::is(stream)
+ }
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -365,8 +365,8 @@ optional = true
+ [dependencies.clap_lex]
+ version = "0.3.0"
+ 
+-[dependencies.is-terminal]
+-version = "0.4.1"
++[dependencies.atty]
++version = "0.2"
+ optional = true
+ 
+ [dependencies.once_cell]
+@@ -414,7 +414,7 @@ version = "0.9.0"
+ [features]
+ cargo = ["dep:once_cell"]
+ color = [
+-    "dep:is-terminal",
++    "dep:atty",
+     "dep:termcolor",
+ ]
+ debug = [

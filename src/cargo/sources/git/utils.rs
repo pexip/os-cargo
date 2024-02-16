@@ -1,9 +1,9 @@
 //! Utilities for handling git repositories, mainly around
 //! authentication/cloning.
 
-use crate::core::GitReference;
+use crate::core::{GitReference, Verbosity};
 use crate::util::errors::CargoResult;
-use crate::util::{network, Config, IntoUrl, MetricsCounter, Progress};
+use crate::util::{human_readable_bytes, network, Config, IntoUrl, MetricsCounter, Progress};
 use anyhow::{anyhow, Context as _};
 use cargo_util::{paths, ProcessBuilder};
 use curl::easy::List;
@@ -11,7 +11,7 @@ use git2::{self, ErrorClass, ObjectType, Oid};
 use log::{debug, info};
 use serde::ser;
 use serde::Serialize;
-use std::env;
+use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,6 +151,7 @@ impl GitDatabase {
         rev: git2::Oid,
         dest: &Path,
         cargo_config: &Config,
+        parent_remote_url: &Url,
     ) -> CargoResult<GitCheckout<'_>> {
         // If the existing checkout exists, and it is fresh, use it.
         // A non-fresh checkout can happen if the checkout operation was
@@ -164,7 +165,7 @@ impl GitDatabase {
             Some(co) => co,
             None => GitCheckout::clone_into(dest, self, rev, cargo_config)?,
         };
-        checkout.update_submodules(cargo_config)?;
+        checkout.update_submodules(cargo_config, parent_remote_url)?;
         Ok(checkout)
     }
 
@@ -322,19 +323,25 @@ impl<'a> GitCheckout<'a> {
         Ok(())
     }
 
-    fn update_submodules(&self, cargo_config: &Config) -> CargoResult<()> {
-        return update_submodules(&self.repo, cargo_config);
+    fn update_submodules(&self, cargo_config: &Config, parent_remote_url: &Url) -> CargoResult<()> {
+        return update_submodules(&self.repo, cargo_config, parent_remote_url);
 
-        fn update_submodules(repo: &git2::Repository, cargo_config: &Config) -> CargoResult<()> {
+        fn update_submodules(
+            repo: &git2::Repository,
+            cargo_config: &Config,
+            parent_remote_url: &Url,
+        ) -> CargoResult<()> {
             debug!("update submodules for: {:?}", repo.workdir().unwrap());
 
             for mut child in repo.submodules()? {
-                update_submodule(repo, &mut child, cargo_config).with_context(|| {
-                    format!(
-                        "failed to update submodule `{}`",
-                        child.name().unwrap_or("")
-                    )
-                })?;
+                update_submodule(repo, &mut child, cargo_config, parent_remote_url).with_context(
+                    || {
+                        format!(
+                            "failed to update submodule `{}`",
+                            child.name().unwrap_or("")
+                        )
+                    },
+                )?;
             }
             Ok(())
         }
@@ -343,9 +350,11 @@ impl<'a> GitCheckout<'a> {
             parent: &git2::Repository,
             child: &mut git2::Submodule<'_>,
             cargo_config: &Config,
+            parent_remote_url: &Url,
         ) -> CargoResult<()> {
             child.init(false)?;
-            let url = child.url().ok_or_else(|| {
+
+            let child_url_str = child.url().ok_or_else(|| {
                 anyhow::format_err!("non-utf8 url for submodule {:?}?", child.path())
             })?;
 
@@ -355,11 +364,37 @@ impl<'a> GitCheckout<'a> {
                     "Skipping",
                     format!(
                         "git submodule `{}` due to update strategy in .gitmodules",
-                        url
+                        child_url_str
                     ),
                 )?;
                 return Ok(());
             }
+
+            // Git only assumes a URL is a relative path if it starts with `./` or `../`.
+            // See [`git submodule add`] documentation.
+            //
+            // [`git submodule add`]: https://git-scm.com/docs/git-submodule
+            let url = if child_url_str.starts_with("./") || child_url_str.starts_with("../") {
+                let mut new_parent_remote_url = parent_remote_url.clone();
+
+                let mut new_path = Cow::from(parent_remote_url.path());
+                if !new_path.ends_with('/') {
+                    new_path.to_mut().push('/');
+                }
+                new_parent_remote_url.set_path(&new_path);
+
+                match new_parent_remote_url.join(child_url_str) {
+                    Ok(x) => x.to_string(),
+                    Err(err) => Err(err).with_context(|| {
+                        format!(
+                            "failed to parse relative child submodule url `{}` using parent base url `{}`",
+                            child_url_str, new_parent_remote_url
+                        )
+                    })?,
+                }
+            } else {
+                child_url_str.to_string()
+            };
 
             // A submodule which is listed in .gitmodules but not actually
             // checked out will not have a head id, so we should ignore it.
@@ -379,7 +414,7 @@ impl<'a> GitCheckout<'a> {
             let mut repo = match head_and_repo {
                 Ok((head, repo)) => {
                     if child.head_id() == head {
-                        return update_submodules(&repo, cargo_config);
+                        return update_submodules(&repo, cargo_config, parent_remote_url);
                     }
                     repo
                 }
@@ -394,7 +429,7 @@ impl<'a> GitCheckout<'a> {
             cargo_config
                 .shell()
                 .status("Updating", format!("git submodule `{}`", url))?;
-            fetch(&mut repo, url, &reference, cargo_config).with_context(|| {
+            fetch(&mut repo, &url, &reference, cargo_config).with_context(|| {
                 format!(
                     "failed to fetch submodule `{}` from {}",
                     child.name().unwrap_or(""),
@@ -404,7 +439,7 @@ impl<'a> GitCheckout<'a> {
 
             let obj = repo.find_object(head, None)?;
             reset(&repo, &obj, cargo_config)?;
-            update_submodules(&repo, cargo_config)
+            update_submodules(&repo, cargo_config, parent_remote_url)
         }
     }
 }
@@ -436,7 +471,12 @@ impl<'a> GitCheckout<'a> {
 /// credentials until we give it a reason to not do so. To ensure we don't
 /// just sit here looping forever we keep track of authentications we've
 /// attempted and we don't try the same ones again.
-fn with_authentication<T, F>(url: &str, cfg: &git2::Config, mut f: F) -> CargoResult<T>
+fn with_authentication<T, F>(
+    cargo_config: &Config,
+    url: &str,
+    cfg: &git2::Config,
+    mut f: F,
+) -> CargoResult<T>
 where
     F: FnMut(&mut git2::Credentials<'_>) -> CargoResult<T>,
 {
@@ -541,7 +581,10 @@ where
     if ssh_username_requested {
         debug_assert!(res.is_err());
         let mut attempts = vec![String::from("git")];
-        if let Ok(s) = env::var("USER").or_else(|_| env::var("USERNAME")) {
+        if let Ok(s) = cargo_config
+            .get_env("USER")
+            .or_else(|_| cargo_config.get_env("USERNAME"))
+        {
             attempts.push(s);
         }
         if let Some(ref s) = cred_helper.username {
@@ -647,7 +690,6 @@ where
             | ErrorClass::Submodule
             | ErrorClass::FetchHead
             | ErrorClass::Ssh
-            | ErrorClass::Callback
             | ErrorClass::Http => {
                 let mut msg = "network failure seems to have happened\n".to_string();
                 msg.push_str(
@@ -657,6 +699,13 @@ where
                     "https://doc.rust-lang.org/cargo/reference/config.html#netgit-fetch-with-cli",
                 );
                 err = err.context(msg);
+            }
+            ErrorClass::Callback => {
+                // This unwraps the git2 error. We're using the callback error
+                // specifically to convey errors from Rust land through the C
+                // callback interface. We don't need the `; class=Callback
+                // (26)` that gets tacked on to the git2 error message.
+                err = anyhow::format_err!("{}", e.message());
             }
             _ => {}
         }
@@ -684,14 +733,28 @@ pub fn with_fetch_options(
     cb: &mut dyn FnMut(git2::FetchOptions<'_>) -> CargoResult<()>,
 ) -> CargoResult<()> {
     let mut progress = Progress::new("Fetch", config);
+    let ssh_config = config.net_config()?.ssh.as_ref();
+    let config_known_hosts = ssh_config.and_then(|ssh| ssh.known_hosts.as_ref());
+    let diagnostic_home_config = config.diagnostic_home_config();
     network::with_retry(config, || {
-        with_authentication(url, git_config, |f| {
+        with_authentication(config, url, git_config, |f| {
+            let port = Url::parse(url).ok().and_then(|url| url.port());
             let mut last_update = Instant::now();
             let mut rcb = git2::RemoteCallbacks::new();
             // We choose `N=10` here to make a `300ms * 10slots ~= 3000ms`
             // sliding window for tracking the data transfer rate (in bytes/s).
             let mut counter = MetricsCounter::<10>::new(0, last_update);
             rcb.credentials(f);
+            rcb.certificate_check(|cert, host| {
+                super::known_hosts::certificate_check(
+                    config,
+                    cert,
+                    host,
+                    port,
+                    config_known_hosts,
+                    &diagnostic_home_config,
+                )
+            });
             rcb.transfer_progress(|stats| {
                 let indexed_deltas = stats.indexed_deltas();
                 let msg = if indexed_deltas > 0 {
@@ -719,13 +782,8 @@ pub fn with_fetch_options(
                         counter.add(stats.received_bytes(), now);
                         last_update = now;
                     }
-                    fn format_bytes(bytes: f32) -> (&'static str, f32) {
-                        static UNITS: [&str; 5] = ["", "Ki", "Mi", "Gi", "Ti"];
-                        let i = (bytes.log2() / 10.0).min(4.0) as usize;
-                        (UNITS[i], bytes / 1024_f32.powi(i as i32))
-                    }
-                    let (unit, rate) = format_bytes(counter.rate());
-                    format!(", {:.2}{}B/s", rate, unit)
+                    let (rate, unit) = human_readable_bytes(counter.rate() as u64);
+                    format!(", {:.2}{}/s", rate, unit)
                 };
                 progress
                     .tick(stats.indexed_objects(), stats.total_objects(), &msg)
@@ -772,9 +830,11 @@ pub fn fetch(
 
     // We reuse repositories quite a lot, so before we go through and update the
     // repo check to see if it's a little too old and could benefit from a gc.
-    // In theory this shouldn't be too too expensive compared to the network
+    // In theory this shouldn't be too expensive compared to the network
     // request we're about to issue.
-    maybe_gc_repo(repo)?;
+    maybe_gc_repo(repo, config)?;
+
+    clean_repo_temp_files(repo);
 
     // Translate the reference desired here into an actual list of refspecs
     // which need to get fetched. Additionally record if we're fetching tags.
@@ -881,6 +941,15 @@ fn fetch_with_cli(
     if tags {
         cmd.arg("--tags");
     }
+    match config.shell().verbosity() {
+        Verbosity::Normal => {}
+        Verbosity::Verbose => {
+            cmd.arg("--verbose");
+        }
+        Verbosity::Quiet => {
+            cmd.arg("--quiet");
+        }
+    }
     cmd.arg("--force") // handle force pushes
         .arg("--update-head-ok") // see discussion in #2078
         .arg(url)
@@ -900,7 +969,7 @@ fn fetch_with_cli(
     config
         .shell()
         .verbose(|s| s.status("Running", &cmd.to_string()))?;
-    cmd.exec_with_output()?;
+    cmd.exec()?;
     Ok(())
 }
 
@@ -917,7 +986,7 @@ fn fetch_with_cli(
 /// we may not even have `git` installed on the system! As a result we
 /// opportunistically try a `git gc` when the pack directory looks too big, and
 /// failing that we just blow away the repository and start over.
-fn maybe_gc_repo(repo: &mut git2::Repository) -> CargoResult<()> {
+fn maybe_gc_repo(repo: &mut git2::Repository, config: &Config) -> CargoResult<()> {
     // Here we arbitrarily declare that if you have more than 100 files in your
     // `pack` folder that we need to do a gc.
     let entries = match repo.path().join("objects/pack").read_dir() {
@@ -927,7 +996,8 @@ fn maybe_gc_repo(repo: &mut git2::Repository) -> CargoResult<()> {
             return Ok(());
         }
     };
-    let max = env::var("__CARGO_PACKFILE_LIMIT")
+    let max = config
+        .get_env("__CARGO_PACKFILE_LIMIT")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(100);
@@ -963,6 +1033,43 @@ fn maybe_gc_repo(repo: &mut git2::Repository) -> CargoResult<()> {
 
     // Alright all else failed, let's start over.
     reinitialize(repo)
+}
+
+/// Removes temporary files left from previous activity.
+///
+/// If libgit2 is interrupted while indexing pack files, it will leave behind
+/// some temporary files that it doesn't clean up. These can be quite large in
+/// size, so this tries to clean things up.
+///
+/// This intentionally ignores errors. This is only an opportunistic cleaning,
+/// and we don't really care if there are issues (there's unlikely anything
+/// that can be done).
+///
+/// The git CLI has similar behavior (its temp files look like
+/// `objects/pack/tmp_pack_9kUSA8`). Those files are normally deleted via `git
+/// prune` which is run by `git gc`. However, it doesn't know about libgit2's
+/// filenames, so they never get cleaned up.
+fn clean_repo_temp_files(repo: &git2::Repository) {
+    let path = repo.path().join("objects/pack/pack_git2_*");
+    let pattern = match path.to_str() {
+        Some(p) => p,
+        None => {
+            log::warn!("cannot convert {path:?} to a string");
+            return;
+        }
+    };
+    let paths = match glob::glob(pattern) {
+        Ok(paths) => paths,
+        Err(_) => return,
+    };
+    for path in paths {
+        if let Ok(path) = path {
+            match paths::remove_file(&path) {
+                Ok(_) => log::debug!("removed stale temp git file {path:?}"),
+                Err(e) => log::warn!("failed to remove {path:?} while cleaning temp files: {e}"),
+            }
+        }
+    }
 }
 
 fn reinitialize(repo: &mut git2::Repository) -> CargoResult<()> {

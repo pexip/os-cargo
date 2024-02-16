@@ -1,6 +1,8 @@
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter, Result, Write};
 
-use crate::datetime::*;
+use toml_datetime::*;
+
 use crate::document::Document;
 use crate::inline_table::DEFAULT_INLINE_KEY_DECOR;
 use crate::key::Key;
@@ -12,24 +14,47 @@ use crate::value::{
 use crate::{Array, InlineTable, Item, Table, Value};
 
 pub(crate) trait Encode {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result;
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result;
 }
 
 impl Encode for Key {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
-        let repr = self.to_repr();
-        write!(
-            buf,
-            "{}{}{}",
-            self.decor().prefix().unwrap_or(default_decor.0),
-            repr,
-            self.decor().suffix().unwrap_or(default_decor.1)
-        )
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
+        let decor = self.decor();
+        decor.prefix_encode(buf, input, default_decor.0)?;
+
+        if let Some(input) = input {
+            let repr = self
+                .as_repr()
+                .map(Cow::Borrowed)
+                .unwrap_or_else(|| Cow::Owned(self.default_repr()));
+            repr.encode(buf, input)?;
+        } else {
+            let repr = self.display_repr();
+            write!(buf, "{}", repr)?;
+        };
+
+        decor.suffix_encode(buf, input, default_decor.1)?;
+        Ok(())
     }
 }
 
-impl<'k> Encode for &'k [&'k Key] {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
+impl<'k> Encode for &'k [Key] {
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
         for (i, key) in self.iter().enumerate() {
             let first = i == 0;
             let last = i + 1 == self.len();
@@ -48,7 +73,38 @@ impl<'k> Encode for &'k [&'k Key] {
             if !first {
                 write!(buf, ".")?;
             }
-            key.encode(buf, (prefix, suffix))?;
+            key.encode(buf, input, (prefix, suffix))?;
+        }
+        Ok(())
+    }
+}
+
+impl<'k> Encode for &'k [&'k Key] {
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
+        for (i, key) in self.iter().enumerate() {
+            let first = i == 0;
+            let last = i + 1 == self.len();
+
+            let prefix = if first {
+                default_decor.0
+            } else {
+                DEFAULT_KEY_PATH_DECOR.0
+            };
+            let suffix = if last {
+                default_decor.1
+            } else {
+                DEFAULT_KEY_PATH_DECOR.1
+            };
+
+            if !first {
+                write!(buf, ".")?;
+            }
+            key.encode(buf, input, (prefix, suffix))?;
         }
         Ok(())
     }
@@ -58,21 +114,41 @@ impl<T> Encode for Formatted<T>
 where
     T: ValueRepr,
 {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
-        let repr = self.to_repr();
-        write!(
-            buf,
-            "{}{}{}",
-            self.decor().prefix().unwrap_or(default_decor.0),
-            repr,
-            self.decor().suffix().unwrap_or(default_decor.1)
-        )
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
+        let decor = self.decor();
+        decor.prefix_encode(buf, input, default_decor.0)?;
+
+        if let Some(input) = input {
+            let repr = self
+                .as_repr()
+                .map(Cow::Borrowed)
+                .unwrap_or_else(|| Cow::Owned(self.default_repr()));
+            repr.encode(buf, input)?;
+        } else {
+            let repr = self.display_repr();
+            write!(buf, "{}", repr)?;
+        };
+
+        decor.suffix_encode(buf, input, default_decor.1)?;
+        Ok(())
     }
 }
 
 impl Encode for Array {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
-        write!(buf, "{}[", self.decor().prefix().unwrap_or(default_decor.0))?;
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
+        let decor = self.decor();
+        decor.prefix_encode(buf, input, default_decor.0)?;
+        write!(buf, "[")?;
 
         for (i, elem) in self.iter().enumerate() {
             let inner_decor;
@@ -82,25 +158,31 @@ impl Encode for Array {
                 inner_decor = DEFAULT_VALUE_DECOR;
                 write!(buf, ",")?;
             }
-            elem.encode(buf, inner_decor)?;
+            elem.encode(buf, input, inner_decor)?;
         }
         if self.trailing_comma() && !self.is_empty() {
             write!(buf, ",")?;
         }
 
-        write!(buf, "{}", self.trailing())?;
-        write!(buf, "]{}", self.decor().suffix().unwrap_or(default_decor.1))
+        self.trailing().encode_with_default(buf, input, "")?;
+        write!(buf, "]")?;
+        decor.suffix_encode(buf, input, default_decor.1)?;
+
+        Ok(())
     }
 }
 
 impl Encode for InlineTable {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
-        write!(
-            buf,
-            "{}{{",
-            self.decor().prefix().unwrap_or(default_decor.0)
-        )?;
-        write!(buf, "{}", self.preamble)?;
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
+        let decor = self.decor();
+        decor.prefix_encode(buf, input, default_decor.0)?;
+        write!(buf, "{{")?;
+        self.preamble().encode_with_default(buf, input, "")?;
 
         let children = self.get_values();
         let len = children.len();
@@ -113,29 +195,35 @@ impl Encode for InlineTable {
             } else {
                 DEFAULT_VALUE_DECOR
             };
-            key_path.as_slice().encode(buf, DEFAULT_INLINE_KEY_DECOR)?;
+            key_path
+                .as_slice()
+                .encode(buf, input, DEFAULT_INLINE_KEY_DECOR)?;
             write!(buf, "=")?;
-            value.encode(buf, inner_decor)?;
+            value.encode(buf, input, inner_decor)?;
         }
 
-        write!(
-            buf,
-            "}}{}",
-            self.decor().suffix().unwrap_or(default_decor.1)
-        )
+        write!(buf, "}}")?;
+        decor.suffix_encode(buf, input, default_decor.1)?;
+
+        Ok(())
     }
 }
 
 impl Encode for Value {
-    fn encode(&self, buf: &mut dyn Write, default_decor: (&str, &str)) -> Result {
+    fn encode(
+        &self,
+        buf: &mut dyn Write,
+        input: Option<&str>,
+        default_decor: (&str, &str),
+    ) -> Result {
         match self {
-            Value::String(repr) => repr.encode(buf, default_decor),
-            Value::Integer(repr) => repr.encode(buf, default_decor),
-            Value::Float(repr) => repr.encode(buf, default_decor),
-            Value::Boolean(repr) => repr.encode(buf, default_decor),
-            Value::Datetime(repr) => repr.encode(buf, default_decor),
-            Value::Array(array) => array.encode(buf, default_decor),
-            Value::InlineTable(table) => table.encode(buf, default_decor),
+            Value::String(repr) => repr.encode(buf, input, default_decor),
+            Value::Integer(repr) => repr.encode(buf, input, default_decor),
+            Value::Float(repr) => repr.encode(buf, input, default_decor),
+            Value::Boolean(repr) => repr.encode(buf, input, default_decor),
+            Value::Datetime(repr) => repr.encode(buf, input, default_decor),
+            Value::Array(array) => array.encode(buf, input, default_decor),
+            Value::InlineTable(table) => table.encode(buf, input, default_decor),
         }
     }
 }
@@ -155,34 +243,51 @@ impl Display for Document {
         .unwrap();
 
         tables.sort_by_key(|&(id, _, _, _)| id);
+        let mut first_table = true;
         for (_, table, path, is_array) in tables {
-            visit_table(f, table, &path, is_array)?;
+            visit_table(
+                f,
+                self.original.as_deref(),
+                table,
+                &path,
+                is_array,
+                &mut first_table,
+            )?;
         }
-        self.trailing.fmt(f)
+        self.trailing()
+            .encode_with_default(f, self.original.as_deref(), "")
     }
 }
 
 fn visit_nested_tables<'t, F>(
     table: &'t Table,
-    path: &mut Vec<&'t Key>,
+    path: &mut Vec<Key>,
     is_array_of_tables: bool,
     callback: &mut F,
 ) -> Result
 where
-    F: FnMut(&'t Table, &Vec<&'t Key>, bool) -> Result,
+    F: FnMut(&'t Table, &Vec<Key>, bool) -> Result,
 {
-    callback(table, path, is_array_of_tables)?;
+    if !table.is_dotted() {
+        callback(table, path, is_array_of_tables)?;
+    }
 
     for kv in table.items.values() {
         match kv.value {
-            Item::Table(ref t) if !t.is_dotted() => {
-                path.push(&kv.key);
+            Item::Table(ref t) => {
+                let mut key = kv.key.clone();
+                if t.is_dotted() {
+                    // May have newlines and generally isn't written for standard tables
+                    key.decor_mut().clear();
+                }
+                path.push(key);
                 visit_nested_tables(t, path, false, callback)?;
                 path.pop();
             }
             Item::ArrayOfTables(ref a) => {
                 for t in a.iter() {
-                    path.push(&kv.key);
+                    let key = kv.key.clone();
+                    path.push(key);
                     visit_nested_tables(t, path, true, callback)?;
                     path.pop();
                 }
@@ -195,9 +300,11 @@ where
 
 fn visit_table(
     buf: &mut dyn Write,
+    input: Option<&str>,
     table: &Table,
-    path: &[&Key],
+    path: &[Key],
     is_array_of_tables: bool,
+    first_table: &mut bool,
 ) -> Result {
     let children = table.get_values();
     // We are intentionally hiding implicit tables without any tables nested under them (ie
@@ -213,36 +320,41 @@ fn visit_table(
 
     if path.is_empty() {
         // don't print header for the root node
+        if !children.is_empty() {
+            *first_table = false;
+        }
     } else if is_array_of_tables {
-        write!(
-            buf,
-            "{}[[",
-            table.decor.prefix().unwrap_or(DEFAULT_TABLE_DECOR.0)
-        )?;
-        path.encode(buf, DEFAULT_KEY_PATH_DECOR)?;
-        writeln!(
-            buf,
-            "]]{}",
-            table.decor.suffix().unwrap_or(DEFAULT_TABLE_DECOR.1)
-        )?;
+        let default_decor = if *first_table {
+            *first_table = false;
+            ("", DEFAULT_TABLE_DECOR.1)
+        } else {
+            DEFAULT_TABLE_DECOR
+        };
+        table.decor.prefix_encode(buf, input, default_decor.0)?;
+        write!(buf, "[[")?;
+        path.encode(buf, input, DEFAULT_KEY_PATH_DECOR)?;
+        write!(buf, "]]")?;
+        table.decor.suffix_encode(buf, input, default_decor.1)?;
+        writeln!(buf)?;
     } else if is_visible_std_table {
-        write!(
-            buf,
-            "{}[",
-            table.decor.prefix().unwrap_or(DEFAULT_TABLE_DECOR.0)
-        )?;
-        path.encode(buf, DEFAULT_KEY_PATH_DECOR)?;
-        writeln!(
-            buf,
-            "]{}",
-            table.decor.suffix().unwrap_or(DEFAULT_TABLE_DECOR.1)
-        )?;
+        let default_decor = if *first_table {
+            *first_table = false;
+            ("", DEFAULT_TABLE_DECOR.1)
+        } else {
+            DEFAULT_TABLE_DECOR
+        };
+        table.decor.prefix_encode(buf, input, default_decor.0)?;
+        write!(buf, "[")?;
+        path.encode(buf, input, DEFAULT_KEY_PATH_DECOR)?;
+        write!(buf, "]")?;
+        table.decor.suffix_encode(buf, input, default_decor.1)?;
+        writeln!(buf)?;
     }
     // print table body
     for (key_path, value) in children {
-        key_path.as_slice().encode(buf, DEFAULT_KEY_DECOR)?;
+        key_path.as_slice().encode(buf, input, DEFAULT_KEY_DECOR)?;
         write!(buf, "=")?;
-        value.encode(buf, DEFAULT_VALUE_DECOR)?;
+        value.encode(buf, input, DEFAULT_VALUE_DECOR)?;
         writeln!(buf)?;
     }
     Ok(())
@@ -278,7 +390,7 @@ pub(crate) fn to_string_repr(
                 '\u{8}' => output.push_str("\\b"),
                 '\u{9}' => output.push_str("\\t"),
                 '\u{a}' => match style {
-                    StringStyle::NewlineTripple => output.push('\n'),
+                    StringStyle::NewlineTriple => output.push('\n'),
                     StringStyle::OnelineSingle => output.push_str("\\n"),
                     _ => unreachable!(),
                 },
@@ -300,44 +412,44 @@ pub(crate) fn to_string_repr(
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StringStyle {
-    NewlineTripple,
-    OnelineTripple,
+    NewlineTriple,
+    OnelineTriple,
     OnelineSingle,
 }
 
 impl StringStyle {
     fn literal_start(self) -> &'static str {
         match self {
-            Self::NewlineTripple => "'''\n",
-            Self::OnelineTripple => "'''",
+            Self::NewlineTriple => "'''\n",
+            Self::OnelineTriple => "'''",
             Self::OnelineSingle => "'",
         }
     }
     fn literal_end(self) -> &'static str {
         match self {
-            Self::NewlineTripple => "'''",
-            Self::OnelineTripple => "'''",
+            Self::NewlineTriple => "'''",
+            Self::OnelineTriple => "'''",
             Self::OnelineSingle => "'",
         }
     }
 
     fn standard_start(self) -> &'static str {
         match self {
-            Self::NewlineTripple => "\"\"\"\n",
-            // note: OnelineTripple can happen if do_pretty wants to do
+            Self::NewlineTriple => "\"\"\"\n",
+            // note: OnelineTriple can happen if do_pretty wants to do
             // '''it's one line'''
             // but literal == false
-            Self::OnelineTripple | Self::OnelineSingle => "\"",
+            Self::OnelineTriple | Self::OnelineSingle => "\"",
         }
     }
 
     fn standard_end(self) -> &'static str {
         match self {
-            Self::NewlineTripple => "\"\"\"",
-            // note: OnelineTripple can happen if do_pretty wants to do
+            Self::NewlineTriple => "\"\"\"",
+            // note: OnelineTriple can happen if do_pretty wants to do
             // '''it's one line'''
             // but literal == false
-            Self::OnelineTripple | Self::OnelineSingle => "\"",
+            Self::OnelineTriple | Self::OnelineSingle => "\"",
         }
     }
 }
@@ -378,7 +490,7 @@ fn infer_style(value: &str) -> (StringStyle, bool) {
                 '\\' => {
                     prefer_literal = true;
                 }
-                '\n' => ty = StringStyle::NewlineTripple,
+                '\n' => ty = StringStyle::NewlineTriple,
                 // Escape codes are needed if any ascii control
                 // characters are present, including \b \f \r.
                 c if c <= '\u{1f}' || c == '\u{7f}' => can_be_pretty = false,
@@ -389,7 +501,7 @@ fn infer_style(value: &str) -> (StringStyle, bool) {
             // the string cannot be represented as pretty,
             // still check if it should be multiline
             if ch == '\n' {
-                ty = StringStyle::NewlineTripple;
+                ty = StringStyle::NewlineTriple;
             }
         }
     }
@@ -401,7 +513,7 @@ fn infer_style(value: &str) -> (StringStyle, bool) {
         can_be_pretty = false;
     }
     if !can_be_pretty {
-        debug_assert!(ty != StringStyle::OnelineTripple);
+        debug_assert!(ty != StringStyle::OnelineTriple);
         return (ty, false);
     }
     if found_singles > max_found_singles {
@@ -410,7 +522,7 @@ fn infer_style(value: &str) -> (StringStyle, bool) {
     debug_assert!(max_found_singles < 3);
     if ty == StringStyle::OnelineSingle && max_found_singles >= 1 {
         // no newlines, but must use ''' because it has ' in it
-        ty = StringStyle::OnelineTripple;
+        ty = StringStyle::OnelineTriple;
     }
     (ty, true)
 }

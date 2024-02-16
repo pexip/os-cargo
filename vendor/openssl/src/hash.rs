@@ -43,7 +43,7 @@ use crate::nid::Nid;
 use crate::{cvt, cvt_p};
 
 cfg_if! {
-    if #[cfg(ossl110)] {
+    if #[cfg(any(ossl110, boringssl))] {
         use ffi::{EVP_MD_CTX_free, EVP_MD_CTX_new};
     } else {
         use ffi::{EVP_MD_CTX_create as EVP_MD_CTX_new, EVP_MD_CTX_destroy as EVP_MD_CTX_free};
@@ -68,7 +68,7 @@ impl MessageDigest {
     ///
     /// This corresponds to [`EVP_get_digestbynid`].
     ///
-    /// [`EVP_get_digestbynid`]: https://www.openssl.org/docs/man1.1.0/crypto/EVP_DigestInit.html
+    /// [`EVP_get_digestbynid`]: https://www.openssl.org/docs/manmaster/crypto/EVP_DigestInit.html
     pub fn from_nid(type_: Nid) -> Option<MessageDigest> {
         unsafe {
             let ptr = ffi::EVP_get_digestbynid(type_.as_raw());
@@ -84,7 +84,7 @@ impl MessageDigest {
     ///
     /// This corresponds to [`EVP_get_digestbyname`].
     ///
-    /// [`EVP_get_digestbyname`]: https://www.openssl.org/docs/man1.1.0/crypto/EVP_DigestInit.html
+    /// [`EVP_get_digestbyname`]: https://www.openssl.org/docs/manmaster/crypto/EVP_DigestInit.html
     pub fn from_name(name: &str) -> Option<MessageDigest> {
         ffi::init();
         let name = CString::new(name).ok()?;

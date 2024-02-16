@@ -1,10 +1,20 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -39,7 +39,6 @@
+Index: libssh2-sys/Cargo.toml
+===================================================================
+--- libssh2-sys.orig/Cargo.toml
++++ libssh2-sys/Cargo.toml
+@@ -43,15 +43,9 @@ version = "1.0.25"
+ version = "0.3.11"
  
  [features]
- openssl-on-win32 = ["openssl-sys"]
+-openssl-on-win32 = ["openssl-sys"]
 -zlib-ng-compat = ["libz-sys/zlib-ng"]
+ 
  [target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
  version = "0.2"
+ 
  [target."cfg(unix)".dependencies.openssl-sys]
+ version = "0.9.35"
+-
+-[target."cfg(windows)".dependencies.openssl-sys]
+-version = "0.9.35"
+-optional = true

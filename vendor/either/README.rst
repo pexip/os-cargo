@@ -31,6 +31,14 @@ How to use with cargo::
 Recent Changes
 --------------
 
+- 1.9.0
+
+  - Add new methods ``.map_either()`` and ``.map_either_with()``, by @nasadorian (#82)
+
+- 1.8.1
+
+  - Clarified that the multiple licenses are combined with OR.
+
 - 1.8.0
 
   - **MSRV**: ``either`` now requires Rust 1.36 or later.

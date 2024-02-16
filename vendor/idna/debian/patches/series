@@ -1,1 +1,2 @@
 remove-tester.diff
+fix-tests-alloc-only.patch

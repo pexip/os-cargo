@@ -85,6 +85,8 @@ fn smoke2() {
 }
 
 #[test]
+// test disabled due to flakyness
+#[cfg(any())]
 fn upload_lots() {
     use curl::multi::{Events, Socket, SocketEvents};
 

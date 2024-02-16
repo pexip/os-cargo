@@ -9,12 +9,13 @@ use std::task::Poll;
 
 use crate::core::compiler::{BuildConfig, CompileMode, DefaultExecutor, Executor};
 use crate::core::resolver::CliFeatures;
+use crate::core::{registry::PackageRegistry, resolver::HasDevUnits};
 use crate::core::{Feature, Shell, Verbosity, Workspace};
 use crate::core::{Package, PackageId, PackageSet, Resolve, SourceId};
 use crate::sources::PathSource;
 use crate::util::errors::CargoResult;
 use crate::util::toml::TomlManifest;
-use crate::util::{self, restricted_names, Config, FileLock};
+use crate::util::{self, human_readable_bytes, restricted_names, Config, FileLock};
 use crate::{drop_println, ops};
 use anyhow::Context as _;
 use cargo_util::paths;
@@ -110,6 +111,8 @@ pub fn package_one(
 
     let ar_files = build_ar_list(ws, pkg, src_files, vcs_info)?;
 
+    let filecount = ar_files.len();
+
     if opts.list {
         for ar_file in ar_files {
             drop_println!(config, "{}", ar_file.rel_str);
@@ -138,7 +141,7 @@ pub fn package_one(
         .shell()
         .status("Packaging", pkg.package_id().to_string())?;
     dst.file().set_len(0)?;
-    tar(ws, pkg, ar_files, dst.file(), &filename)
+    let uncompressed_size = tar(ws, pkg, ar_files, dst.file(), &filename)
         .with_context(|| "failed to prepare local package for uploading")?;
     if opts.verify {
         dst.seek(SeekFrom::Start(0))?;
@@ -150,6 +153,22 @@ pub fn package_one(
     let dst_path = dst.parent().join(&filename);
     fs::rename(&src_path, &dst_path)
         .with_context(|| "failed to move temporary tarball into final location")?;
+
+    let dst_metadata = dst
+        .file()
+        .metadata()
+        .with_context(|| format!("could not learn metadata for: `{}`", dst_path.display()))?;
+    let compressed_size = dst_metadata.len();
+
+    let uncompressed = human_readable_bytes(uncompressed_size);
+    let compressed = human_readable_bytes(compressed_size);
+
+    let message = format!(
+        "{} files, {:.1}{} ({:.1}{} compressed)",
+        filecount, uncompressed.0, uncompressed.1, compressed.0, compressed.1,
+    );
+    // It doesn't really matter if this fails.
+    drop(config.shell().status("Packaged", message));
 
     return Ok(Some(dst));
 }
@@ -370,7 +389,18 @@ fn build_lock(ws: &Workspace<'_>, orig_pkg: &Package) -> CargoResult<String> {
 
     // Regenerate Cargo.lock using the old one as a guide.
     let tmp_ws = Workspace::ephemeral(new_pkg, ws.config(), None, true)?;
-    let (pkg_set, mut new_resolve) = ops::resolve_ws(&tmp_ws)?;
+    let mut tmp_reg = PackageRegistry::new(ws.config())?;
+    let mut new_resolve = ops::resolve_with_previous(
+        &mut tmp_reg,
+        &tmp_ws,
+        &CliFeatures::new_all(true),
+        HasDevUnits::Yes,
+        orig_resolve.as_ref(),
+        None,
+        &[],
+        true,
+    )?;
+    let pkg_set = ops::get_resolved_packages(&new_resolve, tmp_reg)?;
 
     if let Some(orig_resolve) = orig_resolve {
         compare_resolve(config, tmp_ws.current()?, &orig_resolve, &new_resolve)?;
@@ -567,13 +597,16 @@ fn check_repo_state(
     }
 }
 
+/// Compresses and packages a list of [`ArchiveFile`]s and writes into the given file.
+///
+/// Returns the uncompressed size of the contents of the new archive file.
 fn tar(
     ws: &Workspace<'_>,
     pkg: &Package,
     ar_files: Vec<ArchiveFile>,
     dst: &File,
     filename: &str,
-) -> CargoResult<()> {
+) -> CargoResult<u64> {
     // Prepare the encoder and its header.
     let filename = Path::new(filename);
     let encoder = GzBuilder::new()
@@ -586,6 +619,8 @@ fn tar(
 
     let base_name = format!("{}-{}", pkg.name(), pkg.version());
     let base_path = Path::new(&base_name);
+
+    let mut uncompressed_size = 0;
     for ar_file in ar_files {
         let ArchiveFile {
             rel_path,
@@ -611,6 +646,7 @@ fn tar(
                     .with_context(|| {
                         format!("could not archive source file `{}`", disk_path.display())
                     })?;
+                uncompressed_size += metadata.len() as u64;
             }
             FileContents::Generated(generated_kind) => {
                 let contents = match generated_kind {
@@ -626,13 +662,14 @@ fn tar(
                 header.set_cksum();
                 ar.append_data(&mut header, &ar_path, contents.as_bytes())
                     .with_context(|| format!("could not archive source file `{}`", rel_str))?;
+                uncompressed_size += contents.len() as u64;
             }
         }
     }
 
     let encoder = ar.into_inner()?;
     encoder.finish()?;
-    Ok(())
+    Ok(uncompressed_size)
 }
 
 /// Generate warnings when packaging Cargo.lock, and the resolve have changed.
@@ -829,7 +866,6 @@ fn run_verify(
             target_rustdoc_args: None,
             target_rustc_args: rustc_args,
             target_rustc_crate_types: None,
-            local_rustdoc_args: None,
             rustdoc_document_private_items: false,
             honor_rust_version: true,
         },

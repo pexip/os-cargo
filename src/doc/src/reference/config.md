@@ -114,10 +114,14 @@ retry = 2                   # network retries
 git-fetch-with-cli = true   # use the `git` executable for git operations
 offline = true              # do not access the network
 
+[net.ssh]
+known-hosts = ["..."]       # known SSH host keys
+
 [patch.<registry>]
 # Same keys as for [patch] in Cargo.toml
 
 [profile.<name>]         # Modify profile settings via config.
+inherits = "dev"         # Inherits settings from [profile.dev].
 opt-level = 0            # Optimization level.
 debug = true             # Include debug info.
 split-debuginfo = '...'  # Debug info splitting behavior.
@@ -190,8 +194,9 @@ variable.
 
 Environment variables will take precedence over TOML configuration files.
 Currently only integer, boolean, string and some array values are supported to
-be defined by environment variables. Descriptions below indicate which keys
-support environment variables.
+be defined by environment variables. [Descriptions below](#configuration-keys)
+indicate which keys support environment variables and otherwise they are not
+supported due to [technicial issues](https://github.com/rust-lang/cargo/issues/5416).
 
 In addition to the system above, Cargo recognizes a few other specific
 [environment variables][env].
@@ -239,7 +244,7 @@ precedence rules as other options specified directly with `--config`.
 ### Config-relative paths
 
 Paths in config files may be absolute, relative, or a bare name without any path separators.
-Paths for executables without a path separator will use the `PATH` environment variable to search for the executable. 
+Paths for executables without a path separator will use the `PATH` environment variable to search for the executable.
 Paths for non-executables will be relative to where the config value is defined.
 
 In particular, rules are:
@@ -256,8 +261,8 @@ In particular, rules are:
 > is also relative to two levels up from the config file itself.
 >
 > To avoid unexpected results, the rule of thumb is putting your extra config files
-> at the same level of discovered `.cargo/config.toml` in your porject.
-> For instance, given a project `/my/project`, 
+> at the same level of discovered `.cargo/config.toml` in your project.
+> For instance, given a project `/my/project`,
 > it is recommended to put config files under `/my/project/.cargo`
 > or a new directory at the same level, such as `/my/project/.config`.
 
@@ -316,7 +321,7 @@ all capital letters.
 
 This section documents all configuration keys. The description for keys with
 variable parts are annotated with angled brackets like `target.<triple>` where
-the `<triple>` part can be any target triple like
+the `<triple>` part can be any [target triple] like
 `target.x86_64-pc-windows-msvc`.
 
 #### `paths`
@@ -347,6 +352,7 @@ c = "check"
 d = "doc"
 t = "test"
 r = "run"
+rm = "remove"
 ```
 
 Aliases are not allowed to redefine existing built-in commands.
@@ -412,7 +418,7 @@ Sets the executable to use for `rustdoc`.
 * Default: host platform
 * Environment: `CARGO_BUILD_TARGET`
 
-The default target platform triples to compile to.
+The default [target platform triples][target triple] to compile to.
 
 This allows passing either a string or an array of strings. Each string value
 is a target platform triple. The selected build targets will be built for each
@@ -462,7 +468,7 @@ for the host, such as build scripts or proc macros, will not receive the args.
 Without `--target`, the flags will be passed to all compiler invocations
 (including build scripts and proc macros) because dependencies are shared. If
 you have args that you do not want to pass to build scripts or proc macros and
-are building for the host, pass `--target` with the host triple.
+are building for the host, pass `--target` with the [host triple][target triple].
 
 It is not recommended to pass in flags that Cargo itself usually manages. For
 example, the flags driven by [profiles](profiles.md) are best handled by setting the
@@ -748,6 +754,41 @@ needed, and generate an error if it encounters a network error.
 
 Can be overridden with the `--offline` command-line option.
 
+##### `net.ssh`
+
+The `[net.ssh]` table contains settings for SSH connections.
+
+##### `net.ssh.known-hosts`
+* Type: array of strings
+* Default: see description
+* Environment: not supported
+
+The `known-hosts` array contains a list of SSH host keys that should be
+accepted as valid when connecting to an SSH server (such as for SSH git
+dependencies). Each entry should be a string in a format similar to OpenSSH
+`known_hosts` files. Each string should start with one or more hostnames
+separated by commas, a space, the key type name, a space, and the
+base64-encoded key. For example:
+
+```toml
+[net.ssh]
+known-hosts = [
+    "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFO4Q5T0UV0SQevair9PFwoxY9dl4pQl3u5phoqJH3cF"
+]
+```
+
+Cargo will attempt to load known hosts keys from common locations supported in
+OpenSSH, and will join those with any listed in a Cargo configuration file.
+If any matching entry has the correct key, the connection will be allowed.
+
+Cargo comes with the host keys for [github.com][github-keys] built-in. If
+those ever change, you can add the new keys to the config or known_hosts file.
+
+See [Git Authentication](../appendix/git-authentication.md#ssh-known-hosts)
+for more details.
+
+[github-keys]: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
 #### `[patch]`
 
 Just as you can override dependencies using [`[patch]` in
@@ -890,6 +931,20 @@ commands like [`cargo publish`] that require authentication.
 
 Can be overridden with the `--token` command-line option.
 
+##### `registries.crates-io.protocol`
+* Type: string
+* Default: `git`
+* Environment: `CARGO_REGISTRIES_CRATES_IO_PROTOCOL`
+
+Specifies the protocol used to access crates.io. Allowed values are `git` or `sparse`.
+
+`git` causes Cargo to clone the entire index of all packages ever published to [crates.io] from <https://github.com/rust-lang/crates.io-index/>.
+This can have performance implications due to the size of the index.
+`sparse` is a newer protocol which uses HTTPS to download only what is necessary from <https://index.crates.io/>.
+This can result in a significant performance improvement for resolving new dependencies in most situations.
+
+More information about registry protocols may be found in the [Registries chapter](registries.md).
+
 #### `[registry]`
 
 The `[registry]` table controls the default registry used when one is not
@@ -932,7 +987,7 @@ local-registry, or git).
 * Default: none
 * Environment: not supported
 
-If set, replace this source with the given named source.
+If set, replace this source with the given named source or named registry.
 
 ##### `source.<name>.directory`
 * Type: string (path)
@@ -993,8 +1048,8 @@ If none of `branch`, `tag`, or `rev` is set, defaults to the `master` branch.
 #### `[target]`
 
 The `[target]` table is used for specifying settings for specific platform
-targets. It consists of a sub-table which is either a platform triple or a
-[`cfg()` expression]. The given values will be used if the target platform
+targets. It consists of a sub-table which is either a [platform triple][target triple] 
+or a [`cfg()` expression]. The given values will be used if the target platform
 matches either the `<triple>` value or the `<cfg>` expression.
 
 ```toml
@@ -1013,7 +1068,7 @@ to view), values set by [build scripts], and extra `--cfg` flags passed to
 `rustc` (such as those defined in `RUSTFLAGS`). Do not try to match on
 `debug_assertions` or Cargo features like `feature="foo"`.
 
-If using a target spec JSON file, the `<triple>` value is the filename stem.
+If using a target spec JSON file, the [`<triple>`] value is the filename stem.
 For example `--target foo/bar.json` would match `[target.bar]`.
 
 ##### `target.<triple>.ar`
@@ -1026,14 +1081,14 @@ This option is deprecated and unused.
 * Environment: `CARGO_TARGET_<triple>_LINKER`
 
 Specifies the linker which is passed to `rustc` (via [`-C linker`]) when the
-`<triple>` is being compiled for. By default, the linker is not overridden.
+[`<triple>`] is being compiled for. By default, the linker is not overridden.
 
 ##### `target.<triple>.runner`
 * Type: string or array of strings ([program path with args])
 * Default: none
 * Environment: `CARGO_TARGET_<triple>_RUNNER`
 
-If a runner is provided, executables for the target `<triple>` will be
+If a runner is provided, executables for the target [`<triple>`] will be
 executed by invoking the specified runner with the actual executable passed as
 an argument. This applies to [`cargo run`], [`cargo test`] and [`cargo bench`]
 commands. By default, compiled executables are executed directly.
@@ -1041,7 +1096,7 @@ commands. By default, compiled executables are executed directly.
 ##### `target.<cfg>.runner`
 
 This is similar to the [target runner](#targettriplerunner), but using
-a [`cfg()` expression]. If both a `<triple>` and `<cfg>` runner match,
+a [`cfg()` expression]. If both a [`<triple>`] and `<cfg>` runner match,
 the `<triple>` will take precedence. It is an error if more than one
 `<cfg>` runner matches the current target.
 
@@ -1050,8 +1105,8 @@ the `<triple>` will take precedence. It is an error if more than one
 * Default: none
 * Environment: `CARGO_TARGET_<triple>_RUSTFLAGS`
 
-Passes a set of custom flags to the compiler for this `<triple>`. The value
-may be an array of strings or a space-separated string.
+Passes a set of custom flags to the compiler for this [`<triple>`]. 
+The value may be an array of strings or a space-separated string.
 
 See [`build.rustflags`](#buildrustflags) for more details on the different
 ways to specific extra flags.
@@ -1059,7 +1114,7 @@ ways to specific extra flags.
 ##### `target.<cfg>.rustflags`
 
 This is similar to the [target rustflags](#targettriplerustflags), but
-using a [`cfg()` expression]. If several `<cfg>` and `<triple>` entries
+using a [`cfg()` expression]. If several `<cfg>` and [`<triple>`] entries
 match the current target, the flags are joined together.
 
 ##### `target.<triple>.<links>`
@@ -1159,3 +1214,5 @@ Sets the width for progress bar.
 [revision]: https://git-scm.com/docs/gitrevisions
 [registries]: registries.md
 [crates.io]: https://crates.io/
+[target triple]: ../appendix/glossary.md#target '"target" (glossary)'
+[`<triple>`]: ../appendix/glossary.md#target '"target" (glossary)'

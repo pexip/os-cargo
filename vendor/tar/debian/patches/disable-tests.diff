@@ -4,11 +4,21 @@ Description: Disable tests that rely on test tarballs
  tests than none of the tests.
 Author: Peter Michael Green <plugwash@debian.org>
 
-Index: tar/tests/all.rs
-===================================================================
---- tar.orig/tests/all.rs
-+++ tar/tests/all.rs
-@@ -33,7 +33,7 @@ mod header;
+--- a/tests/all.rs
++++ b/tests/all.rs
+@@ -23,17 +23,17 @@
+     };
+ }
+ 
+-macro_rules! tar {
++/*macro_rules! tar {
+     ($e:expr) => {
+         &include_bytes!(concat!("archives/", $e))[..]
+     };
+-}
++}*/
+ 
+ mod header;
  
  /// test that we can concatenate the simple.tar archive and extract the same entries twice when we
  /// use the ignore_zeros option.
@@ -17,7 +27,7 @@ Index: tar/tests/all.rs
  fn simple_concat() {
      let bytes = tar!("simple.tar");
      let mut archive_bytes = Vec::new();
-@@ -76,9 +76,9 @@ fn simple_concat() {
+@@ -76,9 +76,9 @@
  
          names
      }
@@ -29,7 +39,7 @@ Index: tar/tests/all.rs
  fn header_impls() {
      let mut ar = Archive::new(Cursor::new(tar!("simple.tar")));
      let hn = Header::new_old();
-@@ -91,9 +91,9 @@ fn header_impls() {
+@@ -91,9 +91,9 @@
          let h2b = h2.as_bytes();
          assert!(h1b[..] == h2b[..] && h2b[..] != hnb[..])
      }
@@ -41,7 +51,7 @@ Index: tar/tests/all.rs
  fn header_impls_missing_last_header() {
      let mut ar = Archive::new(Cursor::new(tar!("simple_missing_last_header.tar")));
      let hn = Header::new_old();
-@@ -106,9 +106,9 @@ fn header_impls_missing_last_header() {
+@@ -106,9 +106,9 @@
          let h2b = h2.as_bytes();
          assert!(h1b[..] == h2b[..] && h2b[..] != hnb[..])
      }
@@ -53,7 +63,7 @@ Index: tar/tests/all.rs
  fn reading_files() {
      let rdr = Cursor::new(tar!("reading_files.tar"));
      let mut ar = Archive::new(rdr);
-@@ -127,7 +127,7 @@ fn reading_files() {
+@@ -127,7 +127,7 @@
      assert_eq!(s, "b\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb\n");
  
      assert!(entries.next().is_none());
@@ -62,7 +72,7 @@ Index: tar/tests/all.rs
  
  #[test]
  fn writing_files() {
-@@ -221,7 +221,7 @@ fn reading_entries_common<R: Read>(mut e
+@@ -221,7 +221,7 @@
      assert!(entries.next().is_none());
  }
  
@@ -71,7 +81,7 @@ Index: tar/tests/all.rs
  fn reading_entries() {
      let rdr = Cursor::new(tar!("reading_files.tar"));
      let mut ar = Archive::new(rdr);
-@@ -234,6 +234,7 @@ fn reading_entries_with_seek() {
+@@ -234,6 +234,7 @@
      let mut ar = Archive::new(rdr);
      reading_entries_common(t!(ar.entries_with_seek()));
  }
@@ -79,7 +89,7 @@ Index: tar/tests/all.rs
  
  struct LoggingReader<R> {
      inner: R,
-@@ -264,6 +265,7 @@ impl<T: Seek> Seek for LoggingReader<T>
+@@ -264,6 +265,7 @@
      }
  }
  
@@ -87,7 +97,7 @@ Index: tar/tests/all.rs
  #[test]
  fn skipping_entries_with_seek() {
      let mut reader = LoggingReader::new(Cursor::new(tar!("reading_files.tar")));
-@@ -281,6 +283,7 @@ fn skipping_entries_with_seek() {
+@@ -281,6 +283,7 @@
      assert!(files == files_seekable);
      assert!(seekable_reader.read_bytes < reader.read_bytes);
  }
@@ -95,7 +105,7 @@ Index: tar/tests/all.rs
  
  fn check_dirtree(td: &TempDir) {
      let dir_a = td.path().join("a");
-@@ -291,6 +294,7 @@ fn check_dirtree(td: &TempDir) {
+@@ -291,6 +294,7 @@
      assert!(fs::metadata(&file_c).map(|m| m.is_file()).unwrap_or(false));
  }
  
@@ -103,7 +113,7 @@ Index: tar/tests/all.rs
  #[test]
  fn extracting_directories() {
      let td = t!(TempBuilder::new().prefix("tar-rs").tempdir());
-@@ -1028,8 +1032,9 @@ fn reading_sparse() {
+@@ -1077,8 +1081,9 @@
      assert!(s[0x2fa0 + 6..0x4000].chars().all(|x| x == '\u{0}'));
  
      assert!(entries.next().is_none());
@@ -114,7 +124,7 @@ Index: tar/tests/all.rs
  #[test]
  fn extract_sparse() {
      let rdr = Cursor::new(tar!("sparse.tar"));
-@@ -1069,9 +1074,9 @@ fn extract_sparse() {
+@@ -1118,9 +1123,9 @@
      assert!(s[0x1000 + 6..0x2fa0].chars().all(|x| x == '\u{0}'));
      assert_eq!(&s[0x2fa0..0x2fa0 + 6], "world\n");
      assert!(s[0x2fa0 + 6..0x4000].chars().all(|x| x == '\u{0}'));
@@ -126,7 +136,7 @@ Index: tar/tests/all.rs
  fn sparse_with_trailing() {
      let rdr = Cursor::new(tar!("sparse-1.tar"));
      let mut ar = Archive::new(rdr);
-@@ -1083,7 +1088,7 @@ fn sparse_with_trailing() {
+@@ -1132,7 +1137,7 @@
      assert_eq!(&s[..0xc], "0MB through\n");
      assert!(s[0xc..0x100_000].chars().all(|x| x == '\u{0}'));
      assert_eq!(&s[0x100_000..], "1MB through\n");
@@ -135,7 +145,7 @@ Index: tar/tests/all.rs
  
  #[test]
  fn path_separators() {
-@@ -1253,15 +1258,15 @@ fn tar_directory_containing_symlink_to_d
+@@ -1302,15 +1307,15 @@
      ar.finish().unwrap();
  }
  
@@ -154,7 +164,7 @@ Index: tar/tests/all.rs
  fn unpack_path_larger_than_windows_max_path() {
      let dir_name = "iamaprettylongnameandtobepreciseiam91characterslongwhichsomethinkisreallylongandothersdonot";
      // 183 character directory name
-@@ -1272,7 +1277,7 @@ fn unpack_path_larger_than_windows_max_p
+@@ -1321,7 +1326,7 @@
      let mut ar = Archive::new(rdr);
      // should unpack path greater than windows MAX_PATH length of 260 characters
      assert!(ar.unpack(td.path()).is_ok());
@@ -163,3 +173,18 @@ Index: tar/tests/all.rs
  
  #[test]
  fn append_long_multibyte() {
+@@ -1489,7 +1494,7 @@
+     }
+ }
+ 
+-#[test]
++/*#[test]
+ #[cfg(unix)]
+ fn pax_and_gnu_uid_gid() {
+     let tarlist = [tar!("biguid_gnu.tar"), tar!("biguid_pax.tar")];
+@@ -1514,4 +1519,4 @@
+             assert!(ar.unpack(td.path()).is_err());
+         }
+     }
+-}
++}*/

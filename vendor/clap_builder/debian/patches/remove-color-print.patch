@@ -1,0 +1,14 @@
+Index: clap-builder/Cargo.toml
+===================================================================
+--- clap-builder.orig/Cargo.toml
++++ clap-builder/Cargo.toml
+@@ -88,9 +88,6 @@ optional = true
+ version = "0.1.9"
+ optional = true
+ 
+-[dev-dependencies.color-print]
+-version = "0.3.4"
+-
+ [dev-dependencies.humantime]
+ version = "2.1.0"
+ 

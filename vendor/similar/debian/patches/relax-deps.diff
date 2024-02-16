@@ -1,7 +1,16 @@
-diff --git a/Cargo.toml b/Cargo.toml
-index 0500164..2399b58 100644
---- a/Cargo.toml
-+++ b/Cargo.toml
+Index: similar/Cargo.toml
+===================================================================
+--- similar.orig/Cargo.toml
++++ similar/Cargo.toml
+@@ -84,7 +84,7 @@ required-features = [
+ ]
+ 
+ [dependencies.bstr]
+-version = "0.2.14"
++version = "1"
+ optional = true
+ default-features = false
+ 
 @@ -101,10 +101,10 @@ optional = true
  version = "0.15.0"
  
@@ -15,3 +24,9 @@ index 0500164..2399b58 100644
  
  [features]
  bytes = [
+@@ -118,4 +118,5 @@ unicode = [
+     "text",
+     "unicode-segmentation",
+     "bstr/unicode",
++    "bstr/std",
+ ]

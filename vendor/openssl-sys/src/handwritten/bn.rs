@@ -1,5 +1,5 @@
+use super::super::*;
 use libc::*;
-use *;
 
 extern "C" {
     pub fn BN_CTX_new() -> *mut BN_CTX;
@@ -23,7 +23,7 @@ extern "C" {
     pub fn BN_clear_free(bn: *mut BIGNUM);
     pub fn BN_bin2bn(s: *const u8, size: c_int, ret: *mut BIGNUM) -> *mut BIGNUM;
     pub fn BN_bn2bin(a: *const BIGNUM, to: *mut u8) -> c_int;
-    #[cfg(ossl110)]
+    #[cfg(any(ossl110, libressl340))]
     pub fn BN_bn2binpad(a: *const BIGNUM, to: *mut u8, tolen: c_int) -> c_int;
     pub fn BN_sub(r: *mut BIGNUM, a: *const BIGNUM, b: *const BIGNUM) -> c_int;
     pub fn BN_add(r: *mut BIGNUM, a: *const BIGNUM, b: *const BIGNUM) -> c_int;
@@ -31,7 +31,9 @@ extern "C" {
     pub fn BN_sqr(r: *mut BIGNUM, a: *const BIGNUM, ctx: *mut BN_CTX) -> c_int;
     pub fn BN_set_negative(bn: *mut BIGNUM, n: c_int);
     #[cfg(any(ossl110, libressl350))]
-    pub fn BN_is_negative(b: *const ::BIGNUM) -> c_int;
+    pub fn BN_is_negative(b: *const BIGNUM) -> c_int;
+    #[cfg(any(ossl110, libressl350))]
+    pub fn BN_is_odd(b: *const BIGNUM) -> c_int;
 
     pub fn BN_div(
         dv: *mut BIGNUM,
@@ -73,6 +75,13 @@ extern "C" {
         m: *const BIGNUM,
         ctx: *mut BN_CTX,
     ) -> c_int;
+    #[cfg(ossl110)]
+    pub fn BN_mod_sqrt(
+        ret: *mut BIGNUM,
+        a: *const BIGNUM,
+        p: *const BIGNUM,
+        ctx: *mut BN_CTX,
+    ) -> *mut BIGNUM;
 
     pub fn BN_mod_word(r: *const BIGNUM, w: BN_ULONG) -> BN_ULONG;
     pub fn BN_div_word(r: *mut BIGNUM, w: BN_ULONG) -> BN_ULONG;

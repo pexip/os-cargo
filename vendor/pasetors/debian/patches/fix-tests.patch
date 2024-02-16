@@ -1,0 +1,12 @@
+Index: pasetors/src/errors.rs
+===================================================================
+--- pasetors.orig/src/errors.rs
++++ pasetors/src/errors.rs
+@@ -68,6 +68,7 @@ impl From<core::num::TryFromIntError> fo
+ }
+ 
+ #[test]
++#[cfg(feature = "std")]
+ fn test_error_from_impls() {
+     let _ = format!("{:?}", Error::TokenFormat);
+     let _ = format!("{}", Error::TokenFormat);

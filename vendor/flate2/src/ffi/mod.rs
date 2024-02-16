@@ -35,14 +35,14 @@ pub trait DeflateBackend: Backend {
 }
 
 // Default to Rust implementation unless explicitly opted in to a different backend.
-#[cfg(feature = "zlib")]
+#[cfg(feature = "any_zlib")]
 mod c;
-#[cfg(feature = "zlib")]
+#[cfg(feature = "any_zlib")]
 pub use self::c::*;
 
-#[cfg(not(feature = "zlib"))]
+#[cfg(all(not(feature = "any_zlib"), feature = "miniz_oxide"))]
 mod rust;
-#[cfg(not(feature = "zlib"))]
+#[cfg(all(not(feature = "any_zlib"), feature = "miniz_oxide"))]
 pub use self::rust::*;
 
 impl std::fmt::Debug for ErrorMessage {

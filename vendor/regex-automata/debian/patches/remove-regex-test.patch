@@ -1,0 +1,898 @@
+Index: regex-automata/tests/dfa/onepass/suite.rs
+===================================================================
+--- regex-automata.orig/tests/dfa/onepass/suite.rs
++++ regex-automata/tests/dfa/onepass/suite.rs
+@@ -5,17 +5,17 @@ use {
+         nfa::thompson,
+         util::{iter, syntax},
+     },
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+         TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, suite, testify_captures, untestify_kind};
++//use crate::{create_input, testify_captures, untestify_kind};
+ 
+ const EXPANSIONS: &[&str] = &["is_match", "find", "captures"];
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
++/* /// Tests the default configuration of the hybrid NFA/DFA.
+ #[test]
+ fn default() -> Result<()> {
+     let builder = DFA::builder();
+@@ -24,9 +24,9 @@ fn default() -> Result<()> {
+         .test_iter(suite()?.iter(), compiler(builder))
+         .assert();
+     Ok(())
+-}
++}*/
+ 
+-/// Tests the hybrid NFA/DFA when 'starts_for_each_pattern' is enabled for all
++/* /// Tests the hybrid NFA/DFA when 'starts_for_each_pattern' is enabled for all
+ /// tests.
+ #[test]
+ fn starts_for_each_pattern() -> Result<()> {
+@@ -37,9 +37,9 @@ fn starts_for_each_pattern() -> Result<(
+         .test_iter(suite()?.iter(), compiler(builder))
+         .assert();
+     Ok(())
+-}
++}*/
+ 
+-/// Tests the hybrid NFA/DFA when byte classes are disabled.
++/* /// Tests the hybrid NFA/DFA when byte classes are disabled.
+ ///
+ /// N.B. Disabling byte classes doesn't avoid any indirection at search time.
+ /// All it does is cause every byte value to be its own distinct equivalence
+@@ -53,9 +53,9 @@ fn no_byte_classes() -> Result<()> {
+         .test_iter(suite()?.iter(), compiler(builder))
+         .assert();
+     Ok(())
+-}
++}*/
+ 
+-fn compiler(
++/*fn compiler(
+     mut builder: onepass::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     move |test, regexes| {
+@@ -90,9 +90,9 @@ fn compiler(
+             run_test(&re, &mut cache, test)
+         }))
+     }
+-}
++}*/
+ 
+-fn run_test(
++/*fn run_test(
+     re: &DFA,
+     cache: &mut onepass::Cache,
+     test: &RegexTest,
+@@ -153,9 +153,9 @@ fn run_test(
+         },
+         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+     }
+-}
++}*/
+ 
+-/// Configures the given regex builder with all relevant settings on the given
++/* /// Configures the given regex builder with all relevant settings on the given
+ /// regex test.
+ ///
+ /// If the regex test has a setting that is unsupported, then this returns
+@@ -178,20 +178,20 @@ fn configure_onepass_builder(
+         .syntax(config_syntax(test))
+         .thompson(config_thompson(test));
+     true
+-}
++}*/
+ 
+-/// Configuration of a Thompson NFA compiler from a regex test.
++/* /// Configuration of a Thompson NFA compiler from a regex test.
+ fn config_thompson(test: &RegexTest) -> thompson::Config {
+     let mut lookm = regex_automata::util::look::LookMatcher::new();
+     lookm.set_line_terminator(test.line_terminator());
+     thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
+-}
++}*/
+ 
+-/// Configuration of the regex parser from a regex test.
++/* /// Configuration of the regex parser from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/
+Index: regex-automata/Cargo.toml
+===================================================================
+--- regex-automata.orig/Cargo.toml
++++ regex-automata/Cargo.toml
+@@ -82,9 +82,6 @@ default-features = false
+ version = "1.0.3"
+ default-features = false
+ 
+-[dev-dependencies.regex-test]
+-version = "0.1.0"
+-
+ [features]
+ alloc = []
+ default = [
+Index: regex-automata/tests/dfa/suite.rs
+===================================================================
+--- regex-automata.orig/tests/dfa/suite.rs
++++ regex-automata/tests/dfa/suite.rs
+@@ -10,18 +10,18 @@ use {
+         Anchored, Input, PatternSet,
+     },
+     regex_syntax::hir,
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+         TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, untestify_kind};
++//use crate::{create_input, untestify_kind};
+ 
+ const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
+ 
+-/// Runs the test suite with the default configuration.
+-/*#[test]
++/* /// Runs the test suite with the default configuration.
++#[test]
+ fn unminimized_default() -> Result<()> {
+     let builder = Regex::builder();
+     TestRunner::new()?
+@@ -32,9 +32,9 @@ fn unminimized_default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite with the default configuration and a prefilter enabled,
++/* /// Runs the test suite with the default configuration and a prefilter enabled,
+ /// if one can be built.
+-/*#[test]
++#[test]
+ fn unminimized_prefilter() -> Result<()> {
+     let my_compiler = |test: &RegexTest, regexes: &[String]| {
+         // Parse regexes as HIRs so we can get literals to build a prefilter.
+@@ -63,8 +63,8 @@ fn unminimized_prefilter() -> Result<()>
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite with start states specialized.
+-/*#[test]
++/* /// Runs the test suite with start states specialized.
++#[test]
+ fn unminimized_specialized_start_states() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dense(dense::Config::new().specialize_start_states(true));
+@@ -77,8 +77,8 @@ fn unminimized_specialized_start_states(
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite with byte classes disabled.
+-/*#[test]
++/* /// Runs the test suite with byte classes disabled.
++#[test]
+ fn unminimized_no_byte_class() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dense(dense::Config::new().byte_classes(false));
+@@ -91,8 +91,8 @@ fn unminimized_no_byte_class() -> Result
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite with NFA shrinking enabled.
+-/*#[test]
++/* /// Runs the test suite with NFA shrinking enabled.
++#[test]
+ fn unminimized_nfa_shrink() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.thompson(thompson::Config::new().shrink(true));
+@@ -105,9 +105,9 @@ fn unminimized_nfa_shrink() -> Result<()
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite on a minimized DFA with an otherwise default
++/* /// Runs the test suite on a minimized DFA with an otherwise default
+ /// configuration.
+-/*#[test]
++#[test]
+ fn minimized_default() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dense(dense::Config::new().minimize(true));
+@@ -119,8 +119,8 @@ fn minimized_default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite on a minimized DFA with byte classes disabled.
+-/*#[test]
++/* /// Runs the test suite on a minimized DFA with byte classes disabled.
++#[test]
+ fn minimized_no_byte_class() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dense(dense::Config::new().minimize(true).byte_classes(false));
+@@ -133,8 +133,8 @@ fn minimized_no_byte_class() -> Result<(
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite on a sparse unminimized DFA.
+-/*#[test]
++/* /// Runs the test suite on a sparse unminimized DFA.
++#[test]
+ fn sparse_unminimized_default() -> Result<()> {
+     let builder = Regex::builder();
+     TestRunner::new()?
+@@ -145,8 +145,7 @@ fn sparse_unminimized_default() -> Resul
+     Ok(())
+ }*/
+ 
+-/// Runs the test suite on a sparse unminimized DFA with prefilters enabled.
+-/*#[test]
++/* #[test]
+ fn sparse_unminimized_prefilter() -> Result<()> {
+     let my_compiler = |test: &RegexTest, regexes: &[String]| {
+         // Parse regexes as HIRs so we can get literals to build a prefilter.
+@@ -178,9 +177,9 @@ fn sparse_unminimized_prefilter() -> Res
+     Ok(())
+ }*/
+ 
+-/// Another basic sanity test that checks we can serialize and then deserialize
++/* /// Another basic sanity test that checks we can serialize and then deserialize
+ /// a regex, and that the resulting regex can be used for searching correctly.
+-/*#[test]
++#[test]
+ fn serialization_unminimized_default() -> Result<()> {
+     let builder = Regex::builder();
+     let my_compiler = |builder| {
+@@ -207,10 +206,10 @@ fn serialization_unminimized_default() -
+     Ok(())
+ }*/
+ 
+-/// A basic sanity test that checks we can serialize and then deserialize a
++/* /// A basic sanity test that checks we can serialize and then deserialize a
+ /// regex using sparse DFAs, and that the resulting regex can be used for
+ /// searching correctly.
+-/*#[test]
++#[test]
+ fn sparse_serialization_unminimized_default() -> Result<()> {
+     let builder = Regex::builder();
+     let my_compiler = |builder| {
+@@ -236,7 +235,7 @@ fn sparse_serialization_unminimized_defa
+     Ok(())
+ }*/
+ 
+-fn dense_compiler(
++/* fn dense_compiler(
+     builder: dfa::regex::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     compiler(builder, |_, _, re| {
+@@ -244,9 +243,9 @@ fn dense_compiler(
+             run_test(&re, test)
+         }))
+     })
+-}
++}*/
+ 
+-fn sparse_compiler(
++/*fn sparse_compiler(
+     builder: dfa::regex::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     compiler(builder, |builder, _, re| {
+@@ -257,9 +256,9 @@ fn sparse_compiler(
+             run_test(&re, test)
+         }))
+     })
+-}
++}*/
+ 
+-fn compiler(
++/* fn compiler(
+     mut builder: dfa::regex::Builder,
+     mut create_matcher: impl FnMut(
+         &dfa::regex::Builder,
+@@ -298,9 +297,9 @@ fn compiler(
+         }
+         create_matcher(&builder, pre, builder.build_many(&regexes)?)
+     }
+-}
++}*/
+ 
+-fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
++/*fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
+     let input = create_input(test);
+     match test.additional_name() {
+         "is_match" => TestResult::matched(re.is_match(input.earliest(true))),
+@@ -336,9 +335,9 @@ fn run_test<A: Automaton>(re: &Regex<A>,
+         },
+         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+     }
+-}
++}*/
+ 
+-/// Configures the given regex builder with all relevant settings on the given
++/* /// Configures the given regex builder with all relevant settings on the given
+ /// regex test.
+ ///
+ /// If the regex test has a setting that is unsupported, then this returns
+@@ -383,18 +382,18 @@ fn config_thompson(test: &RegexTest) ->
+     let mut lookm = regex_automata::util::look::LookMatcher::new();
+     lookm.set_line_terminator(test.line_terminator());
+     thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
+-}
++}*/
+ 
+-/// Configuration of the regex syntax from a regex test.
++/* /// Configuration of the regex syntax from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/
+ 
+-/// Execute an overlapping search, and for each match found, also find its
++/* /// Execute an overlapping search, and for each match found, also find its
+ /// overlapping starting positions.
+ ///
+ /// N.B. This routine used to be part of the crate API, but 1) it wasn't clear
+@@ -444,4 +443,4 @@ fn try_search_overlapping<A: Automaton>(
+         }
+     }
+     Ok(TestResult::matches(matches))
+-}
++}*/
+Index: regex-automata/tests/hybrid/suite.rs
+===================================================================
+--- regex-automata.orig/tests/hybrid/suite.rs
++++ regex-automata/tests/hybrid/suite.rs
+@@ -9,18 +9,18 @@ use {
+         util::{prefilter::Prefilter, syntax},
+         Anchored, Input, PatternSet,
+     },
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+         TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, untestify_kind};
++//use crate::{create_input, untestify_kind};
+ 
+ const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
+-/*#[test]
++/* /// Tests the default configuration of the hybrid NFA/DFA.
++#[test]
+ fn default() -> Result<()> {
+     let builder = Regex::builder();
+     TestRunner::new()?
+@@ -32,8 +32,8 @@ fn default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA with prefilters enabled.
+-/*#[test]
++/* /// Tests the hybrid NFA/DFA with prefilters enabled.
++#[test]
+ fn prefilter() -> Result<()> {
+     let my_compiler = |test: &RegexTest, regexes: &[String]| {
+         // Parse regexes as HIRs so we can get literals to build a prefilter.
+@@ -59,7 +59,7 @@ fn prefilter() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA with NFA shrinking enabled.
++/* /// Tests the hybrid NFA/DFA with NFA shrinking enabled.
+ ///
+ /// This is *usually* not the configuration one wants for a lazy DFA. NFA
+ /// shrinking is mostly only advantageous when building a full DFA since it
+@@ -71,7 +71,7 @@ fn prefilter() -> Result<()> {
+ /// Nevertheless, we test to make sure everything is OK with NFA shrinking. As
+ /// a bonus, there are some tests we don't need to skip because they now fit in
+ /// the default cache capacity.
+-/*#[test]
++#[test]
+ fn nfa_shrink() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.thompson(thompson::Config::new().shrink(true));
+@@ -82,9 +82,9 @@ fn nfa_shrink() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA when 'starts_for_each_pattern' is enabled for all
++/* /// Tests the hybrid NFA/DFA when 'starts_for_each_pattern' is enabled for all
+ /// tests.
+-/*#[test]
++#[test]
+ fn starts_for_each_pattern() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dfa(DFA::config().starts_for_each_pattern(true));
+@@ -97,8 +97,8 @@ fn starts_for_each_pattern() -> Result<(
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA when 'specialize_start_states' is enabled.
+-/*#[test]
++/* /// Tests the hybrid NFA/DFA when 'specialize_start_states' is enabled.
++#[test]
+ fn specialize_start_states() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dfa(DFA::config().specialize_start_states(true));
+@@ -111,12 +111,12 @@ fn specialize_start_states() -> Result<(
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA when byte classes are disabled.
++/* /// Tests the hybrid NFA/DFA when byte classes are disabled.
+ ///
+ /// N.B. Disabling byte classes doesn't avoid any indirection at search time.
+ /// All it does is cause every byte value to be its own distinct equivalence
+ /// class.
+-/*#[test]
++#[test]
+ fn no_byte_classes() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dfa(DFA::config().byte_classes(false));
+@@ -129,13 +129,13 @@ fn no_byte_classes() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests that hybrid NFA/DFA never clears its cache for any test with the
++/* /// Tests that hybrid NFA/DFA never clears its cache for any test with the
+ /// default capacity.
+ ///
+ /// N.B. If a regex suite test is added that causes the cache to be cleared,
+ /// then this should just skip that test. (Which can be done by calling the
+ /// 'blacklist' method on 'TestRunner'.)
+-/*#[test]
++#[test]
+ fn no_cache_clearing() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.dfa(DFA::config().minimum_cache_clear_count(Some(0)));
+@@ -148,8 +148,8 @@ fn no_cache_clearing() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the hybrid NFA/DFA when the minimum cache capacity is set.
+-/*#[test]
++/* /// Tests the hybrid NFA/DFA when the minimum cache capacity is set.
++#[test]
+ fn min_cache_capacity() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder
+@@ -161,7 +161,7 @@ fn min_cache_capacity() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-fn compiler(
++/* fn compiler(
+     mut builder: regex::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     move |test, regexes| {
+@@ -189,9 +189,9 @@ fn compiler(
+             run_test(&re, &mut cache, test)
+         }))
+     }
+-}
++} */
+ 
+-fn run_test(
++/*fn run_test(
+     re: &Regex,
+     cache: &mut regex::Cache,
+     test: &RegexTest,
+@@ -234,9 +234,9 @@ fn run_test(
+         },
+         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+     }
+-}
++}*/
+ 
+-/// Configures the given regex builder with all relevant settings on the given
++/* /// Configures the given regex builder with all relevant settings on the given
+ /// regex test.
+ ///
+ /// If the regex test has a setting that is unsupported, then this returns
+@@ -266,25 +266,25 @@ fn configure_regex_builder(
+         .thompson(config_thompson(test))
+         .dfa(dfa_config);
+     true
+-}
++}*/
+ 
+-/// Configuration of a Thompson NFA compiler from a regex test.
++/* /// Configuration of a Thompson NFA compiler from a regex test.
+ fn config_thompson(test: &RegexTest) -> thompson::Config {
+     let mut lookm = regex_automata::util::look::LookMatcher::new();
+     lookm.set_line_terminator(test.line_terminator());
+     thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
+-}
++}*/
+ 
+-/// Configuration of the regex parser from a regex test.
++/* /// Configuration of the regex parser from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/
+ 
+-/// Execute an overlapping search, and for each match found, also find its
++/* /// Execute an overlapping search, and for each match found, also find its
+ /// overlapping starting positions.
+ ///
+ /// N.B. This routine used to be part of the crate API, but 1) it wasn't clear
+@@ -344,4 +344,4 @@ fn try_search_overlapping(
+         }
+     }
+     Ok(TestResult::matches(matches))
+-}
++}*/
+Index: regex-automata/tests/lib.rs
+===================================================================
+--- regex-automata.orig/tests/lib.rs
++++ regex-automata/tests/lib.rs
+@@ -68,7 +68,7 @@ mod nfa;
+     Ok(tests)
+ }*/
+ 
+-/// Configure a regex_automata::Input with the given test configuration.
++/* /// Configure a regex_automata::Input with the given test configuration.
+ fn create_input<'h>(
+     test: &'h regex_test::RegexTest,
+ ) -> regex_automata::Input<'h> {
+@@ -79,9 +79,9 @@ fn create_input<'h>(
+     regex_automata::Input::new(test.haystack())
+         .range(bounds.start..bounds.end)
+         .anchored(anchored)
+-}
++}*/
+ 
+-/// Convert capture matches into the test suite's capture values.
++/* /// Convert capture matches into the test suite's capture values.
+ ///
+ /// The given captures must represent a valid match, where the first capturing
+ /// group has a non-None span. Otherwise this panics.
+@@ -97,9 +97,9 @@ fn testify_captures(
+     // group being non-None.
+     regex_test::Captures::new(caps.pattern().unwrap().as_usize(), spans)
+         .unwrap()
+-}
++}*/
+ 
+-/// Convert a test harness match kind to a regex-automata match kind. If
++/* /// Convert a test harness match kind to a regex-automata match kind. If
+ /// regex-automata doesn't support the harness kind, then `None` is returned.
+ fn untestify_kind(
+     kind: regex_test::MatchKind,
+@@ -111,4 +111,4 @@ fn untestify_kind(
+         }
+         regex_test::MatchKind::LeftmostLongest => None,
+     }
+-}
++}*/
+Index: regex-automata/tests/meta/suite.rs
+===================================================================
+--- regex-automata.orig/tests/meta/suite.rs
++++ regex-automata/tests/meta/suite.rs
+@@ -5,13 +5,13 @@ use {
+         util::syntax,
+         MatchKind, PatternSet,
+     },
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+         TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, testify_captures};
++//use crate::{create_input, testify_captures};
+ 
+ const BLACKLIST: &[&str] = &[
+     // These 'earliest' tests are blacklisted because the meta searcher doesn't
+@@ -26,8 +26,8 @@ const BLACKLIST: &[&str] = &[
+     "earliest/",
+ ];
+ 
+-/// Tests the default configuration of the meta regex engine.
+-/*#[test]
++/* /// Tests the default configuration of the meta regex engine.
++#[test]
+ fn default() -> Result<()> {
+     let builder = Regex::builder();
+     let mut runner = TestRunner::new()?;
+@@ -39,8 +39,8 @@ fn default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the default configuration minus the full DFA.
+-/*#[test]
++/* /// Tests the default configuration minus the full DFA.
++#[test]
+ fn no_dfa() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.configure(Regex::config().dfa(false));
+@@ -53,8 +53,8 @@ fn no_dfa() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the default configuration minus the full DFA and lazy DFA.
+-/*#[test]
++/* /// Tests the default configuration minus the full DFA and lazy DFA.
++#[test]
+ fn no_dfa_hybrid() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.configure(Regex::config().dfa(false).hybrid(false));
+@@ -67,9 +67,9 @@ fn no_dfa_hybrid() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the default configuration minus the full DFA, lazy DFA and one-pass
++/* /// Tests the default configuration minus the full DFA, lazy DFA and one-pass
+ /// DFA.
+-/*#[test]
++#[test]
+ fn no_dfa_hybrid_onepass() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.configure(Regex::config().dfa(false).hybrid(false).onepass(false));
+@@ -82,9 +82,9 @@ fn no_dfa_hybrid_onepass() -> Result<()>
+     Ok(())
+ }*/
+ 
+-/// Tests the default configuration minus the full DFA, lazy DFA, one-pass
++/* /// Tests the default configuration minus the full DFA, lazy DFA, one-pass
+ /// DFA and backtracker.
+-/*#[test]
++#[test]
+ fn no_dfa_hybrid_onepass_backtrack() -> Result<()> {
+     let mut builder = Regex::builder();
+     builder.configure(
+@@ -103,7 +103,7 @@ fn no_dfa_hybrid_onepass_backtrack() ->
+     Ok(())
+ }*/
+ 
+-fn compiler(
++/*fn compiler(
+     mut builder: meta::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     move |test, regexes| {
+@@ -115,9 +115,9 @@ fn compiler(
+             run_test(&re, test)
+         }))
+     }
+-}
++}*/
+ 
+-fn run_test(re: &Regex, test: &RegexTest) -> TestResult {
++/*fn run_test(re: &Regex, test: &RegexTest) -> TestResult {
+     let input = create_input(test);
+     match test.additional_name() {
+         "is_match" => TestResult::matched(re.is_match(input)),
+@@ -188,13 +188,13 @@ fn configure_meta_builder(
+         .line_terminator(test.line_terminator());
+     builder.configure(meta_config).syntax(config_syntax(test));
+     true
+-}
++}*/
+ 
+-/// Configuration of the regex parser from a regex test.
++/* /// Configuration of the regex parser from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/
+Index: regex-automata/tests/nfa/thompson/backtrack/suite.rs
+===================================================================
+--- regex-automata.orig/tests/nfa/thompson/backtrack/suite.rs
++++ regex-automata/tests/nfa/thompson/backtrack/suite.rs
+@@ -9,16 +9,16 @@ use {
+         util::{prefilter::Prefilter, syntax},
+         Input,
+     },
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, MatchKind, RegexTest, SearchKind, Span,
+         TestResult, TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, testify_captures};
++//use crate::{create_input, testify_captures};
+ 
+-/// Tests the default configuration of the bounded backtracker.
+-/*#[test]
++/* /// Tests the default configuration of the bounded backtracker.
++#[test]
+ fn default() -> Result<()> {
+     let builder = BoundedBacktracker::builder();
+     let mut runner = TestRunner::new()?;
+@@ -36,8 +36,8 @@ fn default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the backtracker with prefilters enabled.
+-/*#[test]
++/* /// Tests the backtracker with prefilters enabled.
++#[test]
+ fn prefilter() -> Result<()> {
+     let my_compiler = |test: &RegexTest, regexes: &[String]| {
+         // Parse regexes as HIRs so we can get literals to build a prefilter.
+@@ -62,9 +62,9 @@ fn prefilter() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the bounded backtracker when its visited capacity is set to its
++/* /// Tests the bounded backtracker when its visited capacity is set to its
+ /// minimum amount.
+-/*#[test]
++#[test]
+ fn min_visited_capacity() -> Result<()> {
+     let mut runner = TestRunner::new()?;
+     runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
+@@ -97,7 +97,7 @@ fn min_visited_capacity() -> Result<()>
+     Ok(())
+ }*/
+ 
+-fn compiler(
++/* fn compiler(
+     mut builder: backtrack::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     move |test, regexes| {
+@@ -110,9 +110,9 @@ fn compiler(
+             run_test(&re, &mut cache, test)
+         }))
+     }
+-}
++}*/
+ 
+-fn run_test(
++/*fn run_test(
+     re: &BoundedBacktracker,
+     cache: &mut backtrack::Cache,
+     test: &RegexTest,
+@@ -194,20 +194,20 @@ fn configure_backtrack_builder(
+         .syntax(config_syntax(test))
+         .thompson(config_thompson(test));
+     true
+-}
++}*/
+ 
+-/// Configuration of a Thompson NFA compiler from a regex test.
++/* /// Configuration of a Thompson NFA compiler from a regex test.
+ fn config_thompson(test: &RegexTest) -> thompson::Config {
+     let mut lookm = regex_automata::util::look::LookMatcher::new();
+     lookm.set_line_terminator(test.line_terminator());
+     thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
+-}
++}*/
+ 
+-/// Configuration of the regex parser from a regex test.
++/* /// Configuration of the regex parser from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/
+Index: regex-automata/tests/nfa/thompson/pikevm/suite.rs
+===================================================================
+--- regex-automata.orig/tests/nfa/thompson/pikevm/suite.rs
++++ regex-automata/tests/nfa/thompson/pikevm/suite.rs
+@@ -8,16 +8,16 @@ use {
+         util::{prefilter::Prefilter, syntax},
+         PatternSet,
+     },
+-    regex_test::{
++    /*regex_test::{
+         CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+         TestRunner,
+-    },
++    },*/
+ };
+ 
+-use crate::{create_input, testify_captures, untestify_kind};
++//use crate::{create_input, testify_captures, untestify_kind};
+ 
+-/// Tests the default configuration of the hybrid NFA/DFA.
+-/*#[test]
++/* /// Tests the default configuration of the hybrid NFA/DFA.
++#[test]
+ fn default() -> Result<()> {
+     let builder = PikeVM::builder();
+     let mut runner = TestRunner::new()?;
+@@ -26,8 +26,8 @@ fn default() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-/// Tests the PikeVM with prefilters enabled.
+-/*#[test]
++/* /// Tests the PikeVM with prefilters enabled.
++#[test]
+ fn prefilter() -> Result<()> {
+     let my_compiler = |test: &RegexTest, regexes: &[String]| {
+         // Parse regexes as HIRs so we can get literals to build a prefilter.
+@@ -50,7 +50,7 @@ fn prefilter() -> Result<()> {
+     Ok(())
+ }*/
+ 
+-fn compiler(
++/* fn compiler(
+     mut builder: pikevm::Builder,
+ ) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
+     move |test, regexes| {
+@@ -63,9 +63,9 @@ fn compiler(
+             run_test(&re, &mut cache, test)
+         }))
+     }
+-}
++}*/
+ 
+-fn run_test(
++/*fn run_test(
+     re: &PikeVM,
+     cache: &mut pikevm::Cache,
+     test: &RegexTest,
+@@ -122,9 +122,9 @@ fn run_test(
+         },
+         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+     }
+-}
++}*/
+ 
+-/// Configures the given regex builder with all relevant settings on the given
++/* /// Configures the given regex builder with all relevant settings on the given
+ /// regex test.
+ ///
+ /// If the regex test has a setting that is unsupported, then this returns
+@@ -143,20 +143,20 @@ fn configure_pikevm_builder(
+         .syntax(config_syntax(test))
+         .thompson(config_thompson(test));
+     true
+-}
++}*/
+ 
+-/// Configuration of a Thompson NFA compiler from a regex test.
++/* /// Configuration of a Thompson NFA compiler from a regex test.
+ fn config_thompson(test: &RegexTest) -> thompson::Config {
+     let mut lookm = regex_automata::util::look::LookMatcher::new();
+     lookm.set_line_terminator(test.line_terminator());
+     thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
+-}
++}*/
+ 
+-/// Configuration of the regex parser from a regex test.
++/* /// Configuration of the regex parser from a regex test.
+ fn config_syntax(test: &RegexTest) -> syntax::Config {
+     syntax::Config::new()
+         .case_insensitive(test.case_insensitive())
+         .unicode(test.unicode())
+         .utf8(test.utf8())
+         .line_terminator(test.line_terminator())
+-}
++}*/

@@ -1,0 +1,10 @@
+--- a/examples/in_tests.rs
++++ b/examples/in_tests.rs
+@@ -41,6 +41,7 @@ mod tests {
+     }
+ 
+     #[test]
++    #[ignore = "broken in debian"]
+     fn it_does_not_work() {
+         init_logger();
+ 

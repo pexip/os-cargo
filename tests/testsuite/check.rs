@@ -2,11 +2,12 @@
 
 use std::fmt::{self, Write};
 
+use crate::messages::raw_rustc_output;
 use cargo_test_support::install::exe;
 use cargo_test_support::paths::CargoPathExt;
 use cargo_test_support::registry::Package;
 use cargo_test_support::tools;
-use cargo_test_support::{basic_manifest, project};
+use cargo_test_support::{basic_bin_manifest, basic_manifest, git, project};
 
 #[cargo_test]
 fn check_success() {
@@ -941,7 +942,7 @@ fn rustc_workspace_wrapper_includes_path_deps() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
                 authors = []
@@ -997,7 +998,7 @@ fn rustc_workspace_wrapper_excludes_published_deps() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
                 authors = []
@@ -1022,5 +1023,499 @@ fn rustc_workspace_wrapper_excludes_published_deps() {
         .with_stderr_contains("WRAPPER CALLED: rustc --crate-name bar [..]")
         .with_stderr_contains("[CHECKING] baz [..]")
         .with_stdout_does_not_contain("WRAPPER CALLED: rustc --crate-name baz [..]")
+        .run();
+}
+
+#[cargo_test]
+fn warn_manifest_package_and_project() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [project]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[WARNING] manifest at `[CWD]` contains both `project` and `package`, this could become a hard error in the future
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn git_manifest_package_and_project() {
+    let p = project();
+    let git_project = git::new("bar", |p| {
+        p.file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "bar"
+            version = "0.0.1"
+
+            [project]
+            name = "bar"
+            version = "0.0.1"
+            "#,
+        )
+        .file("src/lib.rs", "")
+    });
+
+    let p = p
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [dependencies.bar]
+                version = "0.0.1"
+                git  = '{}'
+
+            "#,
+                git_project.url()
+            ),
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[UPDATING] git repository `[..]`
+[CHECKING] bar v0.0.1 ([..])
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn warn_manifest_with_project() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[WARNING] manifest at `[CWD]` contains `[project]` instead of `[package]`, this could become a hard error in the future
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn git_manifest_with_project() {
+    let p = project();
+    let git_project = git::new("bar", |p| {
+        p.file(
+            "Cargo.toml",
+            r#"
+            [project]
+            name = "bar"
+            version = "0.0.1"
+            "#,
+        )
+        .file("src/lib.rs", "")
+    });
+
+    let p = p
+        .file(
+            "Cargo.toml",
+            &format!(
+                r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+
+                [dependencies.bar]
+                version = "0.0.1"
+                git  = '{}'
+
+            "#,
+                git_project.url()
+            ),
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[UPDATING] git repository `[..]`
+[CHECKING] bar v0.0.1 ([..])
+[CHECKING] foo v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn check_fixable_warning() {
+    let foo = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file("src/lib.rs", "use std::io;")
+        .build();
+
+    foo.cargo("check")
+        .with_stderr_contains("[..] (run `cargo fix --lib -p foo` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test]
+fn check_fixable_test_warning() {
+    let foo = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file(
+            "src/lib.rs",
+            "\
+mod tests {
+    #[test]
+    fn t1() {
+        use std::io;
+    }
+}
+            ",
+        )
+        .build();
+
+    foo.cargo("check --all-targets")
+        .with_stderr_contains("[..] (run `cargo fix --lib -p foo --tests` to apply 1 suggestion)")
+        .run();
+    foo.cargo("fix --lib -p foo --tests --allow-no-vcs").run();
+    assert!(!foo.read_file("src/lib.rs").contains("use std::io;"));
+}
+
+#[cargo_test]
+fn check_fixable_error_no_fix() {
+    let foo = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file(
+            "src/lib.rs",
+            "use std::io;\n#[derive(Debug(x))]\nstruct Foo;",
+        )
+        .build();
+
+    let rustc_message = raw_rustc_output(&foo, "src/lib.rs", &[]);
+    let expected_output = format!(
+        "\
+[CHECKING] foo v0.0.1 ([..])
+{}\
+[WARNING] `foo` (lib) generated 1 warning
+[ERROR] could not compile `foo` due to previous error; 1 warning emitted
+",
+        rustc_message
+    );
+    foo.cargo("check")
+        .with_status(101)
+        .with_stderr(expected_output)
+        .run();
+}
+
+#[cargo_test]
+fn check_fixable_warning_workspace() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [workspace]
+                members = ["foo", "bar"]
+            "#,
+        )
+        .file(
+            "foo/Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        .file("foo/src/lib.rs", "use std::io;")
+        .file(
+            "bar/Cargo.toml",
+            r#"
+                [package]
+                name = "bar"
+                version = "0.0.1"
+
+                [dependencies]
+                foo = { path = "../foo" }
+            "#,
+        )
+        .file("bar/src/lib.rs", "use std::io;")
+        .build();
+
+    p.cargo("check")
+        .with_stderr_contains("[..] (run `cargo fix --lib -p foo` to apply 1 suggestion)")
+        .with_stderr_contains("[..] (run `cargo fix --lib -p bar` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test]
+fn check_fixable_example() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file(
+            "src/main.rs",
+            r#"
+            fn hello() -> &'static str {
+                "hello"
+            }
+
+            pub fn main() {
+                println!("{}", hello())
+            }
+            "#,
+        )
+        .file("examples/ex1.rs", "use std::fmt; fn main() {}")
+        .build();
+    p.cargo("check --all-targets")
+        .with_stderr_contains("[..] (run `cargo fix --example \"ex1\"` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test(nightly, reason = "bench")]
+fn check_fixable_bench() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file(
+            "src/main.rs",
+            r#"
+            #![feature(test)]
+            #[cfg(test)]
+            extern crate test;
+
+            fn hello() -> &'static str {
+                "hello"
+            }
+
+            pub fn main() {
+                println!("{}", hello())
+            }
+
+            #[bench]
+            fn bench_hello(_b: &mut test::Bencher) {
+                use std::io;
+                assert_eq!(hello(), "hello")
+            }
+            "#,
+        )
+        .file(
+            "benches/bench.rs",
+            "
+            #![feature(test)]
+            extern crate test;
+
+            #[bench]
+            fn bench(_b: &mut test::Bencher) { use std::fmt; }
+        ",
+        )
+        .build();
+    p.cargo("check --all-targets")
+        .with_stderr_contains("[..] (run `cargo fix --bench \"bench\"` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test(nightly, reason = "bench")]
+fn check_fixable_mixed() {
+    let p = project()
+        .file("Cargo.toml", &basic_bin_manifest("foo"))
+        .file(
+            "src/main.rs",
+            r#"
+            #![feature(test)]
+            #[cfg(test)]
+            extern crate test;
+
+            fn hello() -> &'static str {
+                "hello"
+            }
+
+            pub fn main() {
+                println!("{}", hello())
+            }
+
+            #[bench]
+            fn bench_hello(_b: &mut test::Bencher) {
+                use std::io;
+                assert_eq!(hello(), "hello")
+            }
+            #[test]
+            fn t1() {
+                use std::fmt;
+            }
+            "#,
+        )
+        .file("examples/ex1.rs", "use std::fmt; fn main() {}")
+        .file(
+            "benches/bench.rs",
+            "
+            #![feature(test)]
+            extern crate test;
+
+            #[bench]
+            fn bench(_b: &mut test::Bencher) { use std::fmt; }
+        ",
+        )
+        .build();
+    p.cargo("check --all-targets")
+        .with_stderr_contains("[..] (run `cargo fix --bin \"foo\" --tests` to apply 2 suggestions)")
+        .with_stderr_contains("[..] (run `cargo fix --example \"ex1\"` to apply 1 suggestion)")
+        .with_stderr_contains("[..] (run `cargo fix --bench \"bench\"` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test]
+fn check_fixable_warning_for_clippy() {
+    // A wrapper around `rustc` instead of calling `clippy`
+    let clippy_driver = project()
+        .at(cargo_test_support::paths::global_root().join("clippy-driver"))
+        .file("Cargo.toml", &basic_manifest("clippy-driver", "0.0.1"))
+        .file(
+            "src/main.rs",
+            r#"
+            fn main() {
+                let mut args = std::env::args_os();
+                let _me = args.next().unwrap();
+                let rustc = args.next().unwrap();
+                let status = std::process::Command::new(rustc).args(args).status().unwrap();
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            "#,
+        )
+        .build();
+    clippy_driver.cargo("build").run();
+
+    let foo = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+            "#,
+        )
+        // We don't want to show a warning that is `clippy`
+        // specific since we are using a `rustc` wrapper
+        // inplace of `clippy`
+        .file("src/lib.rs", "use std::io;")
+        .build();
+
+    foo.cargo("check")
+        // We can't use `clippy` so we use a `rustc` workspace wrapper instead
+        .env(
+            "RUSTC_WORKSPACE_WRAPPER",
+            clippy_driver.bin("clippy-driver"),
+        )
+        .with_stderr_contains("[..] (run `cargo clippy --fix --lib -p foo` to apply 1 suggestion)")
+        .run();
+}
+
+#[cargo_test]
+fn check_unused_manifest_keys() {
+    Package::new("dep", "0.1.0").publish();
+    Package::new("foo", "0.1.0").publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "bar"
+            version = "0.2.0"
+            authors = []
+
+            [dependencies]
+            dep = { version = "0.1.0", wxz = "wxz" }
+            foo = { version = "0.1.0", abc = "abc" }
+
+            [dev-dependencies]
+            foo = { version = "0.1.0", wxz = "wxz" }
+
+            [build-dependencies]
+            foo = { version = "0.1.0", wxz = "wxz" }
+
+            [target.'cfg(windows)'.dependencies]
+            foo = { version = "0.1.0", wxz = "wxz" }
+
+            [target.x86_64-pc-windows-gnu.dev-dependencies]
+            foo = { version = "0.1.0", wxz = "wxz" }
+
+            [target.bar.build-dependencies]
+            foo = { version = "0.1.0", wxz = "wxz" }
+        "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[WARNING] unused manifest key: dependencies.dep.wxz
+[WARNING] unused manifest key: dependencies.foo.abc
+[WARNING] unused manifest key: dev-dependencies.foo.wxz
+[WARNING] unused manifest key: build-dependencies.foo.wxz
+[WARNING] unused manifest key: target.bar.build-dependencies.foo.wxz
+[WARNING] unused manifest key: target.cfg(windows).dependencies.foo.wxz
+[WARNING] unused manifest key: target.x86_64-pc-windows-gnu.dev-dependencies.foo.wxz
+[UPDATING] `[..]` index
+[DOWNLOADING] crates ...
+[DOWNLOADED] foo v0.1.0 ([..])
+[DOWNLOADED] dep v0.1.0 ([..])
+[CHECKING] [..]
+[CHECKING] [..]
+[CHECKING] bar v0.2.0 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        )
         .run();
 }

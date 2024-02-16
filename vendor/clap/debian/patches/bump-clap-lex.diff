@@ -1,0 +1,13 @@
+Index: clap/Cargo.toml
+===================================================================
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -373,7 +373,7 @@ version = "=4.1.12"
+ optional = true
+ 
+ [dependencies.clap_lex]
+-version = "0.3.0"
++version = "0.5"
+ 
+ [dependencies.atty]
+ version = "0.2"

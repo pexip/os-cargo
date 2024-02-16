@@ -1,14 +1,19 @@
---- curl-sys.orig/Cargo.toml
-+++ curl-sys/Cargo.toml
-@@ -63,3 +63,3 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -61,7 +61,7 @@
+ spnego = []
+ ssl = ["openssl-sys"]
  static-curl = []
 -static-ssl = ["openssl-sys/vendored"]
 +static-ssl = ["openssl-sys"]
  upkeep_7_62_0 = []
-only in patch2:
---- curl-sys.orig/build.rs
-+++ curl-sys/build.rs
-@@ -28,4 +28,5 @@
+ windows-static-ssl = []
+ zlib-ng-compat = [
+--- a/build.rs
++++ b/build.rs
+@@ -18,8 +18,9 @@
+         return println!("cargo:rustc-flags=-l curl");
+     }
  
 -    // If the static-curl feature is disabled, probe for a system-wide libcurl.
 -    if !cfg!(feature = "static-curl") {
@@ -16,3 +21,5 @@ only in patch2:
 +    if true {
 +        if cfg!(feature = "static-curl") { println!("cargo:static=1"); }
          // OSX ships libcurl by default, so we just use that version
+         // so long as it has the right features enabled.
+         if target.contains("apple") && (!cfg!(feature = "http2") || curl_config_reports_http2()) {

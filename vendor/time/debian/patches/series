@@ -1,0 +1,3 @@
+remove-references-to-missing-tests.patch
+fix-tests-parsing-feature-only.patch
+disable-benches.patch

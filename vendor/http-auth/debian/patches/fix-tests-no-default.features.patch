@@ -1,0 +1,20 @@
+Index: http-auth/src/lib.rs
+===================================================================
+--- http-auth.orig/src/lib.rs
++++ http-auth/src/lib.rs
+@@ -625,6 +625,7 @@ impl<'i> std::fmt::Debug for ParamValue<
+ #[cfg(test)]
+ mod tests {
+     use crate::ParamValue;
++    #[cfg(feature = "digest-scheme")]
+     use crate::{C_ATTR, C_ESCAPABLE, C_OWS, C_QDTEXT, C_TCHAR};
+ 
+     /// Prints the character classes of all ASCII bytes from the table.
+@@ -633,6 +634,7 @@ mod tests {
+     /// $ cargo test -- --nocapture tests::table
+     /// ```
+     #[test]
++    #[cfg(feature = "digest-scheme")]
+     fn table() {
+         // Print the table to allow human inspection.
+         println!("oct  dec  hex   char      tchar  qdtext  escapable  ows  attr");

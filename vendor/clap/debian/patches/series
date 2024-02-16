@@ -1,6 +1,4 @@
 disable-trycmd.diff
 disable-unstable-doc.patch
-disable-unstable-v4.patch
-disable-snapbox.patch
-disable-derive-deprecated.patch
-once-cell-non-optional.patch
+disable-unstable-v5.patch
+disable-unic-emoji-char.patch
