@@ -1,3 +1,9 @@
+cargo (0.70.1+ds1-2+pexip24u1) pexip; urgency=medium
+
+  * New upstream release
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Fri, 16 Feb 2024 15:08:25 +0000
+
 cargo (0.70.1+ds1-2) unstable; urgency=medium
 
   [ Fabian Gruenbichler ]
