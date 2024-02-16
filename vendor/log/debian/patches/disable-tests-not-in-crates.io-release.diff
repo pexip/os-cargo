@@ -2,7 +2,7 @@ Index: log/Cargo.toml
 ===================================================================
 --- log.orig/Cargo.toml
 +++ log/Cargo.toml
-@@ -33,16 +33,6 @@ features = [
+@@ -34,15 +34,15 @@ features = [
      "kv_unstable_serde",
  ]
  
@@ -10,12 +10,19 @@ Index: log/Cargo.toml
 -name = "filters"
 -path = "tests/filters.rs"
 -harness = false
--
++# [[test]]
++# name = "filters"
++# path = "tests/filters.rs"
++# harness = false
+ 
 -[[test]]
 -name = "macros"
 -path = "tests/macros.rs"
 -harness = true
--
- [dependencies.cfg-if]
- version = "1.0"
++# [[test]]
++# name = "macros"
++# path = "tests/macros.rs"
++# harness = true
  
+ [dependencies.serde]
+ version = "1.0"

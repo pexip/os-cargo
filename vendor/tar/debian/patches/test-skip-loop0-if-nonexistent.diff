@@ -1,11 +1,9 @@
 Description: Skip using loop0 if it doesn't exist (apparently it doesn't on Debian CI)
 Author: Peter Michael Green <plugwash@debian.org>
 
-Index: tar/tests/all.rs
-===================================================================
---- tar.orig/tests/all.rs
-+++ tar/tests/all.rs
-@@ -1345,7 +1345,10 @@ fn tar_directory_containing_special_file
+--- a/tests/all.rs
++++ b/tests/all.rs
+@@ -1394,7 +1394,10 @@
      // unfortunately, block device file cannot be created by non-root users
      // as a substitute, just test the file that exists on most Unix systems
      t!(env::set_current_dir("/dev/"));

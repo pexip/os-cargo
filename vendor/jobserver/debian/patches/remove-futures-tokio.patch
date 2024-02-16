@@ -1,0 +1,38 @@
+Index: jobserver/Cargo.toml
+===================================================================
+--- jobserver.orig/Cargo.toml
++++ jobserver/Cargo.toml
+@@ -22,11 +22,7 @@ documentation = "https://docs.rs/jobserv
+ readme = "README.md"
+ license = "MIT/Apache-2.0"
+ repository = "https://github.com/alexcrichton/jobserver-rs"
+-
+-[[test]]
+-name = "client"
+-path = "tests/client.rs"
+-harness = false
++autotests = false
+ 
+ [[test]]
+ name = "server"
+@@ -46,20 +42,11 @@ harness = false
+ name = "helper"
+ path = "tests/helper.rs"
+ 
+-[dev-dependencies.futures]
+-version = "0.1"
+-
+ [dev-dependencies.num_cpus]
+ version = "1.0"
+ 
+ [dev-dependencies.tempfile]
+ version = "3"
+ 
+-[dev-dependencies.tokio-core]
+-version = "0.1"
+-
+-[dev-dependencies.tokio-process]
+-version = "0.2"
+-
+ [target."cfg(unix)".dependencies.libc]
+ version = "0.2.50"

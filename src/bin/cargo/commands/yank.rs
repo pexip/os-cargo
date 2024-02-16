@@ -1,12 +1,13 @@
 use crate::command_prelude::*;
 
 use cargo::ops;
+use cargo::util::auth::Secret;
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     subcommand("yank")
         .about("Remove a pushed crate from the index")
         .arg_quiet()
-        .arg(Arg::new("crate"))
+        .arg(Arg::new("crate").action(ArgAction::Set))
         .arg(
             opt("version", "The version to yank or un-yank")
                 .alias("vers")
@@ -23,8 +24,6 @@ pub fn cli() -> App {
 }
 
 pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
-    config.load_credentials()?;
-
     let registry = args.registry(config)?;
 
     let (krate, version) = resolve_crate(
@@ -39,7 +38,7 @@ pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
         config,
         krate.map(|s| s.to_string()),
         version.map(|s| s.to_string()),
-        args.get_one::<String>("token").cloned(),
+        args.get_one::<String>("token").cloned().map(Secret::from),
         args.get_one::<String>("index").cloned(),
         args.flag("undo"),
         registry,

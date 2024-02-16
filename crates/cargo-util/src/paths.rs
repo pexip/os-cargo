@@ -18,18 +18,19 @@ use tempfile::Builder as TempFileBuilder;
 /// environment variable this is will be used for, which is included in the
 /// error message.
 pub fn join_paths<T: AsRef<OsStr>>(paths: &[T], env: &str) -> Result<OsString> {
-    env::join_paths(paths.iter())
-        .with_context(|| {
-            let paths = paths.iter().map(Path::new).collect::<Vec<_>>();
-            format!("failed to join path array: {:?}", paths)
-        })
-        .with_context(|| {
-            format!(
-                "failed to join search paths together\n\
-                     Does ${} have an unterminated quote character?",
-                env
-            )
-        })
+    env::join_paths(paths.iter()).with_context(|| {
+        let mut message = format!(
+            "failed to join paths from `${env}` together\n\n\
+             Check if any of path segments listed below contain an \
+             unterminated quote character or path separator:"
+        );
+        for path in paths {
+            use std::fmt::Write;
+            write!(&mut message, "\n    {:?}", Path::new(path)).unwrap();
+        }
+
+        message
+    })
 }
 
 /// Returns the name of the environment variable used for searching for
@@ -636,7 +637,7 @@ pub fn create_dir_all_excluded_from_backups_atomic(p: impl AsRef<Path>) -> Resul
     // it from backups, then rename it to the desired name. If we created the
     // directory directly where it should be and then excluded it from backups
     // we would risk a situation where cargo is interrupted right after the directory
-    // creation but before the exclusion the the directory would remain non-excluded from
+    // creation but before the exclusion the directory would remain non-excluded from
     // backups because we only perform exclusion right after we created the directory
     // ourselves.
     //
@@ -650,8 +651,8 @@ pub fn create_dir_all_excluded_from_backups_atomic(p: impl AsRef<Path>) -> Resul
     // here to create the directory directly and fs::create_dir_all() explicitly treats
     // the directory being created concurrently by another thread or process as success,
     // hence the check below to follow the existing behavior. If we get an error at
-    // rename() and suddently the directory (which didn't exist a moment earlier) exists
-    // we can infer from it it's another cargo process doing work.
+    // rename() and suddenly the directory (which didn't exist a moment earlier) exists
+    // we can infer from it's another cargo process doing work.
     if let Err(e) = fs::rename(tempdir.path(), path) {
         if !path.exists() {
             return Err(anyhow::Error::from(e));
@@ -700,8 +701,9 @@ fn exclude_from_content_indexing(path: &Path) {
     {
         use std::iter::once;
         use std::os::windows::prelude::OsStrExt;
-        use winapi::um::fileapi::{GetFileAttributesW, SetFileAttributesW};
-        use winapi::um::winnt::FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED,
+        };
 
         let path: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
         unsafe {
@@ -742,4 +744,45 @@ fn exclude_from_time_machine(path: &Path) {
     }
     // Errors are ignored, since it's an optional feature and failure
     // doesn't prevent Cargo from working
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_paths;
+
+    #[test]
+    fn join_paths_lists_paths_on_error() {
+        let valid_paths = vec!["/testing/one", "/testing/two"];
+        // does not fail on valid input
+        let _joined = join_paths(&valid_paths, "TESTING1").unwrap();
+
+        #[cfg(unix)]
+        {
+            let invalid_paths = vec!["/testing/one", "/testing/t:wo/three"];
+            let err = join_paths(&invalid_paths, "TESTING2").unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "failed to join paths from `$TESTING2` together\n\n\
+             Check if any of path segments listed below contain an \
+             unterminated quote character or path separator:\
+             \n    \"/testing/one\"\
+             \n    \"/testing/t:wo/three\"\
+             "
+            );
+        }
+        #[cfg(windows)]
+        {
+            let invalid_paths = vec!["/testing/one", "/testing/t\"wo/three"];
+            let err = join_paths(&invalid_paths, "TESTING2").unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "failed to join paths from `$TESTING2` together\n\n\
+             Check if any of path segments listed below contain an \
+             unterminated quote character or path separator:\
+             \n    \"/testing/one\"\
+             \n    \"/testing/t\\\"wo/three\"\
+             "
+            );
+        }
+    }
 }

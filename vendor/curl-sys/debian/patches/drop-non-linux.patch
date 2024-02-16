@@ -1,0 +1,22 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -52,19 +51,11 @@
+ static-curl = []
+ static-ssl = ["openssl-sys"]
+ upkeep_7_62_0 = []
+-windows-static-ssl = []
+ 
+ [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
+ version = "0.9.64"
+ optional = true
+ 
+-[target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
+-version = "0.2"
+-
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.48"
+-features = ["Win32_Networking_WinSock"]
+-
+ [badges.appveyor]
+ repository = "alexcrichton/curl-rust"
+ 

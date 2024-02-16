@@ -1,0 +1,10 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -57,6 +57,6 @@
+ version = "1.0"
+ 
+ [features]
+-debugger_visualizer = []
++#debugger_visualizer = []
+ default = []
+ expose_internals = []

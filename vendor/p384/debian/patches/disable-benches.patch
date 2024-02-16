@@ -1,0 +1,28 @@
+Index: p384/Cargo.toml
+===================================================================
+--- p384.orig/Cargo.toml
++++ p384/Cargo.toml
+@@ -37,6 +37,7 @@ categories = [
+ ]
+ license = "Apache-2.0 OR MIT"
+ repository = "https://github.com/RustCrypto/elliptic-curves/tree/master/p384"
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ rustdoc-args = [
+@@ -44,15 +45,6 @@ rustdoc-args = [
+     "docsrs",
+ ]
+ 
+-[[bench]]
+-name = "field"
+-harness = false
+-required-features = ["expose-field"]
+-
+-[[bench]]
+-name = "scalar"
+-harness = false
+-
+ [dependencies.ecdsa-core]
+ version = "0.16"
+ features = ["der"]

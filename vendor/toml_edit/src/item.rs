@@ -1,12 +1,13 @@
 use std::str::FromStr;
 
+use toml_datetime::*;
+
 use crate::array_of_tables::ArrayOfTables;
-use crate::datetime::*;
 use crate::table::TableLike;
 use crate::{Array, InlineTable, Table, Value};
 
 /// Type representing either a value, a table, an array of tables, or none.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Item {
     /// Type representing none.
     None,
@@ -294,6 +295,37 @@ impl Item {
     pub fn is_table_like(&self) -> bool {
         self.as_table_like().is_some()
     }
+
+    /// Returns the location within the original document
+    pub(crate) fn span(&self) -> Option<std::ops::Range<usize>> {
+        match self {
+            Item::None => None,
+            Item::Value(v) => v.span(),
+            Item::Table(v) => v.span(),
+            Item::ArrayOfTables(v) => v.span(),
+        }
+    }
+
+    pub(crate) fn despan(&mut self, input: &str) {
+        match self {
+            Item::None => {}
+            Item::Value(v) => v.despan(input),
+            Item::Table(v) => v.despan(input),
+            Item::ArrayOfTables(v) => v.despan(input),
+        }
+    }
+}
+
+impl Clone for Item {
+    #[inline(never)]
+    fn clone(&self) -> Self {
+        match self {
+            Item::None => Item::None,
+            Item::Value(v) => Item::Value(v.clone()),
+            Item::Table(v) => Item::Table(v.clone()),
+            Item::ArrayOfTables(v) => Item::ArrayOfTables(v.clone()),
+        }
+    }
 }
 
 impl Default for Item {
@@ -331,7 +363,7 @@ impl std::fmt::Display for Item {
 ///
 /// # Examples
 /// ```rust
-/// # use pretty_assertions::assert_eq;
+/// # use snapbox::assert_eq;
 /// # use toml_edit::*;
 /// let mut table = Table::default();
 /// let mut array = Array::default();
@@ -340,7 +372,7 @@ impl std::fmt::Display for Item {
 /// table["key1"] = value("value1");
 /// table["key2"] = value(42);
 /// table["key3"] = value(array);
-/// assert_eq!(table.to_string(),
+/// assert_eq(table.to_string(),
 /// r#"key1 = "value1"
 /// key2 = 42
 /// key3 = ["hello", '\, world']

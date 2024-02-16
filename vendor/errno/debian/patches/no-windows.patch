@@ -1,0 +1,14 @@
+Index: errno/Cargo.toml
+===================================================================
+--- errno.orig/Cargo.toml
++++ errno/Cargo.toml
+@@ -41,9 +41,3 @@ default-features = false
+ version = "0.2"
+ default-features = false
+ 
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.48"
+-features = [
+-    "Win32_Foundation",
+-    "Win32_System_Diagnostics_Debug",
+-]

@@ -1,0 +1,44 @@
+Index: regex/tests/searcher.rs
+===================================================================
+--- regex.orig/tests/searcher.rs
++++ regex/tests/searcher.rs
+@@ -39,9 +39,13 @@ searcher!(
+     Reject(1, 2),
+     Match(2, 2)
+ );
++#[cfg(feature = "unicode-perl")]
+ searcher!(searcher_empty_haystack, r"\d", "");
++#[cfg(feature = "unicode-perl")]
+ searcher!(searcher_one_match, r"\d", "5", Match(0, 1));
++#[cfg(feature = "unicode-perl")]
+ searcher!(searcher_no_match, r"\d", "a", Reject(0, 1));
++#[cfg(feature = "unicode-perl")]
+ searcher!(
+     searcher_two_adjacent_matches,
+     r"\d",
+@@ -49,6 +53,7 @@ searcher!(
+     Match(0, 1),
+     Match(1, 2)
+ );
++#[cfg(feature = "unicode-perl")]
+ searcher!(
+     searcher_two_non_adjacent_matches,
+     r"\d",
+@@ -57,7 +62,9 @@ searcher!(
+     Reject(1, 2),
+     Match(2, 3)
+ );
++#[cfg(feature = "unicode-perl")]
+ searcher!(searcher_reject_first, r"\d", "a6", Reject(0, 1), Match(1, 2));
++#[cfg(feature = "unicode-perl")]
+ searcher!(
+     searcher_one_zero_length_matches,
+     r"\d*",
+@@ -68,6 +75,7 @@ searcher!(
+     Reject(2, 3), // a1b
+     Match(3, 4),  // a1b2
+ );
++#[cfg(feature = "unicode-perl")]
+ searcher!(
+     searcher_many_zero_length_matches,
+     r"\d*",

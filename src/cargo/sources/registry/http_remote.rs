@@ -3,28 +3,35 @@
 //! See [`HttpRegistry`] for details.
 
 use crate::core::{PackageId, SourceId};
-use crate::ops;
+use crate::ops::{self};
 use crate::sources::registry::download;
 use crate::sources::registry::MaybeLock;
 use crate::sources::registry::{LoadResponse, RegistryConfig, RegistryData};
-use crate::util::errors::CargoResult;
-use crate::util::{Config, Filesystem, IntoUrl, Progress, ProgressStyle};
+use crate::util::errors::{CargoResult, HttpNotSuccessful};
+use crate::util::network::Retry;
+use crate::util::{auth, Config, Filesystem, IntoUrl, Progress, ProgressStyle};
 use anyhow::Context;
 use cargo_util::paths;
 use curl::easy::{HttpVersion, List};
 use curl::multi::{EasyHandle, Multi};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::str;
-use std::task::Poll;
+use std::task::{ready, Poll};
 use std::time::Duration;
 use url::Url;
 
-const ETAG: &'static str = "ETag";
-const LAST_MODIFIED: &'static str = "Last-Modified";
+// HTTP headers
+const ETAG: &'static str = "etag";
+const LAST_MODIFIED: &'static str = "last-modified";
+const WWW_AUTHENTICATE: &'static str = "www-authenticate";
+const IF_NONE_MATCH: &'static str = "if-none-match";
+const IF_MODIFIED_SINCE: &'static str = "if-modified-since";
+
 const UNKNOWN: &'static str = "Unknown";
 
 /// A registry served by the HTTP-based registry API.
@@ -76,6 +83,12 @@ pub struct HttpRegistry<'cfg> {
 
     /// Cached registry configuration.
     registry_config: Option<RegistryConfig>,
+
+    /// Should we include the authorization header?
+    auth_required: bool,
+
+    /// Url to get a token for the registry.
+    login_url: Option<Url>,
 }
 
 /// Helper for downloading crates.
@@ -83,15 +96,12 @@ pub struct Downloads<'cfg> {
     /// When a download is started, it is added to this map. The key is a
     /// "token" (see `Download::token`). It is removed once the download is
     /// finished.
-    pending: HashMap<usize, (Download, EasyHandle)>,
-    /// Set of paths currently being downloaded, mapped to their tokens.
+    pending: HashMap<usize, (Download<'cfg>, EasyHandle)>,
+    /// Set of paths currently being downloaded.
     /// This should stay in sync with `pending`.
-    pending_ids: HashMap<PathBuf, usize>,
-    /// The final result of each download. A pair `(token, result)`. This is a
-    /// temporary holding area, needed because curl can report multiple
-    /// downloads at once, but the main loop (`wait`) is written to only
-    /// handle one at a time.
-    results: HashMap<PathBuf, Result<CompletedDownload, curl::Error>>,
+    pending_paths: HashSet<PathBuf>,
+    /// The final result of each download.
+    results: HashMap<PathBuf, CargoResult<CompletedDownload>>,
     /// The next ID to use for creating a token (see `Download::token`).
     next: usize,
     /// Progress bar.
@@ -103,7 +113,7 @@ pub struct Downloads<'cfg> {
     blocking_calls: usize,
 }
 
-struct Download {
+struct Download<'cfg> {
     /// The token for this download, used as the key of the `Downloads::pending` map
     /// and stored in `EasyHandle` as well.
     token: usize,
@@ -114,14 +124,31 @@ struct Download {
     /// Actual downloaded data, updated throughout the lifetime of this download.
     data: RefCell<Vec<u8>>,
 
-    /// ETag or Last-Modified header received from the server (if any).
-    index_version: RefCell<Option<String>>,
+    /// HTTP headers.
+    header_map: RefCell<Headers>,
+
+    /// Logic used to track retrying this download if it's a spurious failure.
+    retry: Retry<'cfg>,
+}
+
+#[derive(Default)]
+struct Headers {
+    last_modified: Option<String>,
+    etag: Option<String>,
+    www_authenticate: Vec<String>,
+}
+
+enum StatusCode {
+    Success,
+    NotModified,
+    NotFound,
+    Unauthorized,
 }
 
 struct CompletedDownload {
-    response_code: u32,
+    response_code: StatusCode,
     data: Vec<u8>,
-    index_version: String,
+    header_map: Headers,
 }
 
 impl<'cfg> HttpRegistry<'cfg> {
@@ -130,18 +157,17 @@ impl<'cfg> HttpRegistry<'cfg> {
         config: &'cfg Config,
         name: &str,
     ) -> CargoResult<HttpRegistry<'cfg>> {
-        if !config.cli_unstable().sparse_registry {
-            anyhow::bail!("usage of sparse registries requires `-Z sparse-registry`");
-        }
         let url = source_id.url().as_str();
         // Ensure the url ends with a slash so we can concatenate paths.
         if !url.ends_with('/') {
-            anyhow::bail!("registry url must end in a slash `/`: {url}")
+            anyhow::bail!("sparse registry url must end in a slash `/`: {url}")
         }
+        assert!(source_id.is_sparse());
         let url = url
-            .trim_start_matches("sparse+")
+            .strip_prefix("sparse+")
+            .expect("sparse registry needs sparse+ prefix")
             .into_url()
-            .expect("a url with the protocol stripped should still be valid");
+            .expect("a url with the sparse+ stripped should still be valid");
 
         Ok(HttpRegistry {
             index_path: config.registry_index_path().join(name),
@@ -154,7 +180,7 @@ impl<'cfg> HttpRegistry<'cfg> {
             downloads: Downloads {
                 next: 0,
                 pending: HashMap::new(),
-                pending_ids: HashMap::new(),
+                pending_paths: HashSet::new(),
                 results: HashMap::new(),
                 progress: RefCell::new(Some(Progress::with_style(
                     "Fetch",
@@ -168,6 +194,8 @@ impl<'cfg> HttpRegistry<'cfg> {
             requested_update: false,
             fetch_started: false,
             registry_config: None,
+            auth_required: false,
+            login_url: None,
         })
     }
 
@@ -213,41 +241,67 @@ impl<'cfg> HttpRegistry<'cfg> {
     fn handle_completed_downloads(&mut self) -> CargoResult<()> {
         assert_eq!(
             self.downloads.pending.len(),
-            self.downloads.pending_ids.len()
+            self.downloads.pending_paths.len()
         );
 
         // Collect the results from the Multi handle.
-        let pending = &mut self.downloads.pending;
-        self.multi.messages(|msg| {
-            let token = msg.token().expect("failed to read token");
-            let (_, handle) = &pending[&token];
-            let result = match msg.result_for(handle) {
-                Some(result) => result,
-                None => return, // transfer is not yet complete.
-            };
-
-            let (download, mut handle) = pending.remove(&token).unwrap();
-            self.downloads.pending_ids.remove(&download.path).unwrap();
-
-            let result = match result {
-                Ok(()) => {
-                    self.downloads.downloads_finished += 1;
-                    match handle.response_code() {
-                        Ok(code) => Ok(CompletedDownload {
-                            response_code: code,
-                            data: download.data.take(),
-                            index_version: download
-                                .index_version
-                                .take()
-                                .unwrap_or_else(|| UNKNOWN.to_string()),
-                        }),
-                        Err(e) => Err(e),
+        let results = {
+            let mut results = Vec::new();
+            let pending = &mut self.downloads.pending;
+            self.multi.messages(|msg| {
+                let token = msg.token().expect("failed to read token");
+                let (_, handle) = &pending[&token];
+                if let Some(result) = msg.result_for(handle) {
+                    results.push((token, result));
+                };
+            });
+            results
+        };
+        for (token, result) in results {
+            let (mut download, handle) = self.downloads.pending.remove(&token).unwrap();
+            let mut handle = self.multi.remove(handle)?;
+            let data = download.data.take();
+            let url = self.full_url(&download.path);
+            let result = match download.retry.r#try(|| {
+                result.with_context(|| format!("failed to download from `{}`", url))?;
+                let code = handle.response_code()?;
+                // Keep this list of expected status codes in sync with the codes handled in `load`
+                let code = match code {
+                    200 => StatusCode::Success,
+                    304 => StatusCode::NotModified,
+                    401 => StatusCode::Unauthorized,
+                    404 | 410 | 451 => StatusCode::NotFound,
+                    code => {
+                        let url = handle.effective_url()?.unwrap_or(&url);
+                        return Err(HttpNotSuccessful {
+                            code,
+                            url: url.to_owned(),
+                            body: data,
+                        }
+                        .into());
                     }
+                };
+                Ok((data, code))
+            }) {
+                Ok(Some((data, code))) => Ok(CompletedDownload {
+                    response_code: code,
+                    data,
+                    header_map: download.header_map.take(),
+                }),
+                Ok(None) => {
+                    // retry the operation
+                    let handle = self.multi.add(handle)?;
+                    self.downloads.pending.insert(token, (download, handle));
+                    continue;
                 }
                 Err(e) => Err(e),
             };
+
+            assert!(self.downloads.pending_paths.remove(&download.path));
             self.downloads.results.insert(download.path, result);
-        });
+            self.downloads.downloads_finished += 1;
+        }
+
         self.downloads.tick()?;
 
         Ok(())
@@ -279,6 +333,62 @@ impl<'cfg> HttpRegistry<'cfg> {
             false
         }
     }
+
+    /// Get the cached registry configuration, if it exists.
+    fn config_cached(&mut self) -> CargoResult<Option<&RegistryConfig>> {
+        if self.registry_config.is_some() {
+            return Ok(self.registry_config.as_ref());
+        }
+        let config_json_path = self
+            .assert_index_locked(&self.index_path)
+            .join("config.json");
+        match fs::read(&config_json_path) {
+            Ok(raw_data) => match serde_json::from_slice(&raw_data) {
+                Ok(json) => {
+                    self.registry_config = Some(json);
+                }
+                Err(e) => log::debug!("failed to decode cached config.json: {}", e),
+            },
+            Err(e) => {
+                if e.kind() != ErrorKind::NotFound {
+                    log::debug!("failed to read config.json cache: {}", e)
+                }
+            }
+        }
+        Ok(self.registry_config.as_ref())
+    }
+
+    /// Get the registry configuration.
+    fn config(&mut self) -> Poll<CargoResult<&RegistryConfig>> {
+        debug!("loading config");
+        let index_path = self.assert_index_locked(&self.index_path);
+        let config_json_path = index_path.join("config.json");
+        if self.is_fresh(Path::new("config.json")) && self.config_cached()?.is_some() {
+            return Poll::Ready(Ok(self.registry_config.as_ref().unwrap()));
+        }
+
+        match ready!(self.load(Path::new(""), Path::new("config.json"), None)?) {
+            LoadResponse::Data {
+                raw_data,
+                index_version: _,
+            } => {
+                trace!("config loaded");
+                self.registry_config = Some(serde_json::from_slice(&raw_data)?);
+                if paths::create_dir_all(&config_json_path.parent().unwrap()).is_ok() {
+                    if let Err(e) = fs::write(&config_json_path, &raw_data) {
+                        log::debug!("failed to write config.json cache: {}", e);
+                    }
+                }
+                Poll::Ready(Ok(self.registry_config.as_ref().unwrap()))
+            }
+            LoadResponse::NotFound => {
+                Poll::Ready(Err(anyhow::anyhow!("config.json not found in registry")))
+            }
+            LoadResponse::CacheValid => Poll::Ready(Err(crate::util::internal(
+                "config.json is never stored in the index cache",
+            ))),
+        }
+    }
 }
 
 impl<'cfg> RegistryData for HttpRegistry<'cfg> {
@@ -305,7 +415,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         index_version: Option<&str>,
     ) -> Poll<CargoResult<LoadResponse>> {
         trace!("load: {}", path.display());
-        if let Some(_token) = self.downloads.pending_ids.get(path) {
+        if let Some(_token) = self.downloads.pending_paths.get(path) {
             debug!("dependency is still pending: {}", path.display());
             return Poll::Pending;
         }
@@ -320,28 +430,42 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                 return Poll::Ready(Ok(LoadResponse::CacheValid));
             }
         } else if self.fresh.contains(path) {
+            // We have no cached copy of this file, and we already downloaded it.
             debug!(
                 "cache did not contain previously downloaded file {}",
                 path.display()
             );
+            return Poll::Ready(Ok(LoadResponse::NotFound));
         }
 
         if let Some(result) = self.downloads.results.remove(path) {
             let result =
                 result.with_context(|| format!("download of {} failed", path.display()))?;
-            debug!(
-                "index file downloaded with status code {}",
-                result.response_code
+
+            assert!(
+                self.fresh.insert(path.to_path_buf()),
+                "downloaded the index file `{}` twice",
+                path.display()
             );
-            trace!("index file version: {}", result.index_version);
 
-            if !self.fresh.insert(path.to_path_buf()) {
-                debug!("downloaded the index file `{}` twice", path.display())
-            }
-
+            // The status handled here need to be kept in sync with the codes handled
+            // in `handle_completed_downloads`
             match result.response_code {
-                200 => {}
-                304 => {
+                StatusCode::Success => {
+                    let response_index_version = if let Some(etag) = result.header_map.etag {
+                        format!("{}: {}", ETAG, etag)
+                    } else if let Some(lm) = result.header_map.last_modified {
+                        format!("{}: {}", LAST_MODIFIED, lm)
+                    } else {
+                        UNKNOWN.to_string()
+                    };
+                    trace!("index file version: {}", response_index_version);
+                    return Poll::Ready(Ok(LoadResponse::Data {
+                        raw_data: result.data,
+                        index_version: Some(response_index_version),
+                    }));
+                }
+                StatusCode::NotModified => {
                     // Not Modified: the data in the cache is still the latest.
                     if index_version.is_none() {
                         return Poll::Ready(Err(anyhow::anyhow!(
@@ -350,44 +474,75 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
                     }
                     return Poll::Ready(Ok(LoadResponse::CacheValid));
                 }
-                404 | 410 | 451 => {
+                StatusCode::NotFound => {
                     // The crate was not found or deleted from the registry.
                     return Poll::Ready(Ok(LoadResponse::NotFound));
                 }
-                code => {
-                    return Err(anyhow::anyhow!(
-                        "server returned unexpected HTTP status code {} for {}\nbody: {}",
-                        code,
-                        self.full_url(path),
-                        str::from_utf8(&result.data).unwrap_or("<invalid utf8>"),
-                    ))
-                    .into();
+                StatusCode::Unauthorized
+                    if !self.auth_required
+                        && path == Path::new("config.json")
+                        && self.config.cli_unstable().registry_auth =>
+                {
+                    debug!("re-attempting request for config.json with authorization included.");
+                    self.fresh.remove(path);
+                    self.auth_required = true;
+
+                    // Look for a `www-authenticate` header with the `Cargo` scheme.
+                    for header in &result.header_map.www_authenticate {
+                        for challenge in http_auth::ChallengeParser::new(header) {
+                            match challenge {
+                                Ok(challenge) if challenge.scheme.eq_ignore_ascii_case("Cargo") => {
+                                    // Look for the `login_url` parameter.
+                                    for (param, value) in challenge.params {
+                                        if param.eq_ignore_ascii_case("login_url") {
+                                            self.login_url = Some(value.to_unescaped().into_url()?);
+                                        }
+                                    }
+                                }
+                                Ok(challenge) => {
+                                    debug!("ignoring non-Cargo challenge: {}", challenge.scheme)
+                                }
+                                Err(e) => debug!("failed to parse challenge: {}", e),
+                            }
+                        }
+                    }
+                }
+                StatusCode::Unauthorized => {
+                    let err = Err(HttpNotSuccessful {
+                        code: 401,
+                        body: result.data,
+                        url: self.full_url(path),
+                    }
+                    .into());
+                    if self.auth_required {
+                        return Poll::Ready(err.context(auth::AuthorizationError {
+                            sid: self.source_id.clone(),
+                            login_url: self.login_url.clone(),
+                            reason: auth::AuthorizationErrorReason::TokenRejected,
+                        }));
+                    } else {
+                        return Poll::Ready(err);
+                    }
                 }
             }
-
-            return Poll::Ready(Ok(LoadResponse::Data {
-                raw_data: result.data,
-                index_version: Some(result.index_version),
-            }));
         }
 
-        if self.config.offline() {
-            return Poll::Ready(Err(anyhow::anyhow!(
-                "can't download index file from '{}': you are in offline mode (--offline)",
-                self.url
-            )));
+        if path != Path::new("config.json") {
+            self.auth_required = ready!(self.config()?).auth_required;
+        } else if !self.auth_required {
+            // Check if there's a cached config that says auth is required.
+            // This allows avoiding the initial unauthenticated request to probe.
+            if let Some(config) = self.config_cached()? {
+                self.auth_required = config.auth_required;
+            }
+        }
+
+        if !self.config.cli_unstable().registry_auth {
+            self.auth_required = false;
         }
 
         // Looks like we're going to have to do a network request.
         self.start_fetch()?;
-
-        // Load the registry config.
-        if self.registry_config.is_none() && path != Path::new("config.json") {
-            match self.config()? {
-                Poll::Ready(_) => {}
-                Poll::Pending => return Poll::Pending,
-            }
-        }
 
         let mut handle = ops::http_handle(self.config)?;
         let full_url = self.full_url(path);
@@ -398,7 +553,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
 
         // Enable HTTP/2 if possible.
         if self.multiplexing {
-            handle.http_version(HttpVersion::V2)?;
+            crate::try_old_curl!(handle.http_version(HttpVersion::V2), "HTTP2");
         } else {
             handle.http_version(HttpVersion::V11)?;
         }
@@ -410,20 +565,31 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         // Once the main one is opened we realized that pipelining is possible
         // and multiplexing is possible with static.crates.io. All in all this
         // reduces the number of connections done to a more manageable state.
-        handle.pipewait(true)?;
+        crate::try_old_curl!(handle.pipewait(true), "pipewait");
 
-        // Make sure we don't send data back if it's the same as we have in the index.
         let mut headers = List::new();
+        // Include a header to identify the protocol. This allows the server to
+        // know that Cargo is attempting to use the sparse protocol.
+        headers.append("cargo-protocol: version=1")?;
+        headers.append("accept: text/plain")?;
+
+        // If we have a cached copy of the file, include IF_NONE_MATCH or IF_MODIFIED_SINCE header.
         if let Some(index_version) = index_version {
             if let Some((key, value)) = index_version.split_once(':') {
                 match key {
-                    ETAG => headers.append(&format!("If-None-Match: {}", value.trim()))?,
+                    ETAG => headers.append(&format!("{}: {}", IF_NONE_MATCH, value.trim()))?,
                     LAST_MODIFIED => {
-                        headers.append(&format!("If-Modified-Since: {}", value.trim()))?
+                        headers.append(&format!("{}: {}", IF_MODIFIED_SINCE, value.trim()))?
                     }
                     _ => debug!("unexpected index version: {}", index_version),
                 }
             }
+        }
+        if self.auth_required {
+            let authorization =
+                auth::auth_token(self.config, &self.source_id, self.login_url.as_ref(), None)?;
+            headers.append(&format!("Authorization: {}", authorization))?;
+            trace!("including authorization for {}", full_url);
         }
         handle.http_headers(headers)?;
 
@@ -433,9 +599,8 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         let token = self.downloads.next;
         self.downloads.next += 1;
         debug!("downloading {} as {}", path.display(), token);
-        assert_eq!(
-            self.downloads.pending_ids.insert(path.to_path_buf(), token),
-            None,
+        assert!(
+            self.downloads.pending_paths.insert(path.to_path_buf()),
             "path queued for download more than once"
         );
 
@@ -460,21 +625,17 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         // And ditto for the header function.
         handle.header_function(move |buf| {
             if let Some((tag, value)) = Self::handle_http_header(buf) {
-                let is_etag = tag.eq_ignore_ascii_case(ETAG);
-                let is_lm = tag.eq_ignore_ascii_case(LAST_MODIFIED);
-                if is_etag || is_lm {
-                    tls::with(|downloads| {
-                        if let Some(downloads) = downloads {
-                            let mut index_version =
-                                downloads.pending[&token].0.index_version.borrow_mut();
-                            if is_etag {
-                                *index_version = Some(format!("{}: {}", ETAG, value));
-                            } else if index_version.is_none() && is_lm {
-                                *index_version = Some(format!("{}: {}", LAST_MODIFIED, value));
-                            };
+                tls::with(|downloads| {
+                    if let Some(downloads) = downloads {
+                        let mut header_map = downloads.pending[&token].0.header_map.borrow_mut();
+                        match tag.to_ascii_lowercase().as_str() {
+                            LAST_MODIFIED => header_map.last_modified = Some(value.to_string()),
+                            ETAG => header_map.etag = Some(value.to_string()),
+                            WWW_AUTHENTICATE => header_map.www_authenticate.push(value.to_string()),
+                            _ => {}
                         }
-                    })
-                }
+                    }
+                });
             }
 
             true
@@ -482,9 +643,10 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
 
         let dl = Download {
             token,
-            data: RefCell::new(Vec::new()),
             path: path.to_path_buf(),
-            index_version: RefCell::new(None),
+            data: RefCell::new(Vec::new()),
+            header_map: Default::default(),
+            retry: Retry::new(self.config)?,
         };
 
         // Finally add the request we've lined up to the pool of requests that cURL manages.
@@ -496,47 +658,11 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
     }
 
     fn config(&mut self) -> Poll<CargoResult<Option<RegistryConfig>>> {
-        if self.registry_config.is_some() {
-            return Poll::Ready(Ok(self.registry_config.clone()));
+        let mut cfg = ready!(self.config()?).clone();
+        if !self.config.cli_unstable().registry_auth {
+            cfg.auth_required = false;
         }
-        debug!("loading config");
-        let index_path = self.config.assert_package_cache_locked(&self.index_path);
-        let config_json_path = index_path.join("config.json");
-        if self.is_fresh(Path::new("config.json")) {
-            match fs::read(&config_json_path) {
-                Ok(raw_data) => match serde_json::from_slice(&raw_data) {
-                    Ok(json) => {
-                        self.registry_config = Some(json);
-                        return Poll::Ready(Ok(self.registry_config.clone()));
-                    }
-                    Err(e) => log::debug!("failed to decode cached config.json: {}", e),
-                },
-                Err(e) => log::debug!("failed to read config.json cache: {}", e),
-            }
-        }
-
-        match self.load(Path::new(""), Path::new("config.json"), None)? {
-            Poll::Ready(LoadResponse::Data {
-                raw_data,
-                index_version: _,
-            }) => {
-                trace!("config loaded");
-                self.registry_config = Some(serde_json::from_slice(&raw_data)?);
-                if paths::create_dir_all(&config_json_path.parent().unwrap()).is_ok() {
-                    if let Err(e) = fs::write(&config_json_path, &raw_data) {
-                        log::debug!("failed to write config.json cache: {}", e);
-                    }
-                }
-                Poll::Ready(Ok(self.registry_config.clone()))
-            }
-            Poll::Ready(LoadResponse::NotFound) => {
-                Poll::Ready(Err(anyhow::anyhow!("config.json not found in registry")))
-            }
-            Poll::Ready(LoadResponse::CacheValid) => {
-                panic!("config.json is not stored in the index cache")
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        Poll::Ready(Ok(Some(cfg)))
     }
 
     fn invalidate_cache(&mut self) {
@@ -544,6 +670,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         // All it does is ensure that a subsequent load will double-check files with the
         // server rather than rely on a locally cached copy of the index files.
         debug!("invalidated index cache");
+        self.fresh.clear();
         self.requested_update = true;
     }
 
@@ -551,7 +678,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         let registry_config = loop {
             match self.config()? {
                 Poll::Pending => self.block_until_ready()?,
-                Poll::Ready(cfg) => break cfg.unwrap(),
+                Poll::Ready(cfg) => break cfg.to_owned(),
             }
         };
         download::download(
@@ -602,7 +729,7 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
             let timeout = self
                 .multi
                 .get_timeout()?
-                .unwrap_or_else(|| Duration::new(5, 0));
+                .unwrap_or_else(|| Duration::new(1, 0));
             self.multi
                 .wait(&mut [], timeout)
                 .with_context(|| "failed to wait on curl `Multi`")?;

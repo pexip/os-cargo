@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 echo "This needs the following packages:"
-echo "  python3-pytoml devscripts cargo"
+echo "  python3-toml devscripts cargo cargo-lock"
 echo ""
 
 TMPDIR=`mktemp -d`
@@ -34,14 +34,6 @@ mkdir cargo
 tar -xaf "${TMPDIR}/cargo_${CARGO_VER}.orig.tar.gz" -C cargo --strip-components=1
 cd cargo
 
-# special patch for CVE fix - we want to vendor the updated/fixed dependencies!
-echo "Applying CVE-2022-46176 patches";
-for p in "${SRCDIR}/debian/patches/cve/"*.patch; do
-  echo "$(basename "$p")"
-  patch -p1 < "$p"
-  echo "$p" >> .cve-patches
-done
-
 # Download build-deps via cargo-vendor
 export GIT_AUTHOR_NAME="deb-build"
 export GIT_AUTHOR_EMAIL="<>"
@@ -62,14 +54,6 @@ cp -R vendor vendor-scan
 )
 
 rm -rf vendor-scan
-
-# special patch for CVE fix - unapply to keep orig.tar.gz pristine
-echo "Unapplying CVE-2022-46176 patches";
-tac .cve-patches | while read p; do
-  echo "$(basename "$p")"
-  patch -Rp1 < "$p"
-done
-rm .cve-patches
 
 # Pack it up, reproducibly
 tar --sort=name \

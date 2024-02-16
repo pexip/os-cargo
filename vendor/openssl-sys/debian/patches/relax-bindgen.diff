@@ -1,0 +1,36 @@
+Relax bindgen dependency to allow any 0.x version greater than 0.60. Tested
+with versions 0.60 and 0.66.
+
+Some options to bindgen that are not available in 0.60 are disabled, this
+is likely to break builds against boringssl (which we don't have in Debian
+anyway).
+
+Index: openssl-sys/Cargo.toml
+===================================================================
+--- openssl-sys.orig/Cargo.toml
++++ openssl-sys/Cargo.toml
+@@ -35,8 +35,7 @@ openssl = "1.0.1"
+ version = "0.2"
+ 
+ [build-dependencies.bindgen]
+-version = "0.64.0"
+-features = ["experimental"]
++version = ">= 0.60, < 1.0"
+ optional = true
+ 
+ [build-dependencies.cc]
+Index: openssl-sys/build/run_bindgen.rs
+===================================================================
+--- openssl-sys.orig/build/run_bindgen.rs
++++ openssl-sys/build/run_bindgen.rs
+@@ -123,8 +123,8 @@ pub fn run_boringssl(include_dirs: &[Pat
+         .allowlist_recursively(false)
+         .blocklist_function("BIO_vsnprintf")
+         .blocklist_function("OPENSSL_vasprintf")
+-        .wrap_static_fns(true)
+-        .wrap_static_fns_path(out_dir.join("boring_static_wrapper").display().to_string())
++        //.wrap_static_fns(true)
++        //.wrap_static_fns_path(out_dir.join("boring_static_wrapper").display().to_string())
+         .layout_tests(false)
+         .header_contents("includes.h", INCLUDES);
+ 

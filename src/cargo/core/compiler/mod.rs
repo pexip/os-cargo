@@ -1,3 +1,36 @@
+//! # Interact with the compiler
+//!
+//! If you consider [`ops::cargo_compile::compile`] as a `rustc` driver but on
+//! Cargo side, this module is kinda the `rustc_interface` for that merits.
+//! It contains all the interaction between Cargo and the rustc compiler,
+//! from preparing the context for the entire build process, to scheduling
+//! and executing each unit of work (e.g. running `rustc`), to managing and
+//! caching the output artifact of a build.
+//!
+//! However, it hasn't yet exposed a clear definition of each phase or session,
+//! like what rustc has done[^1]. Also, no one knows if Cargo really needs that.
+//! To be pragmatic, here we list a handful of items you may want to learn:
+//!
+//! * [`BuildContext`] is a static context containg all information you need
+//!   before a build gets started.
+//! * [`Context`] is the center of the world, coordinating a running build and
+//!   collecting information from it.
+//! * [`custom_build`] is the home of build script executions and output parsing.
+//! * [`fingerprint`] not only defines but also executes a set of rules to
+//!   determine if a re-compile is needed.
+//! * [`job_queue`] is where the parallelism, job scheduling, and communication
+//!   machinary happen between Cargo and the compiler.
+//! * [`layout`] defines and manages output artifacts of a build in the filesystem.
+//! * [`unit_dependencies`] is for building a dependency graph for compilation
+//!   from a result of dependency resolution.
+//! * [`Unit`] contains sufficient information to build something, usually
+//!   turning into a compiler invocation in a later phase.
+//!
+//! [^1]: Maybe [`-Zbuild-plan`](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#build-plan)
+//!   was designed to serve that purpose but still [in flux](https://github.com/rust-lang/cargo/issues/7614).
+//!
+//! [`ops::cargo_compile::compile`]: crate::ops::compile
+
 pub mod artifact;
 mod build_config;
 mod build_context;
@@ -9,7 +42,6 @@ mod crate_type;
 mod custom_build;
 mod fingerprint;
 pub mod future_incompat;
-mod job;
 mod job_queue;
 mod layout;
 mod links;
@@ -22,9 +54,10 @@ mod unit;
 pub mod unit_dependencies;
 pub mod unit_graph;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -44,9 +77,9 @@ pub use self::compile_kind::{CompileKind, CompileTarget};
 pub use self::context::{Context, Metadata};
 pub use self::crate_type::CrateType;
 pub use self::custom_build::{BuildOutput, BuildScriptOutputs, BuildScripts};
-pub use self::job::Freshness;
-use self::job::{Job, Work};
-use self::job_queue::{JobQueue, JobState};
+pub(crate) use self::fingerprint::DirtyReason;
+pub use self::job_queue::Freshness;
+use self::job_queue::{Job, JobQueue, JobState, Work};
 pub(crate) use self::layout::Layout;
 pub use self::lto::Lto;
 use self::output_depinfo::output_depinfo;
@@ -55,27 +88,41 @@ use crate::core::compiler::future_incompat::FutureIncompatReport;
 pub use crate::core::compiler::unit::{Unit, UnitInterner};
 use crate::core::manifest::TargetSourcePath;
 use crate::core::profiles::{PanicStrategy, Profile, Strip};
-use crate::core::{Feature, PackageId, Target};
+use crate::core::{Feature, PackageId, Target, Verbosity};
 use crate::util::errors::{CargoResult, VerboseError};
 use crate::util::interning::InternedString;
 use crate::util::machine_message::{self, Message};
 use crate::util::{add_path_args, internal, iter_join_onto, profile};
 use cargo_util::{paths, ProcessBuilder, ProcessError};
+use rustfix::diagnostics::Applicability;
 
 const RUSTDOC_CRATE_VERSION_FLAG: &str = "--crate-version";
 
+// TODO: Rename this to `ExtraLinkArgFor` or else, and move to compiler/custom_build.rs?
+/// Represents one of the instruction from `cargo:rustc-link-arg-*` build script
+/// instruction family.
+///
+/// In other words, indicates targets that custom linker arguments applies to.
 #[derive(Clone, Hash, Debug, PartialEq, Eq)]
 pub enum LinkType {
+    /// Represents `cargo:rustc-link-arg=FLAG`.
     All,
+    /// Represents `cargo:rustc-cdylib-link-arg=FLAG`.
     Cdylib,
+    /// Represents `cargo:rustc-link-arg-bins=FLAG`.
     Bin,
+    /// Represents `cargo:rustc-link-arg-bin=BIN=FLAG`.
     SingleBin(String),
+    /// Represents `cargo:rustc-link-arg-tests=FLAG`.
     Test,
+    /// Represents `cargo:rustc-link-arg-benches=FLAG`.
     Bench,
+    /// Represents `cargo:rustc-link-arg-examples=FLAG`.
     Example,
 }
 
 impl LinkType {
+    /// Checks if this link type applies to a given [`Target`].
     pub fn applies_to(&self, target: &Target) -> bool {
         match self {
             LinkType::All => true,
@@ -137,6 +184,15 @@ impl Executor for DefaultExecutor {
     }
 }
 
+/// Builds up and enqueue a list of pending jobs onto the `job` queue.
+///
+/// Starting from the `unit`, this function recursively calls itself to build
+/// all jobs for dependencies of the `unit`. Each of these jobs represents
+/// compiling a particular package.
+///
+/// Note that **no actual work is executed as part of this**, that's all done
+/// next as part of [`JobQueue::execute`] function which will run everything
+/// in order with proper parallelism.
 fn compile<'cfg>(
     cx: &mut Context<'_, 'cfg>,
     jobs: &mut JobQueue<'cfg>,
@@ -162,11 +218,11 @@ fn compile<'cfg>(
         // We run these targets later, so this is just a no-op for now.
         Job::new_fresh()
     } else if build_plan {
-        Job::new_dirty(rustc(cx, unit, &exec.clone())?)
+        Job::new_dirty(rustc(cx, unit, &exec.clone())?, None)
     } else {
         let force = exec.force_rebuild(unit) || force_rebuild;
         let mut job = fingerprint::prepare_target(cx, unit, force)?;
-        job.before(if job.freshness() == Freshness::Dirty {
+        job.before(if job.freshness().is_dirty() {
             let work = if unit.mode.is_doc() || unit.mode.is_doc_scrape() {
                 rustdoc(cx, unit)?
             } else {
@@ -206,6 +262,28 @@ fn compile<'cfg>(
     Ok(())
 }
 
+/// Generates the warning message used when fallible doc-scrape units fail,
+/// either for rustdoc or rustc.
+fn make_failed_scrape_diagnostic(
+    cx: &Context<'_, '_>,
+    unit: &Unit,
+    top_line: impl Display,
+) -> String {
+    let manifest_path = unit.pkg.manifest_path();
+    let relative_manifest_path = manifest_path
+        .strip_prefix(cx.bcx.ws.root())
+        .unwrap_or(&manifest_path);
+
+    format!(
+        "\
+{top_line}
+    Try running with `--verbose` to see the error message.
+    If an example should not be scanned, then consider adding `doc-scrape-examples = false` to its `[[example]]` definition in {}",
+        relative_manifest_path.display()
+    )
+}
+
+/// Creates a unit of work invoking `rustc` for building the `unit`.
 fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> CargoResult<Work> {
     let mut rustc = prepare_rustc(cx, &unit.target.rustc_crate_types(), unit)?;
     let build_plan = cx.bcx.build_config.build_plan;
@@ -264,6 +342,26 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
     let is_local = unit.is_local();
     let artifact = unit.artifact;
 
+    let hide_diagnostics_for_scrape_unit = cx.bcx.unit_can_fail_for_docscraping(unit)
+        && !matches!(cx.bcx.config.shell().verbosity(), Verbosity::Verbose);
+    let failed_scrape_diagnostic = hide_diagnostics_for_scrape_unit.then(|| {
+        // If this unit is needed for doc-scraping, then we generate a diagnostic that
+        // describes the set of reverse-dependencies that cause the unit to be needed.
+        let target_desc = unit.target.description_named();
+        let mut for_scrape_units = cx
+            .bcx
+            .scrape_units_have_dep_on(unit)
+            .into_iter()
+            .map(|unit| unit.target.description_named())
+            .collect::<Vec<_>>();
+        for_scrape_units.sort();
+        let for_scrape_units = for_scrape_units.join(", ");
+        make_failed_scrape_diagnostic(cx, unit, format_args!("failed to check {target_desc} in package `{name}` as a prerequisite for scraping examples from: {for_scrape_units}"))
+    });
+    if hide_diagnostics_for_scrape_unit {
+        output_options.show_diagnostics = false;
+    }
+
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
         // hence we must assure the crate- and target-dependent
@@ -305,6 +403,19 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
                     paths::remove_file(&dst)?;
                 }
             }
+
+            // Some linkers do not remove the executable, but truncate and modify it.
+            // That results in the old hard-link being modified even after renamed.
+            // We delete the old artifact here to prevent this behavior from confusing users.
+            // See rust-lang/cargo#8348.
+            if output.hardlink.is_some() && output.path.exists() {
+                _ = paths::remove_file(&output.path).map_err(|e| {
+                    log::debug!(
+                        "failed to delete previous output file `{:?}`: {e:?}",
+                        output.path
+                    );
+                });
+            }
         }
 
         fn verbose_if_simple_exit_code(err: Error) -> Error {
@@ -325,38 +436,48 @@ fn rustc(cx: &mut Context<'_, '_>, unit: &Unit, exec: &Arc<dyn Executor>) -> Car
         if build_plan {
             state.build_plan(buildkey, rustc.clone(), outputs.clone());
         } else {
-            exec.exec(
-                &rustc,
-                package_id,
-                &target,
-                mode,
-                &mut |line| on_stdout_line(state, line, package_id, &target),
-                &mut |line| {
-                    on_stderr_line(
-                        state,
-                        line,
-                        package_id,
-                        &manifest_path,
-                        &target,
-                        &mut output_options,
-                    )
-                },
-            )
-            .map_err(verbose_if_simple_exit_code)
-            .with_context(|| {
-                // adapted from rustc_errors/src/lib.rs
-                let warnings = match output_options.warnings_seen {
-                    0 => String::new(),
-                    1 => "; 1 warning emitted".to_string(),
-                    count => format!("; {} warnings emitted", count),
-                };
-                let errors = match output_options.errors_seen {
-                    0 => String::new(),
-                    1 => " due to previous error".to_string(),
-                    count => format!(" due to {} previous errors", count),
-                };
-                format!("could not compile `{}`{}{}", name, errors, warnings)
-            })?;
+            let result = exec
+                .exec(
+                    &rustc,
+                    package_id,
+                    &target,
+                    mode,
+                    &mut |line| on_stdout_line(state, line, package_id, &target),
+                    &mut |line| {
+                        on_stderr_line(
+                            state,
+                            line,
+                            package_id,
+                            &manifest_path,
+                            &target,
+                            &mut output_options,
+                        )
+                    },
+                )
+                .map_err(verbose_if_simple_exit_code)
+                .with_context(|| {
+                    // adapted from rustc_errors/src/lib.rs
+                    let warnings = match output_options.warnings_seen {
+                        0 => String::new(),
+                        1 => "; 1 warning emitted".to_string(),
+                        count => format!("; {} warnings emitted", count),
+                    };
+                    let errors = match output_options.errors_seen {
+                        0 => String::new(),
+                        1 => " due to previous error".to_string(),
+                        count => format!(" due to {} previous errors", count),
+                    };
+                    format!("could not compile `{}`{}{}", name, errors, warnings)
+                });
+
+            if let Err(e) = result {
+                if let Some(diagnostic) = failed_scrape_diagnostic {
+                    state.warning(diagnostic)?;
+                }
+
+                return Err(e);
+            }
+
             // Exec should never return with success *and* generate an error.
             debug_assert_eq!(output_options.errors_seen, 0);
         }
@@ -483,7 +604,7 @@ fn link_targets(cx: &mut Context<'_, '_>, unit: &Unit, fresh: bool) -> CargoResu
         if json_messages {
             let art_profile = machine_message::ArtifactProfile {
                 opt_level: profile.opt_level.as_str(),
-                debuginfo: profile.debuginfo,
+                debuginfo: profile.debuginfo.to_option(),
                 debug_assertions: profile.debug_assertions,
                 overflow_checks: profile.overflow_checks,
                 test: unit_mode.is_any_test(),
@@ -571,6 +692,8 @@ where
     search_path
 }
 
+// TODO: do we really need this as a separate function?
+// Maybe we should reorganize `rustc` fn to make it more traceable and readable.
 fn prepare_rustc(
     cx: &mut Context<'_, '_>,
     crate_types: &[CrateType],
@@ -605,6 +728,7 @@ fn prepare_rustc(
     Ok(base)
 }
 
+/// Creates a unit of work invoking `rustdoc` for documenting the `unit`.
 fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
     let bcx = cx.bcx;
     // script_metadata is not needed here, it is only for tests.
@@ -640,12 +764,15 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
     rustdoc.arg("-C").arg(format!("metadata={}", metadata));
 
     let scrape_output_path = |unit: &Unit| -> CargoResult<PathBuf> {
-        let output_dir = cx.files().deps_dir(unit);
-        Ok(output_dir.join(format!("{}.examples", unit.buildkey())))
+        cx.outputs(unit).map(|outputs| outputs[0].path.clone())
     };
 
     if unit.mode.is_doc_scrape() {
         debug_assert!(cx.bcx.scrape_units.contains(unit));
+
+        if unit.target.is_test() {
+            rustdoc.arg("--scrape-tests");
+        }
 
         rustdoc.arg("-Zunstable-options");
 
@@ -664,18 +791,23 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
                 rustdoc.arg("--scrape-examples-target-crate").arg(name);
             }
         }
-    } else if cx.bcx.scrape_units.len() > 0 && cx.bcx.ws.unit_needs_doc_scrape(unit) {
-        // We only pass scraped examples to packages in the workspace
-        // since examples are only coming from reverse-dependencies of workspace packages
-
-        rustdoc.arg("-Zunstable-options");
-
-        for scrape_unit in &cx.bcx.scrape_units {
-            rustdoc
-                .arg("--with-examples")
-                .arg(scrape_output_path(scrape_unit)?);
-        }
     }
+
+    let should_include_scrape_units = unit.mode.is_doc()
+        && cx.bcx.scrape_units.len() > 0
+        && cx.bcx.ws.unit_needs_doc_scrape(unit);
+    let scrape_outputs = if should_include_scrape_units {
+        rustdoc.arg("-Zunstable-options");
+        Some(
+            cx.bcx
+                .scrape_units
+                .iter()
+                .map(|unit| Ok((cx.files().metadata(unit), scrape_output_path(unit)?)))
+                .collect::<CargoResult<HashMap<_, _>>>()?,
+        )
+    } else {
+        None
+    };
 
     build_deps_args(&mut rustdoc, cx, unit)?;
     rustdoc::add_root_urls(cx, unit, &mut rustdoc)?;
@@ -686,6 +818,7 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
         append_crate_version_flag(unit, &mut rustdoc);
     }
 
+    let target_desc = unit.target.description_named();
     let name = unit.pkg.name().to_string();
     let build_script_outputs = Arc::clone(&cx.build_script_outputs);
     let package_id = unit.pkg.package_id();
@@ -693,12 +826,41 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
     let target = Target::clone(&unit.target);
     let mut output_options = OutputOptions::new(cx, unit);
     let script_metadata = cx.find_build_script_metadata(unit);
+
+    let failed_scrape_units = Arc::clone(&cx.failed_scrape_units);
+    let hide_diagnostics_for_scrape_unit = cx.bcx.unit_can_fail_for_docscraping(unit)
+        && !matches!(cx.bcx.config.shell().verbosity(), Verbosity::Verbose);
+    let failed_scrape_diagnostic = hide_diagnostics_for_scrape_unit.then(|| {
+        make_failed_scrape_diagnostic(
+            cx,
+            unit,
+            format_args!("failed to scan {target_desc} in package `{name}` for example code usage"),
+        )
+    });
+    if hide_diagnostics_for_scrape_unit {
+        output_options.show_diagnostics = false;
+    }
+
     Ok(Work::new(move |state| {
         add_custom_flags(
             &mut rustdoc,
             &build_script_outputs.lock().unwrap(),
             script_metadata,
         )?;
+
+        // Add the output of scraped examples to the rustdoc command.
+        // This action must happen after the unit's dependencies have finished,
+        // because some of those deps may be Docscrape units which have failed.
+        // So we dynamically determine which `--with-examples` flags to pass here.
+        if let Some(scrape_outputs) = scrape_outputs {
+            let failed_scrape_units = failed_scrape_units.lock().unwrap();
+            for (metadata, output_path) in &scrape_outputs {
+                if !failed_scrape_units.contains(metadata) {
+                    rustdoc.arg("--with-examples").arg(output_path);
+                }
+            }
+        }
+
         let crate_dir = doc_dir.join(&crate_name);
         if crate_dir.exists() {
             // Remove output from a previous build. This ensures that stale
@@ -708,7 +870,7 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
         }
         state.running(&rustdoc);
 
-        rustdoc
+        let result = rustdoc
             .exec_with_streaming(
                 &mut |line| on_stdout_line(state, line, package_id, &target),
                 &mut |line| {
@@ -723,7 +885,16 @@ fn rustdoc(cx: &mut Context<'_, '_>, unit: &Unit) -> CargoResult<Work> {
                 },
                 false,
             )
-            .with_context(|| format!("could not document `{}`", name))?;
+            .with_context(|| format!("could not document `{}`", name));
+
+        if let Err(e) = result {
+            if let Some(diagnostic) = failed_scrape_diagnostic {
+                state.warning(diagnostic)?;
+            }
+
+            return Err(e);
+        }
+
         Ok(())
     }))
 }
@@ -743,6 +914,9 @@ fn append_crate_version_flag(unit: &Unit, rustdoc: &mut ProcessBuilder) {
         .arg(unit.pkg.version().to_string());
 }
 
+/// Adds [`--cap-lints`] to the command to execute.
+///
+/// [`--cap-lints`]: https://doc.rust-lang.org/nightly/rustc/lints/levels.html#capping-lints
 fn add_cap_lints(bcx: &BuildContext<'_, '_>, unit: &Unit, cmd: &mut ProcessBuilder) {
     // If this is an upstream dep we don't want warnings from, turn off all
     // lints.
@@ -756,7 +930,9 @@ fn add_cap_lints(bcx: &BuildContext<'_, '_>, unit: &Unit, cmd: &mut ProcessBuild
     }
 }
 
-/// Forward -Zallow-features if it is set for cargo.
+/// Forwards [`-Zallow-features`] if it is set for cargo.
+///
+/// [`-Zallow-features`]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#allow-features
 fn add_allow_features(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
     if let Some(allow) = &cx.bcx.config.cli_unstable().allow_features {
         let mut arg = String::from("-Zallow-features=");
@@ -765,7 +941,7 @@ fn add_allow_features(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
     }
 }
 
-/// Add error-format flags to the command.
+/// Adds [`--error-format`] to the command to execute.
 ///
 /// Cargo always uses JSON output. This has several benefits, such as being
 /// easier to parse, handles changing formats (for replaying cached messages),
@@ -773,6 +949,8 @@ fn add_allow_features(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
 /// intercepting messages like rmeta artifacts, etc. rustc includes a
 /// "rendered" field in the JSON message with the message properly formatted,
 /// which Cargo will extract and display to the user.
+///
+/// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
 fn add_error_format_and_color(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
     cmd.arg("--error-format=json");
     let mut json = String::from("--json=diagnostic-rendered-ansi,artifacts,future-incompat");
@@ -786,25 +964,12 @@ fn add_error_format_and_color(cx: &Context<'_, '_>, cmd: &mut ProcessBuilder) {
     cmd.arg(json);
 
     let config = cx.bcx.config;
-    if config.nightly_features_allowed {
-        match (
-            config.cli_unstable().terminal_width,
-            config.shell().err_width().diagnostic_terminal_width(),
-        ) {
-            // Terminal width explicitly provided - only useful for testing.
-            (Some(Some(width)), _) => {
-                cmd.arg(format!("--diagnostic-width={}", width));
-            }
-            // Terminal width was not explicitly provided but flag was provided - common case.
-            (Some(None), Some(width)) => {
-                cmd.arg(format!("--diagnostic-width={}", width));
-            }
-            // User didn't opt-in.
-            _ => (),
-        }
+    if let Some(width) = config.shell().err_width().diagnostic_terminal_width() {
+        cmd.arg(format!("--diagnostic-width={width}"));
     }
 }
 
+/// Adds essential rustc flags and environment variables to the command to execute.
 fn build_base_args(
     cx: &mut Context<'_, '_>,
     cmd: &mut ProcessBuilder,
@@ -880,10 +1045,17 @@ fn build_base_args(
     cmd.args(&lto_args(cx, unit));
 
     // This is generally just an optimization on build time so if we don't pass
-    // it then it's ok. As of the time of this writing it's a very new flag, so
-    // we need to dynamically check if it's available.
-    if cx.bcx.target_data.info(unit.kind).supports_split_debuginfo {
-        if let Some(split) = split_debuginfo {
+    // it then it's ok. The values for the flag (off, packed, unpacked) may be supported
+    // or not depending on the platform, so availability is checked per-value.
+    // For example, at the time of writing this code, on Windows the only stable valid
+    // value for split-debuginfo is "packed", while on Linux "unpacked" is also stable.
+    if let Some(split) = split_debuginfo {
+        if cx
+            .bcx
+            .target_data
+            .info(unit.kind)
+            .supports_debuginfo_split(split)
+        {
             cmd.arg("-C").arg(format!("split-debuginfo={}", split));
         }
     }
@@ -896,7 +1068,7 @@ fn build_base_args(
         cmd.arg("-C").arg(&format!("codegen-units={}", n));
     }
 
-    if let Some(debuginfo) = debuginfo {
+    if let Some(debuginfo) = debuginfo.to_option() {
         cmd.arg("-C").arg(format!("debuginfo={}", debuginfo));
     }
 
@@ -995,7 +1167,7 @@ fn build_base_args(
             .env("RUSTC_BOOTSTRAP", "1");
     }
 
-    // Add `CARGO_BIN_` environment variables for building tests.
+    // Add `CARGO_BIN_EXE_` environment variables for building tests.
     if unit.target.is_test() || unit.target.is_bench() {
         for bin_target in unit
             .pkg
@@ -1017,7 +1189,7 @@ fn build_base_args(
     Ok(())
 }
 
-/// All active features for the unit passed as --cfg
+/// All active features for the unit passed as `--cfg features=<feature-name>`.
 fn features_args(unit: &Unit) -> Vec<OsString> {
     let mut args = Vec::with_capacity(unit.features.len() * 2);
 
@@ -1029,7 +1201,10 @@ fn features_args(unit: &Unit) -> Vec<OsString> {
     args
 }
 
-/// Generate the --check-cfg arguments for the unit
+/// Generates the `--check-cfg` arguments for the `unit`.
+/// See unstable feature [`check-cfg`].
+///
+/// [`check-cfg`]: https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#check-cfg
 fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
     if let Some((features, well_known_names, well_known_values, _output)) =
         cx.bcx.config.cli_unstable().check_cfg
@@ -1069,6 +1244,7 @@ fn check_cfg_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
     }
 }
 
+/// Adds LTO related codegen flags.
 fn lto_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
     let mut result = Vec::new();
     let mut push = |arg: &str| {
@@ -1089,6 +1265,11 @@ fn lto_args(cx: &Context<'_, '_>, unit: &Unit) -> Vec<OsString> {
     result
 }
 
+/// Adds dependency-relevant rustc flags and environment variables
+/// to the command to execute, such as [`-L`] and [`--extern`].
+///
+/// [`-L`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#-l-add-a-directory-to-the-library-search-path
+/// [`--extern`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--extern-specify-where-an-external-library-is-located
 fn build_deps_args(
     cmd: &mut ProcessBuilder,
     cx: &mut Context<'_, '_>,
@@ -1160,7 +1341,9 @@ fn build_deps_args(
     Ok(())
 }
 
-/// Add custom flags from the output a of build-script to a `ProcessBuilder`
+/// Adds extra rustc flags and environment variables collected from the output
+/// of a build-script to the command to execute, include custom environment
+/// variables and `cfg`.
 fn add_custom_flags(
     cmd: &mut ProcessBuilder,
     build_script_outputs: &BuildScriptOutputs,
@@ -1270,6 +1453,8 @@ fn envify(s: &str) -> String {
         .collect()
 }
 
+/// Configuration of the display of messages emitted by the compiler,
+/// e.g. diagnostics, warnings, errors, and message caching.
 struct OutputOptions {
     /// What format we're emitting from Cargo itself.
     format: MessageFormat,
@@ -1288,7 +1473,9 @@ struct OutputOptions {
     /// cache will be filled with diagnostics from dependencies. When the
     /// cache is replayed without `-vv`, we don't want to show them.
     show_diagnostics: bool,
+    /// Tracks the number of warnings we've seen so far.
     warnings_seen: usize,
+    /// Tracks the number of errors we've seen so far.
     errors_seen: usize,
 }
 
@@ -1407,7 +1594,28 @@ fn on_stderr_line_inner(
                 rendered: String,
                 message: String,
                 level: String,
+                children: Vec<PartialDiagnostic>,
             }
+
+            // A partial rustfix::diagnostics::Diagnostic. We deserialize only a
+            // subset of the fields because rustc's output can be extremely
+            // deeply nested JSON in pathological cases involving macro
+            // expansion. Rustfix's Diagnostic struct is recursive containing a
+            // field `children: Vec<Self>`, and it can cause deserialization to
+            // hit serde_json's default recursion limit, or overflow the stack
+            // if we turn that off. Cargo only cares about the 1 field listed
+            // here.
+            #[derive(serde::Deserialize)]
+            struct PartialDiagnostic {
+                spans: Vec<PartialDiagnosticSpan>,
+            }
+
+            // A partial rustfix::diagnostics::DiagnosticSpan.
+            #[derive(serde::Deserialize)]
+            struct PartialDiagnosticSpan {
+                suggestion_applicability: Option<Applicability>,
+            }
+
             if let Ok(mut msg) = serde_json::from_str::<CompilerMessage>(compiler_message.get()) {
                 if msg.message.starts_with("aborting due to")
                     || msg.message.ends_with("warning emitted")
@@ -1423,15 +1631,26 @@ fn on_stderr_line_inner(
                 let rendered = if options.color {
                     msg.rendered
                 } else {
-                    // Strip only fails if the the Writer fails, which is Cursor
+                    // Strip only fails if the Writer fails, which is Cursor
                     // on a Vec, which should never fail.
                     strip_ansi_escapes::strip(&msg.rendered)
                         .map(|v| String::from_utf8(v).expect("utf8"))
                         .expect("strip should never fail")
                 };
                 if options.show_diagnostics {
+                    let machine_applicable: bool = msg
+                        .children
+                        .iter()
+                        .map(|child| {
+                            child
+                                .spans
+                                .iter()
+                                .filter_map(|span| span.suggestion_applicability)
+                                .any(|app| app == Applicability::MachineApplicable)
+                        })
+                        .any(|b| b);
                     count_diagnostic(&msg.level, options);
-                    state.emit_diag(msg.level, rendered)?;
+                    state.emit_diag(msg.level, rendered, machine_applicable)?;
                 }
                 return Ok(true);
             }
@@ -1538,6 +1757,9 @@ fn on_stderr_line_inner(
     Ok(true)
 }
 
+/// Creates a unit of work that replays the cached compiler message.
+///
+/// Usually used when a job is fresh and doesn't need to recompile.
 fn replay_output_cache(
     package_id: PackageId,
     manifest_path: PathBuf,

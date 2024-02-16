@@ -1,8 +1,10 @@
 Bug: https://github.com/rust-lang/cargo/issues/10005
 
---- a/tests/testsuite/cfg.rs
-+++ b/tests/testsuite/cfg.rs
-@@ -272,7 +272,7 @@
+Index: cargo/tests/testsuite/cfg.rs
+===================================================================
+--- cargo.orig/tests/testsuite/cfg.rs
++++ cargo/tests/testsuite/cfg.rs
+@@ -272,7 +272,7 @@ fn any_ok() {
  
  // https://github.com/rust-lang/cargo/issues/5313
  #[cargo_test]

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "curl-sys"
-version = "0.4.59+curl-7.86.0"
+version = "0.4.68+curl-8.4.0"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 build = "build.rs"
 links = "curl"
@@ -52,21 +52,10 @@ ssl = ["openssl-sys"]
 static-curl = []
 static-ssl = ["openssl-sys"]
 upkeep_7_62_0 = []
-windows-static-ssl = []
 
 [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
-version = "0.9"
+version = "0.9.64"
 optional = true
-
-[target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
-version = "0.2"
-
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3"
-features = [
-    "winsock2",
-    "ws2def",
-]
 
 [badges.appveyor]
 repository = "alexcrichton/curl-rust"

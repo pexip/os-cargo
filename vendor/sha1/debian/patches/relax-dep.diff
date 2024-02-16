@@ -1,0 +1,13 @@
+Index: sha1/Cargo.toml
+===================================================================
+--- sha1.orig/Cargo.toml
++++ sha1/Cargo.toml
+@@ -35,7 +35,7 @@ version = "0.10.4"
+ features = ["dev"]
+ 
+ [dev-dependencies.hex-literal]
+-version = "0.2.2"
++version = "0.3"
+ 
+ [features]
+ asm = ["sha1-asm"]

@@ -1,0 +1,23 @@
+Index: orion/Cargo.toml
+===================================================================
+--- orion.orig/Cargo.toml
++++ orion/Cargo.toml
+@@ -36,6 +36,7 @@ categories = [
+ ]
+ license = "MIT"
+ repository = "https://github.com/orion-rs/orion"
++autobenches = false
+ 
+ [package.metadata.docs.rs]
+ all-features = true
+@@ -47,10 +48,6 @@ rustdoc-args = [
+ [profile.dev]
+ opt-level = 1
+ 
+-[[bench]]
+-name = "bench"
+-harness = false
+-
+ [dependencies.ct-codecs]
+ version = "1.1.1"
+ optional = true

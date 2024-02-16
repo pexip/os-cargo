@@ -7,9 +7,10 @@ use crate::{Compress, Decompress};
 
 /// A ZLIB encoder, or compressor.
 ///
-/// This structure consumes a [`BufRead`] interface, reading uncompressed data
-/// from the underlying reader, and emitting compressed data.
+/// This structure implements a [`Read`] interface. When read from, it reads
+/// uncompressed data from the underlying [`BufRead`] and provides the compressed data.
 ///
+/// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 /// [`BufRead`]: https://doc.rust-lang.org/std/io/trait.BufRead.html
 ///
 /// # Examples
@@ -45,6 +46,15 @@ impl<R: BufRead> ZlibEncoder<R> {
         ZlibEncoder {
             obj: r,
             data: Compress::new(level, true),
+        }
+    }
+
+    /// Creates a new encoder with the given `compression` settings which will
+    /// read uncompressed data from the given stream `r` and emit the compressed stream.
+    pub fn new_with_compress(r: R, compression: Compress) -> ZlibEncoder<R> {
+        ZlibEncoder {
+            obj: r,
+            data: compression,
         }
     }
 }
@@ -119,9 +129,10 @@ impl<R: BufRead + Write> Write for ZlibEncoder<R> {
 
 /// A ZLIB decoder, or decompressor.
 ///
-/// This structure consumes a [`BufRead`] interface, reading compressed data
-/// from the underlying reader, and emitting uncompressed data.
+/// This structure implements a [`Read`] interface. When read from, it reads
+/// compressed data from the underlying [`BufRead`] and provides the uncompressed data.
 ///
+/// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 /// [`BufRead`]: https://doc.rust-lang.org/std/io/trait.BufRead.html
 ///
 /// # Examples
@@ -165,6 +176,15 @@ impl<R: BufRead> ZlibDecoder<R> {
             data: Decompress::new(true),
         }
     }
+
+    /// Creates a new decoder which will decompress data read from the given
+    /// stream, using the given `decompression` settings.
+    pub fn new_with_decompress(r: R, decompression: Decompress) -> ZlibDecoder<R> {
+        ZlibDecoder {
+            obj: r,
+            data: decompression,
+        }
+    }
 }
 
 pub fn reset_decoder_data<R>(zlib: &mut ZlibDecoder<R>) {
@@ -192,7 +212,7 @@ impl<R> ZlibDecoder<R> {
     /// Acquires a mutable reference to the underlying stream
     ///
     /// Note that mutation of the stream may result in surprising results if
-    /// this encoder is continued to be used.
+    /// this decoder is continued to be used.
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.obj
     }

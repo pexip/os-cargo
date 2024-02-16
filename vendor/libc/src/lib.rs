@@ -139,6 +139,12 @@ cfg_if! {
 
         mod hermit;
         pub use hermit::*;
+    } else if #[cfg(target_os = "teeos")] {
+        mod fixed_width_ints;
+        pub use fixed_width_ints::*;
+
+        mod teeos;
+        pub use teeos::*;
     } else if #[cfg(all(target_env = "sgx", target_vendor = "fortanix"))] {
         mod fixed_width_ints;
         pub use fixed_width_ints::*;
@@ -151,6 +157,12 @@ cfg_if! {
 
         mod wasi;
         pub use wasi::*;
+    } else if #[cfg(target_os = "xous")] {
+        mod fixed_width_ints;
+        pub use fixed_width_ints::*;
+
+        mod xous;
+        pub use xous::*;
     } else {
         // non-supported targets: empty...
     }

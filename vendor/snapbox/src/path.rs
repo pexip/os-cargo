@@ -1,5 +1,7 @@
 //! Initialize working directories and assert on how they've changed
 
+#[cfg(feature = "path")]
+use crate::data::{NormalizeMatches, NormalizeNewlines, NormalizePaths};
 /// Working directory for tests
 #[derive(Debug)]
 pub struct PathFixture(PathFixtureInner);
@@ -38,8 +40,8 @@ impl PathFixture {
 
     #[cfg(feature = "path")]
     pub fn mutable_at(target: &std::path::Path) -> Result<Self, crate::Error> {
-        let _ = std::fs::remove_dir_all(&target);
-        std::fs::create_dir_all(&target)
+        let _ = std::fs::remove_dir_all(target);
+        std::fs::create_dir_all(target)
             .map_err(|e| format!("Failed to create {}: {}", target.display(), e))?;
         Ok(Self(PathFixtureInner::MutablePath(target.to_owned())))
     }
@@ -179,12 +181,12 @@ impl PathDiff {
                         crate::Data::read_from(&actual_path, None).map_err(Self::Failure)?;
 
                     let expected = crate::Data::read_from(&expected_path, None)
-                        .map(|d| d.map_text(crate::utils::normalize_lines))
+                        .map(|d| d.normalize(NormalizeNewlines))
                         .map_err(Self::Failure)?;
 
                     actual = actual
                         .try_coerce(expected.format())
-                        .map_text(crate::utils::normalize_lines);
+                        .normalize(NormalizeNewlines);
 
                     if expected != actual {
                         return Err(Self::ContentMismatch {
@@ -257,15 +259,14 @@ impl PathDiff {
                         crate::Data::read_from(&actual_path, None).map_err(Self::Failure)?;
 
                     let expected = crate::Data::read_from(&expected_path, None)
-                        .map(|d| d.map_text(crate::utils::normalize_lines))
+                        .map(|d| d.normalize(NormalizeNewlines))
                         .map_err(Self::Failure)?;
 
-                    if let (Some(expected), format) = (expected.as_str(), expected.format()) {
-                        actual = actual
-                            .try_coerce(format)
-                            .map_text(crate::utils::normalize_text)
-                            .map_text(|t| substitutions.normalize(t, expected));
-                    }
+                    actual = actual
+                        .try_coerce(expected.format())
+                        .normalize(NormalizePaths)
+                        .normalize(NormalizeNewlines)
+                        .normalize(NormalizeMatches::new(substitutions, &expected));
 
                     if expected != actual {
                         return Err(Self::ContentMismatch {
@@ -576,7 +577,7 @@ fn copy_stats(
     dest: &std::path::Path,
 ) -> Result<(), std::io::Error> {
     let src_mtime = filetime::FileTime::from_last_modification_time(source_meta);
-    filetime::set_file_mtime(&dest, src_mtime)?;
+    filetime::set_file_mtime(dest, src_mtime)?;
 
     Ok(())
 }

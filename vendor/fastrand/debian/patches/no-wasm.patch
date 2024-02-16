@@ -2,21 +2,28 @@ Index: fastrand/Cargo.toml
 ===================================================================
 --- fastrand.orig/Cargo.toml
 +++ fastrand/Cargo.toml
-@@ -37,17 +37,3 @@ version = "0.8"
- 
- [dev-dependencies.wyhash]
- version = "0.5"
+@@ -48,20 +48,8 @@ version = "0.5"
+ [features]
+ alloc = []
+ default = ["std"]
+-js = [
+-    "std",
+-    "getrandom",
+-]
++# js = [
++#     "std",
++#     "getrandom",
++# ]
+ std = ["alloc"]
 -
--[target."cfg(target_arch = \"wasm32\")".dependencies.instant]
--version = "0.1"
+-[target."cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))".dependencies.getrandom]
+-version = "0.2"
+-features = ["js"]
+-optional = true
 -
--[target."cfg(target_arch = \"wasm32\")".dev-dependencies.getrandom]
+-[target."cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))".dev-dependencies.getrandom]
 -version = "0.2"
 -features = ["js"]
 -
--[target."cfg(target_arch = \"wasm32\")".dev-dependencies.instant]
--version = "0.1"
--features = ["wasm-bindgen"]
--
--[target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-test]
+-[target."cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))".dev-dependencies.wasm-bindgen-test]
 -version = "0.3"

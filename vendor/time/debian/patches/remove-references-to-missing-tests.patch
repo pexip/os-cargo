@@ -1,0 +1,18 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -53,15 +53,6 @@
+ [lib]
+ bench = false
+ 
+-[[test]]
+-name = "tests"
+-path = "../tests/main.rs"
+-
+-[[bench]]
+-name = "benchmarks"
+-path = "../benchmarks/main.rs"
+-harness = false
+-
+ [dependencies.deranged]
+ version = "0.3.7"
+ default-features = false

@@ -1,3 +1,49 @@
+cargo (0.70.1+ds1-2) unstable; urgency=medium
+
+  [ Fabian Gruenbichler ]
+  * riscv64: skip test for split debug info (support disabled in rustc)
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Sat, 30 Dec 2023 15:00:37 +0100
+
+cargo (0.70.1+ds1-1) unstable; urgency=medium
+
+  * Upload to unstable
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Sat, 16 Dec 2023 11:03:47 +0100
+
+cargo (0.70.1+ds1-1~exp1) experimental; urgency=medium
+
+  * update libgit2 to 1.7.1
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Sat, 16 Dec 2023 10:46:19 +0100
+
+cargo (0.70.1-1~exp1) experimental; urgency=medium
+
+  * New upstream release
+  * Fix cargo-doc contents
+  * Update lintian overrides
+  * Add myself to Uploaders
+  * Disable flaky publish tests
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Tue, 24 Oct 2023 11:41:25 +0200
+
+cargo (0.66.0+ds2-2) unstable; urgency=medium
+
+  * disable more flaky publish tests
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Mon, 04 Dec 2023 07:57:07 +0100
+
+cargo (0.66.0+ds2-1) unstable; urgency=medium
+
+  [ Zixing Liu ]
+  * d/bin/cargo: handle LTO options from DEB_BUILD_OPTIONS ...
+
+  [ Fabian Grünbichler ]
+  * update libgit2 to 1.7.1
+  * disable flaky publish tests
+
+ -- Fabian Grünbichler <debian@fabian.gruenbichler.email>  Sun, 03 Dec 2023 19:38:28 +0100
+
 cargo (0.66.0+ds1-1+pexip24u5) pexip-bookworm; urgency=medium
 
   * New versioning scheme

@@ -1,0 +1,25 @@
+Description: fix 'time' feature tests
+ The following invocation fails due to Error not being in scope:
+ cargo test --all-targets --no-default-features --features time
+
+Author: Emanuele Rocca <ema@debian.org>
+
+Last-Update: 2023-06-30
+Index: der/src/asn1/generalized_time.rs
+===================================================================
+--- der.orig/src/asn1/generalized_time.rs
++++ der/src/asn1/generalized_time.rs
+@@ -8,9 +8,12 @@ use crate::{
+ };
+ use core::time::Duration;
+ 
++#[cfg(any(feature = "std", feature = "time"))]
++use crate::Error;
++
+ #[cfg(feature = "std")]
+ use {
+-    crate::{asn1::AnyRef, Error},
++    crate::asn1::AnyRef,
+     std::time::SystemTime,
+ };
+ 

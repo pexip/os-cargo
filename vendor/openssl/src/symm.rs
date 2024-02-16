@@ -68,7 +68,7 @@ pub enum Mode {
 ///
 /// See OpenSSL doc at [`EVP_EncryptInit`] for more information on each algorithms.
 ///
-/// [`EVP_EncryptInit`]: https://www.openssl.org/docs/man1.1.0/crypto/EVP_EncryptInit.html
+/// [`EVP_EncryptInit`]: https://www.openssl.org/docs/manmaster/crypto/EVP_EncryptInit.html
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Cipher(*const ffi::EVP_CIPHER);
 
@@ -77,7 +77,7 @@ impl Cipher {
     ///
     /// This corresponds to [`EVP_get_cipherbynid`]
     ///
-    /// [`EVP_get_cipherbynid`]: https://www.openssl.org/docs/man1.0.2/crypto/EVP_get_cipherbyname.html
+    /// [`EVP_get_cipherbynid`]: https://www.openssl.org/docs/manmaster/crypto/EVP_get_cipherbyname.html
     pub fn from_nid(nid: Nid) -> Option<Cipher> {
         let ptr = unsafe { ffi::EVP_get_cipherbyname(ffi::OBJ_nid2sn(nid.as_raw())) };
         if ptr.is_null() {
@@ -91,7 +91,7 @@ impl Cipher {
     ///
     /// This corresponds to [`EVP_CIPHER_nid`]
     ///
-    /// [`EVP_CIPHER_nid`]: https://www.openssl.org/docs/man1.0.2/crypto/EVP_CIPHER_nid.html
+    /// [`EVP_CIPHER_nid`]: https://www.openssl.org/docs/manmaster/crypto/EVP_CIPHER_nid.html
     pub fn nid(&self) -> Nid {
         let nid = unsafe { ffi::EVP_CIPHER_nid(self.0) };
         Nid::from_raw(nid)
@@ -142,7 +142,7 @@ impl Cipher {
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     pub fn aes_128_ocb() -> Cipher {
         unsafe { Cipher(ffi::EVP_aes_128_ocb()) }
     }
@@ -187,7 +187,7 @@ impl Cipher {
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     pub fn aes_192_ocb() -> Cipher {
         unsafe { Cipher(ffi::EVP_aes_192_ocb()) }
     }
@@ -237,7 +237,7 @@ impl Cipher {
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     pub fn aes_256_ocb() -> Cipher {
         unsafe { Cipher(ffi::EVP_aes_256_ocb()) }
     }
@@ -283,6 +283,7 @@ impl Cipher {
         unsafe { Cipher(ffi::EVP_des_ede3_cfb64()) }
     }
 
+    #[cfg(not(osslconf = "OPENSSL_NO_RC4"))]
     pub fn rc4() -> Cipher {
         unsafe { Cipher(ffi::EVP_rc4()) }
     }
@@ -294,7 +295,7 @@ impl Cipher {
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_CHACHA")))]
+    #[cfg(all(any(ossl110, libressl360), not(osslconf = "OPENSSL_NO_CHACHA")))]
     pub fn chacha20_poly1305() -> Cipher {
         unsafe { Cipher(ffi::EVP_chacha20_poly1305()) }
     }
@@ -401,14 +402,14 @@ impl Cipher {
     }
 
     /// Determines whether the cipher is using OCB mode
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     fn is_ocb(self) -> bool {
         self == Cipher::aes_128_ocb()
             || self == Cipher::aes_192_ocb()
             || self == Cipher::aes_256_ocb()
     }
 
-    #[cfg(not(ossl110))]
+    #[cfg(any(not(ossl110), osslconf = "OPENSSL_NO_OCB"))]
     const fn is_ocb(self) -> bool {
         false
     }
@@ -1421,7 +1422,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     fn test_aes_128_ocb() {
         let key = "000102030405060708090a0b0c0d0e0f";
         let aad = "0001020304050607";
@@ -1457,7 +1458,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(ossl110)]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_OCB")))]
     fn test_aes_128_ocb_fail() {
         let key = "000102030405060708090a0b0c0d0e0f";
         let aad = "0001020304050607";
@@ -1477,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(ossl110))]
+    #[cfg(ossl110)]
     fn test_chacha20() {
         let key = "0000000000000000000000000000000000000000000000000000000000000000";
         let iv = "00000000000000000000000000000000";
@@ -1492,7 +1493,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(ossl110))]
+    #[cfg(any(ossl110, libressl360))]
     fn test_chacha20_poly1305() {
         let key = "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f";
         let iv = "070000004041424344454647";

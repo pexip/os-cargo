@@ -1,0 +1,22 @@
+Index: p384/Cargo.toml
+===================================================================
+--- p384.orig/Cargo.toml
++++ p384/Cargo.toml
+@@ -89,7 +89,7 @@ default-features = false
+ version = "0.3"
+ 
+ [dev-dependencies.criterion]
+-version = "0.4"
++version = "0.5"
+ 
+ [dev-dependencies.ecdsa-core]
+ version = "0.16"
+@@ -101,7 +101,7 @@ package = "ecdsa"
+ version = "0.4"
+ 
+ [dev-dependencies.proptest]
+-version = "1.1"
++version = "1.0"
+ 
+ [dev-dependencies.rand_core]
+ version = "0.6"

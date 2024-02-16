@@ -1,0 +1,38 @@
+Index: ordered-float/Cargo.toml
+===================================================================
+--- ordered-float.orig/Cargo.toml
++++ ordered-float/Cargo.toml
+@@ -34,33 +34,15 @@ categories = [
+ license = "MIT"
+ repository = "https://github.com/reem/rust-ordered-float"
+ 
+-[dependencies.arbitrary]
+-version = "1.0.0"
+-optional = true
+-
+ [dependencies.num-traits]
+ version = "0.2.1"
+ default-features = false
+ 
+-[dependencies.proptest]
+-version = "1.0.0"
+-optional = true
+-
+ [dependencies.rand]
+ version = "0.8.3"
+ optional = true
+ default-features = false
+ 
+-[dependencies.rkyv]
+-version = "0.7"
+-features = ["size_32"]
+-optional = true
+-default-features = false
+-
+-[dependencies.schemars]
+-version = "0.6.5"
+-optional = true
+-
+ [dependencies.serde]
+ version = "1.0"
+ optional = true

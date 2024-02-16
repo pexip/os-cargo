@@ -1,0 +1,22 @@
+Index: p384/Cargo.toml
+===================================================================
+--- p384.orig/Cargo.toml
++++ p384/Cargo.toml
+@@ -69,7 +69,7 @@ features = [
+ default-features = false
+ 
+ [dependencies.hex-literal]
+-version = "0.3"
++version = "0.4"
+ optional = true
+ 
+ [dependencies.primeorder]
+@@ -98,7 +98,7 @@ default-features = false
+ package = "ecdsa"
+ 
+ [dev-dependencies.hex-literal]
+-version = "0.3"
++version = "0.4"
+ 
+ [dev-dependencies.proptest]
+ version = "1.1"

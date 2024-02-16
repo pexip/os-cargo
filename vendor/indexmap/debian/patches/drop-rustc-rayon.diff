@@ -16,14 +16,8 @@ collapse_features=true to debian/debcargo.toml.
 
 --- indexmap/Cargo.toml
 +++ indexmap/Cargo.toml
-@@ -53,10 +53,6 @@
- version = "1.4.1"
- optional = true
- 
+@@ -56,4 +56,0 @@
 -[dependencies.rustc-rayon]
--version = "0.4"
+-version = "0.5"
 -optional = true
--
- [dependencies.serde]
- version = "1.0"
- optional = true
+-package = "rustc-rayon"

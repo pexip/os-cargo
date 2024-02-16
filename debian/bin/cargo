@@ -165,9 +165,20 @@ def main(*args):
     build_profiles = os.getenv("DEB_BUILD_PROFILES", "").split()
 
     parallel = []
+    lto = 0
     for o in build_options:
         if o.startswith("parallel="):
             parallel = ["-j" + o[9:]]
+        elif o.startswith("optimize="):
+            opt_arg = o[9:]
+            for arg in opt_arg.split(","):
+                if opt_arg == "-lto":
+                    lto = -1
+                elif opt_arg == "+lto":
+                    lto = 1
+                else:
+                    log(f"WARNING: unhandled optimization flag: {opt_arg}")
+
     nodoc = "nodoc" in build_options or "nodoc" in build_profiles
     nocheck = "nocheck" in build_options or "nocheck" in build_profiles
 
@@ -176,7 +187,7 @@ def main(*args):
     host_rust_type = os.getenv("DEB_HOST_RUST_TYPE", "")
     host_gnu_type = os.getenv("DEB_HOST_GNU_TYPE", "")
 
-    log("options, profiles, parallel:", build_options, build_profiles, parallel)
+    log("options, profiles, parallel, lto:", build_options, build_profiles, parallel, lto)
     log("rust_type, gnu_type:", ", ".join([host_rust_type, host_gnu_type]))
 
     if "RUSTFLAGS" in os.environ:
@@ -216,6 +227,11 @@ def main(*args):
         return 0
     if nocheck and subcmd in ("test", "bench"):
         return 0
+
+    if lto == 1:
+        newargs.append("--config profile.release.lto = \"thin\"")
+    elif lto == -1:
+        newargs.append("--config profile.release.lto = false")
 
     if subcmd == "clean":
         logrun(["env", "RUST_BACKTRACE=1", "/usr/bin/cargo"] + list(newargs), check=True)

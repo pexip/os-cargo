@@ -1,0 +1,19 @@
+Subject: riscv64 skip split debuginfo test
+Author: Fabian Grünbichler <debian@fabian.gruenbichler.email>
+
+See corresponding rustc change for details.
+
+diff --git a/tests/testsuite/build.rs.orig b/tests/testsuite/build.rs
+index 56130c6..369a3e9 100644
+--- a/tests/testsuite/build.rs.orig
++++ b/tests/testsuite/build.rs
+@@ -5313,7 +5313,7 @@ fn uplift_pdb_of_bin_on_windows() {
+ }
+
+ #[cargo_test]
+-#[cfg(target_os = "linux")]
++#[cfg(all(target_os = "linux", target_arch = "riscv"))]
+ fn uplift_dwp_of_bin_on_linux() {
+     let p = project()
+         .file("src/main.rs", "fn main() { panic!(); }")
+

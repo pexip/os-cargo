@@ -910,7 +910,7 @@ fn no_document_build_deps() {
 fn doc_release() {
     let p = project().file("src/lib.rs", "").build();
 
-    p.cargo("build --release").run();
+    p.cargo("check --release").run();
     p.cargo("doc --release -v")
         .with_stderr(
             "\
@@ -1110,7 +1110,7 @@ fn doc_all_workspace() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.1.0"
 
@@ -1246,7 +1246,7 @@ fn doc_all_member_dependency_same_name() {
         .file(
             "bar/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "bar"
                 version = "0.1.0"
 
@@ -1550,7 +1550,7 @@ fn issue_5345() {
     Package::new("bar", "0.1.0").publish();
     Package::new("bar", "0.2.0").publish();
 
-    foo.cargo("build").run();
+    foo.cargo("check").run();
     foo.cargo("doc").run();
 }
 
@@ -2057,7 +2057,7 @@ fn doc_test_in_workspace() {
         .file(
             "crate-a/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "crate-a"
                 version = "0.1.0"
             "#,
@@ -2073,7 +2073,7 @@ fn doc_test_in_workspace() {
         .file(
             "crate-b/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "crate-b"
                 version = "0.1.0"
             "#,
@@ -2341,265 +2341,6 @@ fn doc_fingerprint_unusual_behavior() {
     // Should not have deleted anything.
     assert!(build_doc.join("somefile").exists());
     assert!(real_doc.join("somefile").exists());
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_basic() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-            "#,
-        )
-        .file("examples/ex.rs", "fn main() { foo::foo(); }")
-        .file("src/lib.rs", "pub fn foo() {}\npub fn bar() { foo(); }")
-        .build();
-
-    p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .with_stderr(
-            "\
-[..] foo v0.0.1 ([CWD])
-[..] foo v0.0.1 ([CWD])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
-",
-        )
-        .run();
-
-    let doc_html = p.read_file("target/doc/foo/fn.foo.html");
-    assert!(doc_html.contains("Examples found in repository"));
-    assert!(doc_html.contains("More examples"));
-
-    // Ensure that the reverse-dependency has its sources generated
-    assert!(p.build_dir().join("doc/src/ex/ex.rs.html").exists());
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_avoid_build_script_cycle() {
-    let p = project()
-        // package with build dependency
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-                links = "foo"
-
-                [workspace]
-                members = ["bar"]
-
-                [build-dependencies]
-                bar = {path = "bar"}
-            "#,
-        )
-        .file("src/lib.rs", "")
-        .file("build.rs", "fn main(){}")
-        // dependency
-        .file(
-            "bar/Cargo.toml",
-            r#"
-                [package]
-                name = "bar"
-                version = "0.0.1"
-                authors = []
-                links = "bar"
-            "#,
-        )
-        .file("bar/src/lib.rs", "")
-        .file("bar/build.rs", "fn main(){}")
-        .build();
-
-    p.cargo("doc --all -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .run();
-}
-
-// FIXME: This test is broken with latest nightly 2022-08-02.
-// The example is calling a function from a proc-macro, but proc-macros don't
-// export functions. It is not clear what this test is trying to exercise.
-// #[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-#[ignore = "broken, needs fixing"]
-#[cargo_test]
-fn scrape_examples_complex_reverse_dependencies() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-
-                [dev-dependencies]
-                a = {path = "a", features = ["feature"]}
-                b = {path = "b"}
-
-                [workspace]
-                members = ["b"]
-            "#,
-        )
-        .file("src/lib.rs", "")
-        .file("examples/ex.rs", "fn main() { a::f(); }")
-        .file(
-            "a/Cargo.toml",
-            r#"
-                [package]
-                name = "a"
-                version = "0.0.1"
-                authors = []
-
-                [lib]
-                proc-macro = true
-
-                [dependencies]
-                b = {path = "../b"}
-
-                [features]
-                feature = []
-            "#,
-        )
-        .file("a/src/lib.rs", "#[cfg(feature)] pub fn f();")
-        .file(
-            "b/Cargo.toml",
-            r#"
-                [package]
-                name = "b"
-                version = "0.0.1"
-                authors = []
-            "#,
-        )
-        .file("b/src/lib.rs", "")
-        .build();
-
-    p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .run();
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_crate_with_dash() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "da-sh"
-                version = "0.0.1"
-                authors = []
-            "#,
-        )
-        .file("src/lib.rs", "pub fn foo() {}")
-        .file("examples/a.rs", "fn main() { da_sh::foo(); }")
-        .build();
-
-    p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .run();
-
-    let doc_html = p.read_file("target/doc/da_sh/fn.foo.html");
-    assert!(doc_html.contains("Examples found in repository"));
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_missing_flag() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-            [package]
-            name = "foo"
-            version = "1.2.4"
-            authors = []
-        "#,
-        )
-        .file("src/lib.rs", "//! These are the docs!")
-        .build();
-    p.cargo("doc -Zrustdoc-scrape-examples")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .with_status(101)
-        .with_stderr("error: -Z rustdoc-scrape-examples must take [..] an argument")
-        .run();
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_configure_profile() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [package]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-
-                [profile.dev]
-                panic = "abort"
-            "#,
-        )
-        .file("examples/ex.rs", "fn main() { foo::foo(); }")
-        .file("src/lib.rs", "pub fn foo() {}\npub fn bar() { foo(); }")
-        .build();
-
-    p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .run();
-
-    let doc_html = p.read_file("target/doc/foo/fn.foo.html");
-    assert!(doc_html.contains("Examples found in repository"));
-    assert!(doc_html.contains("More examples"));
-}
-
-#[cargo_test(nightly, reason = "rustdoc scrape examples flags are unstable")]
-fn scrape_examples_issue_10545() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"                
-                [workspace]
-                resolver = "2"
-                members = ["a", "b"]              
-            "#,
-        )
-        .file(
-            "a/Cargo.toml",
-            r#"
-            [package]
-            name = "a"
-            version = "0.0.1"
-            authors = []
-            edition = "2021"
-
-            [features]
-            default = ["foo"]
-            foo = []
-        "#,
-        )
-        .file("a/src/lib.rs", "")
-        .file(
-            "b/Cargo.toml",
-            r#"
-                [package]
-                name = "b"
-                version = "0.0.1"
-                authors = []
-                edition = "2021"
-
-                [lib]
-                proc-macro = true
-            "#,
-        )
-        .file("b/src/lib.rs", "")
-        .build();
-
-    p.cargo("doc -Zunstable-options -Z rustdoc-scrape-examples=all")
-        .masquerade_as_nightly_cargo(&["rustdoc-scrape-examples"])
-        .run();
 }
 
 #[cargo_test]

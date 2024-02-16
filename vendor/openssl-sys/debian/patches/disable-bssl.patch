@@ -11,11 +11,5 @@
  [dependencies.libc]
  version = "0.2"
  
-@@ -51,7 +47,6 @@
- version = "0.3.9"
- 
- [features]
+@@ -54,1 +51,0 @@
 -unstable_boringssl = ["bssl-sys"]
- 
- [target."cfg(target_env = \"msvc\")".build-dependencies.vcpkg]
- version = "0.2.8"

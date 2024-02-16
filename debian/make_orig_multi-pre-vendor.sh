@@ -14,6 +14,3 @@
 
 # Drop the "vendored" feature since we patch it out of debcargo
 sed -i /vendored/d Cargo.toml
-
-# avoid pulling in windows-sys for now
-cargo update -p schannel --precise 0.1.19

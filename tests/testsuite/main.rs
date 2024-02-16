@@ -1,7 +1,6 @@
 // See src/cargo/lib.rs for notes on these lint settings.
 #![warn(rust_2018_idioms)]
 #![allow(clippy::all)]
-#![cfg_attr(feature = "deny-warnings", deny(warnings))]
 
 #[macro_use]
 extern crate cargo_test_macro;
@@ -25,6 +24,7 @@ mod cargo_command;
 mod cargo_config;
 mod cargo_env_config;
 mod cargo_features;
+mod cargo_remove;
 mod cargo_targets;
 mod cfg;
 mod check;
@@ -44,6 +44,7 @@ mod death;
 mod dep_info;
 mod directory;
 mod doc;
+mod docscrape;
 mod edition;
 mod error;
 mod features;
@@ -59,6 +60,7 @@ mod git_auth;
 mod git_gc;
 mod glob_targets;
 mod help;
+mod https;
 mod inheritable_workspace_fields;
 mod init;
 mod install;
@@ -104,6 +106,7 @@ mod publish;
 mod publish_lockfile;
 mod read_manifest;
 mod registry;
+mod registry_auth;
 mod rename_deps;
 mod replace;
 mod required_features;
@@ -117,6 +120,8 @@ mod rustdocflags;
 mod rustflags;
 mod search;
 mod shell_quoting;
+mod source_replacement;
+mod ssh;
 mod standard_lib;
 mod test;
 mod timings;

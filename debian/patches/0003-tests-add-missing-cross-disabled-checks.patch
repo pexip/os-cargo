@@ -17,11 +17,11 @@ Signed-off-by: Fabian Grünbichler <debian@fabian.gruenbichler.email>
  tests/testsuite/build_script.rs | 6 ++++++
  1 file changed, 6 insertions(+)
 
-diff --git a/tests/testsuite/build_script.rs b/tests/testsuite/build_script.rs
-index 902364dff..e458b3262 100644
---- a/tests/testsuite/build_script.rs
-+++ b/tests/testsuite/build_script.rs
-@@ -585,6 +585,9 @@ fn custom_build_linker_bad_host_with_arch() {
+Index: cargo/tests/testsuite/build_script.rs
+===================================================================
+--- cargo.orig/tests/testsuite/build_script.rs
++++ cargo/tests/testsuite/build_script.rs
+@@ -697,6 +697,9 @@ fn custom_build_linker_bad_host_with_arc
  #[cargo_test]
  fn custom_build_env_var_rustc_linker_cross_arch_host() {
      let target = rustc_host();
@@ -31,7 +31,7 @@ index 902364dff..e458b3262 100644
      let cross_target = cross_compile::alternate();
      let p = project()
          .file(
-@@ -623,6 +626,9 @@ fn custom_build_env_var_rustc_linker_cross_arch_host() {
+@@ -735,6 +738,9 @@ fn custom_build_env_var_rustc_linker_cro
  #[cargo_test]
  fn custom_build_linker_bad_cross_arch_host() {
      let target = rustc_host();
@@ -41,6 +41,3 @@ index 902364dff..e458b3262 100644
      let cross_target = cross_compile::alternate();
      let p = project()
          .file(
--- 
-2.38.1
-

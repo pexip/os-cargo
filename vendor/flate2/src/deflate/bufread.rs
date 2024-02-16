@@ -7,9 +7,10 @@ use crate::{Compress, Decompress};
 
 /// A DEFLATE encoder, or compressor.
 ///
-/// This structure consumes a [`BufRead`] interface, reading uncompressed data
-/// from the underlying reader, and emitting compressed data.
+/// This structure implements a [`Read`] interface. When read from, it reads
+/// uncompressed data from the underlying [`BufRead`] and provides the compressed data.
 ///
+/// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 /// [`BufRead`]: https://doc.rust-lang.org/std/io/trait.BufRead.html
 ///
 /// # Examples
@@ -123,9 +124,10 @@ impl<W: BufRead + Write> Write for DeflateEncoder<W> {
 
 /// A DEFLATE decoder, or decompressor.
 ///
-/// This structure consumes a [`BufRead`] interface, reading compressed data
-/// from the underlying reader, and emitting uncompressed data.
+/// This structure implements a [`Read`] interface. When read from, it reads
+/// compressed data from the underlying [`BufRead`] and provides the uncompressed data.
 ///
+/// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 /// [`BufRead`]: https://doc.rust-lang.org/std/io/trait.BufRead.html
 ///
 /// # Examples
@@ -202,7 +204,7 @@ impl<R> DeflateDecoder<R> {
     /// Acquires a mutable reference to the underlying stream
     ///
     /// Note that mutation of the stream may result in surprising results if
-    /// this encoder is continued to be used.
+    /// this decoder is continued to be used.
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.obj
     }

@@ -1,0 +1,13 @@
+Index: const-oid/Cargo.toml
+===================================================================
+--- const-oid.orig/Cargo.toml
++++ const-oid/Cargo.toml
+@@ -46,7 +46,7 @@ rustdoc-args = [
+ ]
+ 
+ [dependencies.arbitrary]
+-version = "1.2"
++version = "1.1"
+ features = ["derive"]
+ optional = true
+ 

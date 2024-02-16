@@ -2,9 +2,10 @@
 
 use cargo_test_support::git::{self, repo};
 use cargo_test_support::paths;
-use cargo_test_support::registry::{self, Package, Response};
+use cargo_test_support::registry::{self, Package, RegistryBuilder, Response};
 use cargo_test_support::{basic_manifest, no_such_file_err_msg, project, publish};
 use std::fs;
+use std::sync::{Arc, Mutex};
 
 const CLEAN_FOO_JSON: &str = r#"
     {
@@ -84,29 +85,15 @@ fn validate_upload_li() {
     );
 }
 
-fn validate_upload_foo_clean() {
-    publish::validate_upload(
-        CLEAN_FOO_JSON,
-        "foo-0.0.1.crate",
-        &[
-            "Cargo.lock",
-            "Cargo.toml",
-            "Cargo.toml.orig",
-            "src/main.rs",
-            ".cargo_vcs_info.json",
-        ],
-    );
-}
-
 #[cargo_test]
 fn simple() {
-    registry::init();
+    let registry = RegistryBuilder::new().http_api().http_index().build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -117,32 +104,113 @@ fn simple() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] foo v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
+
+    validate_upload_foo();
+}
+
+// Check that the `token` key works at the root instead of under a
+// `[registry]` table.
+#[cargo_test]
+fn simple_publish_with_http() {
+    let _reg = registry::RegistryBuilder::new()
+        .http_api()
+        .token(registry::Token::Plaintext("sekrit".to_string()))
+        .build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("publish --no-verify --token sekrit --registry dummy-registry")
         .with_stderr(
             "\
 [UPDATING] `dummy-registry` index
 [WARNING] manifest has no documentation, [..]
 See [..]
 [PACKAGING] foo v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] `dummy-registry` index
 ",
         )
         .run();
+}
 
-    validate_upload_foo();
+#[cargo_test]
+fn simple_publish_with_asymmetric() {
+    let _reg = registry::RegistryBuilder::new()
+        .http_api()
+        .http_index()
+        .alternative_named("dummy-registry")
+        .token(registry::Token::rfc_key())
+        .build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("publish --no-verify -Zregistry-auth --registry dummy-registry")
+        .masquerade_as_nightly_cargo(&["registry-auth"])
+        .with_stderr(
+            "\
+[UPDATING] `dummy-registry` index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] foo v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] `dummy-registry` index
+",
+        )
+        .run();
 }
 
 #[cargo_test]
 fn old_token_location() {
-    // Check that the `token` key works at the root instead of under a
-    // `[registry]` table.
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -153,73 +221,92 @@ fn old_token_location() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    let credentials = paths::home().join(".cargo/credentials");
+    let credentials = paths::home().join(".cargo/credentials.toml");
     fs::remove_file(&credentials).unwrap();
 
     // Verify can't publish without a token.
     p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr_contains(
-            "[ERROR] no upload token found, \
-            please run `cargo login` or pass `--token`",
+            "[ERROR] no token found, \
+            please run `cargo login`",
         )
         .run();
 
-    fs::write(&credentials, r#"token = "api-token""#).unwrap();
+    fs::write(&credentials, format!(r#"token = "{}""#, registry.token())).unwrap();
 
     p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_stderr(
             "\
-[UPDATING] `dummy-registry` index
-[WARNING] using `registry.token` config value with source replacement is deprecated
-This may become a hard error in the future[..]
-Use the --token command-line flag to remove this warning.
+[UPDATING] crates.io index
 [WARNING] manifest has no documentation, [..]
 See [..]
 [PACKAGING] foo v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
 ",
         )
         .run();
 
-    validate_upload_foo();
+    // Skip `validate_upload_foo` as we just cared we got far enough for verify the token behavior.
+    // Other tests will verify the endpoint gets the right payload.
 }
 
 #[cargo_test]
 fn simple_with_index() {
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("publish --no-verify")
+        .arg("--token")
+        .arg(registry.token())
+        .arg("--index")
+        .arg(registry.index_url().as_str())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
+
+    // Skip `validate_upload_foo` as we just cared we got far enough for verify the VCS behavior.
+    // Other tests will verify the endpoint gets the right payload.
+}
+
+#[cargo_test]
+fn git_deps() {
+    // Use local registry for faster test times since no publish will occur
     let registry = registry::init();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
-                name = "foo"
-                version = "0.0.1"
-                authors = []
-                license = "MIT"
-                description = "foo"
-            "#,
-        )
-        .file("src/main.rs", "fn main() {}")
-        .build();
-
-    p.cargo("publish --no-verify --token sekrit --index")
-        .arg(registry.index_url().as_str())
-        .run();
-
-    validate_upload_foo();
-}
-
-#[cargo_test]
-fn git_deps() {
-    registry::init();
-
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -233,7 +320,8 @@ fn git_deps() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -v --no-verify --token sekrit")
+    p.cargo("publish -v --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
@@ -249,13 +337,14 @@ the `git` specification will be removed from the dependency declaration.
 
 #[cargo_test]
 fn path_dependency_no_version() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -271,7 +360,8 @@ fn path_dependency_no_version() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    p.cargo("publish --token sekrit")
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
@@ -287,13 +377,14 @@ the `path` specification will be removed from the dependency declaration.
 
 #[cargo_test]
 fn unpublishable_crate() {
+    // Use local registry for faster test times since no publish will occur
     let registry = registry::init();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -311,7 +402,7 @@ fn unpublishable_crate() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `crates-io` is not listed in the `publish` value in Cargo.toml.
+`package.publish` is set to `false` or an empty list in Cargo.toml and prevents publishing.
 ",
         )
         .run();
@@ -319,14 +410,16 @@ The registry `crates-io` is not listed in the `publish` value in Cargo.toml.
 
 #[cargo_test]
 fn dont_publish_dirty() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
+
     let p = project().file("bar", "").build();
 
     let _ = git::repo(&paths::root().join("foo"))
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -340,11 +433,12 @@ fn dont_publish_dirty() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --token sekrit")
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
-[UPDATING] `[..]` index
+[UPDATING] crates.io index
 error: 1 files in the working directory contain changes that were not yet \
 committed into git:
 
@@ -358,7 +452,8 @@ to proceed despite this and include the uncommitted changes, pass the `--allow-d
 
 #[cargo_test]
 fn publish_clean() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project().build();
 
@@ -366,7 +461,7 @@ fn publish_clean() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -380,14 +475,30 @@ fn publish_clean() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --token sekrit").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
 
-    validate_upload_foo_clean();
+    // Skip `validate_upload_foo_clean` as we just cared we got far enough for verify the VCS behavior.
+    // Other tests will verify the endpoint gets the right payload.
 }
 
 #[cargo_test]
 fn publish_in_sub_repo() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project().no_manifest().file("baz", "").build();
 
@@ -395,7 +506,7 @@ fn publish_in_sub_repo() {
         .file(
             "bar/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -409,14 +520,31 @@ fn publish_in_sub_repo() {
         .file("bar/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --token sekrit").cwd("bar").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .cwd("bar")
+        .with_stderr(
+            "\
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
 
-    validate_upload_foo_clean();
+    // Skip `validate_upload_foo_clean` as we just cared we got far enough for verify the VCS behavior.
+    // Other tests will verify the endpoint gets the right payload.
 }
 
 #[cargo_test]
 fn publish_when_ignored() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project().file("baz", "").build();
 
@@ -424,7 +552,7 @@ fn publish_when_ignored() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -439,25 +567,30 @@ fn publish_when_ignored() {
         .file(".gitignore", "baz")
         .build();
 
-    p.cargo("publish --token sekrit").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
 
-    publish::validate_upload(
-        CLEAN_FOO_JSON,
-        "foo-0.0.1.crate",
-        &[
-            "Cargo.lock",
-            "Cargo.toml",
-            "Cargo.toml.orig",
-            "src/main.rs",
-            ".gitignore",
-            ".cargo_vcs_info.json",
-        ],
-    );
+    // Skip `validate_upload` as we just cared we got far enough for verify the VCS behavior.
+    // Other tests will verify the endpoint gets the right payload.
 }
 
 #[cargo_test]
 fn ignore_when_crate_ignored() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project().no_manifest().file("bar/baz", "").build();
 
@@ -466,7 +599,7 @@ fn ignore_when_crate_ignored() {
         .nocommit_file(
             "bar/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -478,24 +611,31 @@ fn ignore_when_crate_ignored() {
             "#,
         )
         .nocommit_file("bar/src/main.rs", "fn main() {}");
-    p.cargo("publish --token sekrit").cwd("bar").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .cwd("bar")
+        .with_stderr(
+            "\
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
 
-    publish::validate_upload(
-        CLEAN_FOO_JSON,
-        "foo-0.0.1.crate",
-        &[
-            "Cargo.lock",
-            "Cargo.toml",
-            "Cargo.toml.orig",
-            "src/main.rs",
-            "baz",
-        ],
-    );
+    // Skip `validate_upload` as we just cared we got far enough for verify the VCS behavior.
+    // Other tests will verify the endpoint gets the right payload.
 }
 
 #[cargo_test]
 fn new_crate_rejected() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project().file("baz", "").build();
 
@@ -503,7 +643,7 @@ fn new_crate_rejected() {
         .nocommit_file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -515,7 +655,8 @@ fn new_crate_rejected() {
             "#,
         )
         .nocommit_file("src/main.rs", "fn main() {}");
-    p.cargo("publish --token sekrit")
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr_contains(
             "[ERROR] 3 files in the working directory contain \
@@ -526,13 +667,14 @@ fn new_crate_rejected() {
 
 #[cargo_test]
 fn dry_run() {
+    // Use local registry for faster test times since no publish will occur
     let registry = registry::init();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -554,6 +696,7 @@ See [..]
 [VERIFYING] foo v0.0.1 ([CWD])
 [COMPILING] foo v0.0.1 [..]
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 ([CWD])
 [WARNING] aborting upload due to dry run
 ",
@@ -567,13 +710,11 @@ See [..]
 
 #[cargo_test]
 fn registry_not_in_publish_list() {
-    registry::init();
-
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -594,7 +735,7 @@ fn registry_not_in_publish_list() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `alternative` is not listed in the `publish` value in Cargo.toml.
+The registry `alternative` is not listed in the `package.publish` value in Cargo.toml.
 ",
         )
         .run();
@@ -602,13 +743,11 @@ The registry `alternative` is not listed in the `publish` value in Cargo.toml.
 
 #[cargo_test]
 fn publish_empty_list() {
-    registry::init();
-
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -625,7 +764,7 @@ fn publish_empty_list() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `alternative` is not listed in the `publish` value in Cargo.toml.
+`package.publish` is set to `false` or an empty list in Cargo.toml and prevents publishing.
 ",
         )
         .run();
@@ -633,7 +772,11 @@ The registry `alternative` is not listed in the `publish` value in Cargo.toml.
 
 #[cargo_test]
 fn publish_allowed_registry() {
-    registry::alt_init();
+    let _registry = RegistryBuilder::new()
+        .http_api()
+        .http_index()
+        .alternative()
+        .build();
 
     let p = project().build();
 
@@ -641,7 +784,7 @@ fn publish_allowed_registry() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -656,7 +799,20 @@ fn publish_allowed_registry() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --registry alternative").run();
+    p.cargo("publish --registry alternative")
+        .with_stderr(
+            "\
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] `alternative` index
+",
+        )
+        .run();
 
     publish::validate_alt_upload(
         CLEAN_FOO_JSON,
@@ -673,7 +829,11 @@ fn publish_allowed_registry() {
 
 #[cargo_test]
 fn publish_implicitly_to_only_allowed_registry() {
-    registry::alt_init();
+    let _registry = RegistryBuilder::new()
+        .http_api()
+        .http_index()
+        .alternative()
+        .build();
 
     let p = project().build();
 
@@ -681,7 +841,7 @@ fn publish_implicitly_to_only_allowed_registry() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -696,7 +856,21 @@ fn publish_implicitly_to_only_allowed_registry() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish").run();
+    p.cargo("publish")
+        .with_stderr(
+            "\
+[NOTE] Found `alternative` as only allowed registry. Publishing to it automatically.
+[UPDATING] `alternative` index
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] `alternative` index
+",
+        )
+        .run();
 
     publish::validate_alt_upload(
         CLEAN_FOO_JSON,
@@ -713,15 +887,13 @@ fn publish_implicitly_to_only_allowed_registry() {
 
 #[cargo_test]
 fn publish_fail_with_no_registry_specified() {
-    registry::init();
-
     let p = project().build();
 
     let _ = repo(&paths::root().join("foo"))
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -741,7 +913,7 @@ fn publish_fail_with_no_registry_specified() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `crates-io` is not listed in the `publish` value in Cargo.toml.
+The registry `crates-io` is not listed in the `package.publish` value in Cargo.toml.
 ",
         )
         .run();
@@ -749,13 +921,11 @@ The registry `crates-io` is not listed in the `publish` value in Cargo.toml.
 
 #[cargo_test]
 fn block_publish_no_registry() {
-    registry::init();
-
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -772,22 +942,23 @@ fn block_publish_no_registry() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `alternative` is not listed in the `publish` value in Cargo.toml.
+`package.publish` is set to `false` or an empty list in Cargo.toml and prevents publishing.
 ",
         )
         .run();
 }
 
+// Explicitly setting `crates-io` in the publish list.
 #[cargo_test]
 fn publish_with_crates_io_explicit() {
-    // Explicitly setting `crates-io` in the publish list.
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -804,23 +975,40 @@ fn publish_with_crates_io_explicit() {
         .with_stderr(
             "\
 [ERROR] `foo` cannot be published.
-The registry `alternative` is not listed in the `publish` value in Cargo.toml.
+The registry `alternative` is not listed in the `package.publish` value in Cargo.toml.
 ",
         )
         .run();
 
-    p.cargo("publish").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[UPDATING] [..]
+[WARNING] [..]
+[..]
+[PACKAGING] [..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] crates.io index
+",
+        )
+        .run();
 }
 
 #[cargo_test]
 fn publish_with_select_features() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -840,20 +1028,35 @@ fn publish_with_select_features() {
         )
         .build();
 
-    p.cargo("publish --features required --token sekrit")
-        .with_stderr_contains("[UPLOADING] foo v0.0.1 ([CWD])")
+    p.cargo("publish --features required")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] crates.io index
+",
+        )
         .run();
 }
 
 #[cargo_test]
 fn publish_with_all_features() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -873,20 +1076,35 @@ fn publish_with_all_features() {
         )
         .build();
 
-    p.cargo("publish --all-features --token sekrit")
-        .with_stderr_contains("[UPLOADING] foo v0.0.1 ([CWD])")
+    p.cargo("publish --all-features")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] crates.io index
+",
+        )
         .run();
 }
 
 #[cargo_test]
 fn publish_with_no_default_features() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -906,21 +1124,23 @@ fn publish_with_no_default_features() {
         )
         .build();
 
-    p.cargo("publish --no-default-features --token sekrit")
-        .with_stderr_contains("error: This crate requires `required` feature!")
+    p.cargo("publish --no-default-features")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
+        .with_stderr_contains("error: This crate requires `required` feature!")
         .run();
 }
 
 #[cargo_test]
 fn publish_with_patch() {
+    let registry = RegistryBuilder::new().http_api().http_index().build();
     Package::new("bar", "1.0.0").publish();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -947,19 +1167,35 @@ fn publish_with_patch() {
     p.cargo("build").run();
 
     // Check that verify fails with patched crate which has new functionality.
-    p.cargo("publish --token sekrit")
-        .with_stderr_contains("[..]newfunc[..]")
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
+        .with_stderr_contains("[..]newfunc[..]")
         .run();
 
     // Remove the usage of new functionality and try again.
     p.change_file("src/main.rs", "extern crate bar; pub fn main() {}");
 
-    p.cargo("publish --token sekrit").run();
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[UPDATING] crates.io index
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] crates.io index
+",
+        )
+        .run();
 
-    // Note, use of `registry` in the deps here is an artifact that this
-    // publishes to a fake, local registry that is pretending to be crates.io.
-    // Normal publishes would set it to null.
     publish::validate_upload(
         r#"
         {
@@ -973,7 +1209,6 @@ fn publish_with_patch() {
               "kind": "normal",
               "name": "bar",
               "optional": false,
-              "registry": "https://github.com/rust-lang/crates.io-index",
               "target": null,
               "version_req": "^1.0"
             }
@@ -1000,13 +1235,15 @@ fn publish_with_patch() {
 
 #[cargo_test]
 fn publish_checks_for_token_before_verify() {
-    registry::init();
+    let registry = registry::RegistryBuilder::new()
+        .no_configure_token()
+        .build();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1017,23 +1254,31 @@ fn publish_checks_for_token_before_verify() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    let credentials = paths::home().join(".cargo/credentials");
-    fs::remove_file(&credentials).unwrap();
-
     // Assert upload token error before the package is verified
     p.cargo("publish")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
-        .with_stderr_contains(
-            "[ERROR] no upload token found, \
-            please run `cargo login` or pass `--token`",
-        )
+        .with_stderr_contains("[ERROR] no token found, please run `cargo login`")
         .with_stderr_does_not_contain("[VERIFYING] foo v0.0.1 ([CWD])")
         .run();
 
     // Assert package verified successfully on dry run
     p.cargo("publish --dry-run")
-        .with_status(0)
-        .with_stderr_contains("[VERIFYING] foo v0.0.1 ([CWD])")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 [..]
+[WARNING] aborting upload due to dry run
+",
+        )
         .run();
 }
 
@@ -1053,12 +1298,12 @@ fn publish_with_bad_source() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("publish --token sekrit")
+    p.cargo("publish")
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] registry `[..]/foo/registry` does not support API commands.
-Check for a source-replacement in .cargo/config.
+[ERROR] crates-io is replaced with non-remote-registry source registry `[..]/foo/registry`;
+include `--registry crates-io` to use crates.io
 ",
         )
         .run();
@@ -1074,20 +1319,22 @@ Check for a source-replacement in .cargo/config.
         "#,
     );
 
-    p.cargo("publish --token sekrit")
+    p.cargo("publish")
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] dir [..]/foo/vendor does not support API commands.
-Check for a source-replacement in .cargo/config.
+[ERROR] crates-io is replaced with non-remote-registry source dir [..]/foo/vendor;
+include `--registry crates-io` to use crates.io
 ",
         )
         .run();
 }
 
+// A dependency with both `git` and `version`.
 #[cargo_test]
 fn publish_git_with_version() {
-    // A dependency with both `git` and `version`.
+    let registry = RegistryBuilder::new().http_api().http_index().build();
+
     Package::new("dep1", "1.0.1")
         .file("src/lib.rs", "pub fn f() -> i32 {1}")
         .publish();
@@ -1128,7 +1375,22 @@ fn publish_git_with_version() {
         .build();
 
     p.cargo("run").with_stdout("2").run();
-    p.cargo("publish --no-verify --token sekrit").run();
+
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.1.0 ([CWD])
+[UPDATING] crates.io index
+",
+        )
+        .run();
 
     publish::validate_upload_with_contents(
         r#"
@@ -1143,7 +1405,6 @@ fn publish_git_with_version() {
               "kind": "normal",
               "name": "dep1",
               "optional": false,
-              "registry": "https://github.com/rust-lang/crates.io-index",
               "target": null,
               "version_req": "^1.0"
             }
@@ -1212,7 +1473,7 @@ fn publish_git_with_version() {
 
 #[cargo_test]
 fn publish_dev_dep_no_version() {
-    registry::init();
+    let registry = RegistryBuilder::new().http_api().http_index().build();
 
     let p = project()
         .file(
@@ -1237,12 +1498,15 @@ fn publish_dev_dep_no_version() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_stderr(
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.1.0 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.1.0 [..]
+[UPDATING] crates.io index
 ",
         )
         .run();
@@ -1295,16 +1559,18 @@ repository = "foo"
 
 #[cargo_test]
 fn credentials_ambiguous_filename() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
+    // Make token in `credentials.toml` incorrect to ensure it is not read.
     let credentials_toml = paths::home().join(".cargo/credentials.toml");
-    fs::write(credentials_toml, r#"token = "api-token""#).unwrap();
+    fs::write(credentials_toml, r#"token = "wrong-token""#).unwrap();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1315,23 +1581,41 @@ fn credentials_ambiguous_filename() {
         .file("src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
-        .with_stderr_contains(
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_status(101)
+        .with_stderr_contains("[..]Unauthorized message from server[..]")
+        .run();
+
+    // Favor `credentials` if exists.
+    let credentials = paths::home().join(".cargo/credentials");
+    fs::write(credentials, r#"token = "sekrit""#).unwrap();
+
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
             "\
+[..]
 [WARNING] Both `[..]/credentials` and `[..]/credentials.toml` exist. Using `[..]/credentials`
+[..]
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 [..]
+[UPDATING] crates.io index
 ",
         )
         .run();
-
-    validate_upload_foo();
 }
 
+// --index will not load registry.token to avoid possibly leaking
+// crates.io token to another server.
 #[cargo_test]
 fn index_requires_token() {
-    // --index will not load registry.token to avoid possibly leaking
-    // crates.io token to another server.
+    // Use local registry for faster test times since no publish will occur
     let registry = registry::init();
-    let credentials = paths::home().join(".cargo/credentials");
+
+    let credentials = paths::home().join(".cargo/credentials.toml");
     fs::remove_file(&credentials).unwrap();
 
     let p = project()
@@ -1354,23 +1638,21 @@ fn index_requires_token() {
         .with_status(101)
         .with_stderr(
             "\
-[UPDATING] [..]
 [ERROR] command-line argument --index requires --token to be specified
 ",
         )
         .run();
 }
 
+// publish with source replacement without --registry
 #[cargo_test]
-fn registry_token_with_source_replacement() {
-    // publish with source replacement without --token
+fn cratesio_source_replacement() {
     registry::init();
-
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1382,16 +1664,11 @@ fn registry_token_with_source_replacement() {
         .build();
 
     p.cargo("publish --no-verify")
+        .with_status(101)
         .with_stderr(
             "\
-[UPDATING] [..]
-[WARNING] using `registry.token` config value with source replacement is deprecated
-This may become a hard error in the future[..]
-Use the --token command-line flag to remove this warning.
-[WARNING] manifest has no documentation, [..]
-See [..]
-[PACKAGING] foo v0.0.1 ([CWD])
-[UPLOADING] foo v0.0.1 ([CWD])
+[ERROR] crates-io is replaced with remote registry dummy-registry;
+include `--registry dummy-registry` or `--registry crates-io`
 ",
         )
         .run();
@@ -1399,7 +1676,9 @@ See [..]
 
 #[cargo_test]
 fn publish_with_missing_readme() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
+
     let p = project()
         .file(
             "Cargo.toml",
@@ -1417,12 +1696,14 @@ fn publish_with_missing_readme() {
         .file("src/lib.rs", "")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(&format!(
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.1.0 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.1.0 [..]
 [ERROR] failed to read `readme` file for package `foo v0.1.0 ([ROOT]/foo)`
 
@@ -1437,13 +1718,13 @@ Caused by:
         .run();
 }
 
+// Registry returns an API error.
 #[cargo_test]
 fn api_error_json() {
-    // Registry returns an API error.
     let _registry = registry::RegistryBuilder::new()
         .alternative()
         .http_api()
-        .add_responder("/api/v1/crates/new", |_| Response {
+        .add_responder("/api/v1/crates/new", |_, _| Response {
             body: br#"{"errors": [{"detail": "you must be logged in"}]}"#.to_vec(),
             code: 403,
             headers: vec![],
@@ -1454,7 +1735,7 @@ fn api_error_json() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1474,6 +1755,7 @@ fn api_error_json() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.0.1 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 [..]
 [ERROR] failed to publish to registry at http://127.0.0.1:[..]/
 
@@ -1484,13 +1766,13 @@ Caused by:
         .run();
 }
 
+// Registry returns an API error with a 200 status code.
 #[cargo_test]
 fn api_error_200() {
-    // Registry returns an API error with a 200 status code.
     let _registry = registry::RegistryBuilder::new()
         .alternative()
         .http_api()
-        .add_responder("/api/v1/crates/new", |_| Response {
+        .add_responder("/api/v1/crates/new", |_, _| Response {
             body: br#"{"errors": [{"detail": "max upload size is 123"}]}"#.to_vec(),
             code: 200,
             headers: vec![],
@@ -1501,7 +1783,7 @@ fn api_error_200() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1521,6 +1803,7 @@ fn api_error_200() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.0.1 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 [..]
 [ERROR] failed to publish to registry at http://127.0.0.1:[..]/
 
@@ -1531,13 +1814,13 @@ Caused by:
         .run();
 }
 
+// Registry returns an error code without a JSON message.
 #[cargo_test]
 fn api_error_code() {
-    // Registry returns an error code without a JSON message.
     let _registry = registry::RegistryBuilder::new()
         .alternative()
         .http_api()
-        .add_responder("/api/v1/crates/new", |_| Response {
+        .add_responder("/api/v1/crates/new", |_, _| Response {
             body: br#"go away"#.to_vec(),
             code: 400,
             headers: vec![],
@@ -1548,7 +1831,7 @@ fn api_error_code() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1568,6 +1851,7 @@ fn api_error_code() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.0.1 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 [..]
 [ERROR] failed to publish to registry at http://127.0.0.1:[..]/
 
@@ -1584,13 +1868,13 @@ Caused by:
         .run();
 }
 
+// Registry has a network error.
 #[cargo_test]
 fn api_curl_error() {
-    // Registry has a network error.
     let _registry = registry::RegistryBuilder::new()
         .alternative()
         .http_api()
-        .add_responder("/api/v1/crates/new", |_| {
+        .add_responder("/api/v1/crates/new", |_, _| {
             panic!("broke");
         })
         .build();
@@ -1598,7 +1882,7 @@ fn api_curl_error() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1623,6 +1907,7 @@ fn api_curl_error() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.0.1 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 [..]
 [ERROR] failed to publish to registry at http://127.0.0.1:[..]/
 
@@ -1633,13 +1918,13 @@ Caused by:
         .run();
 }
 
+// Registry returns an invalid response.
 #[cargo_test]
 fn api_other_error() {
-    // Registry returns an invalid response.
     let _registry = registry::RegistryBuilder::new()
         .alternative()
         .http_api()
-        .add_responder("/api/v1/crates/new", |_| Response {
+        .add_responder("/api/v1/crates/new", |_, _| Response {
             body: b"\xff".to_vec(),
             code: 200,
             headers: vec![],
@@ -1650,7 +1935,7 @@ fn api_other_error() {
         .file(
             "Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1670,6 +1955,7 @@ fn api_other_error() {
             "\
 [UPDATING] [..]
 [PACKAGING] foo v0.0.1 [..]
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] foo v0.0.1 [..]
 [ERROR] failed to publish to registry at http://127.0.0.1:[..]/
 
@@ -1685,7 +1971,7 @@ Caused by:
 
 #[cargo_test]
 fn in_package_workspace() {
-    registry::init();
+    let registry = RegistryBuilder::new().http_api().http_index().build();
 
     let p = project()
         .file(
@@ -1713,14 +1999,17 @@ fn in_package_workspace() {
         .file("li/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p li --no-verify --token sekrit")
+    p.cargo("publish -p li --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_stderr(
             "\
 [UPDATING] [..]
 [WARNING] manifest has no documentation, homepage or repository.
 See [..]
 [PACKAGING] li v0.0.1 ([CWD]/li)
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] li v0.0.1 ([CWD]/li)
+[UPDATING] crates.io index
 ",
         )
         .run();
@@ -1730,7 +2019,8 @@ See [..]
 
 #[cargo_test]
 fn with_duplicate_spec_in_members() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
@@ -1770,7 +2060,8 @@ fn with_duplicate_spec_in_members() {
         .file("bar/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "error: the `-p` argument must be specified to select a single package to publish",
@@ -1780,7 +2071,7 @@ fn with_duplicate_spec_in_members() {
 
 #[cargo_test]
 fn in_package_workspace_with_members_with_features_old() {
-    registry::init();
+    let registry = RegistryBuilder::new().http_api().http_index().build();
 
     let p = project()
         .file(
@@ -1807,14 +2098,17 @@ fn in_package_workspace_with_members_with_features_old() {
         .file("li/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p li --no-verify --token sekrit")
+    p.cargo("publish -p li --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_stderr(
             "\
 [UPDATING] [..]
 [WARNING] manifest has no documentation, homepage or repository.
 See [..]
 [PACKAGING] li v0.0.1 ([CWD]/li)
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] li v0.0.1 ([CWD]/li)
+[UPDATING] crates.io index
 ",
         )
         .run();
@@ -1824,7 +2118,8 @@ See [..]
 
 #[cargo_test]
 fn in_virtual_workspace() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
@@ -1837,7 +2132,7 @@ fn in_virtual_workspace() {
         .file(
             "foo/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1848,7 +2143,8 @@ fn in_virtual_workspace() {
         .file("foo/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish --no-verify --token sekrit")
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "error: the `-p` argument must be specified in the root of a virtual workspace",
@@ -1858,7 +2154,8 @@ fn in_virtual_workspace() {
 
 #[cargo_test]
 fn in_virtual_workspace_with_p() {
-    registry::init();
+    // `publish` generally requires a remote registry
+    let registry = registry::RegistryBuilder::new().http_api().build();
 
     let p = project()
         .file(
@@ -1871,7 +2168,7 @@ fn in_virtual_workspace_with_p() {
         .file(
             "foo/Cargo.toml",
             r#"
-                [project]
+                [package]
                 name = "foo"
                 version = "0.0.1"
                 authors = []
@@ -1893,14 +2190,17 @@ fn in_virtual_workspace_with_p() {
         .file("li/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p li --no-verify --token sekrit")
+    p.cargo("publish -p li --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_stderr(
             "\
 [UPDATING] [..]
 [WARNING] manifest has no documentation, homepage or repository.
 See [..]
 [PACKAGING] li v0.0.1 ([CWD]/li)
+[PACKAGED] [..] files, [..] ([..] compressed)
 [UPLOADING] li v0.0.1 ([CWD]/li)
+[UPDATING] crates.io index
 ",
         )
         .run();
@@ -1908,7 +2208,8 @@ See [..]
 
 #[cargo_test]
 fn in_package_workspace_not_found() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
@@ -1937,7 +2238,8 @@ fn in_package_workspace_not_found() {
         .file("li/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p li --no-verify --token sekrit ")
+    p.cargo("publish -p li --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
@@ -1951,7 +2253,8 @@ error: package ID specification `li` did not match any packages
 
 #[cargo_test]
 fn in_package_workspace_found_multiple() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
@@ -1994,7 +2297,8 @@ fn in_package_workspace_found_multiple() {
         .file("lii/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p li* --no-verify --token sekrit ")
+    p.cargo("publish -p li* --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
@@ -2007,7 +2311,8 @@ error: the `-p` argument must be specified to select a single package to publish
 #[cargo_test]
 // https://github.com/rust-lang/cargo/issues/10536
 fn publish_path_dependency_without_workspace() {
-    registry::init();
+    // Use local registry for faster test times since no publish will occur
+    let registry = registry::init();
 
     let p = project()
         .file(
@@ -2037,13 +2342,362 @@ fn publish_path_dependency_without_workspace() {
         .file("bar/src/main.rs", "fn main() {}")
         .build();
 
-    p.cargo("publish -p bar --no-verify --token sekrit ")
+    p.cargo("publish -p bar --no-verify")
+        .replace_crates_io(registry.index_url())
         .with_status(101)
         .with_stderr(
             "\
 error: package ID specification `bar` did not match any packages
 
 <tab>Did you mean `foo`?
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn http_api_not_noop() {
+    let registry = registry::RegistryBuilder::new().http_api().build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("publish")
+        .replace_crates_io(registry.index_url())
+        .with_stderr(
+            "\
+[..]
+[..]
+[..]
+[..]
+[VERIFYING] foo v0.0.1 ([CWD])
+[..]
+[..]
+[..]
+[UPLOADING] foo v0.0.1 ([CWD])
+[UPDATING] [..]
+",
+        )
+        .run();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [project]
+                name = "bar"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+
+                [dependencies]
+                foo = "0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build").run();
+}
+
+#[cargo_test]
+fn wait_for_first_publish() {
+    // Counter for number of tries before the package is "published"
+    let arc: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
+    let arc2 = arc.clone();
+
+    // Registry returns an invalid response.
+    let registry = registry::RegistryBuilder::new()
+        .http_index()
+        .http_api()
+        .add_responder("/index/de/la/delay", move |req, server| {
+            let mut lock = arc.lock().unwrap();
+            *lock += 1;
+            if *lock <= 1 {
+                server.not_found(req)
+            } else {
+                server.index(req)
+            }
+        })
+        .build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "delay"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_status(0)
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] delay v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] delay v0.0.1 ([CWD])
+[UPDATING] crates.io index
+[WAITING] on `delay` to propagate to crates.io index (ctrl-c to wait asynchronously)
+",
+        )
+        .run();
+
+    // Verify the responder has been pinged
+    let lock = arc2.lock().unwrap();
+    assert_eq!(*lock, 2);
+    drop(lock);
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                [dependencies]
+                delay = "0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build").with_status(0).run();
+}
+
+/// A separate test is needed for package names with - or _ as they hit
+/// the responder twice per cargo invocation. If that ever gets changed
+/// this test will need to be changed accordingly.
+#[cargo_test]
+fn wait_for_first_publish_underscore() {
+    // Counter for number of tries before the package is "published"
+    let arc: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
+    let arc2 = arc.clone();
+
+    // Registry returns an invalid response.
+    let registry = registry::RegistryBuilder::new()
+        .http_index()
+        .http_api()
+        .add_responder("/index/de/la/delay_with_underscore", move |req, server| {
+            let mut lock = arc.lock().unwrap();
+            *lock += 1;
+            if *lock <= 1 {
+                server.not_found(req)
+            } else {
+                server.index(req)
+            }
+        })
+        .build();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "delay_with_underscore"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_status(0)
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] delay_with_underscore v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] delay_with_underscore v0.0.1 ([CWD])
+[UPDATING] crates.io index
+[WAITING] on `delay_with_underscore` to propagate to crates.io index (ctrl-c to wait asynchronously)
+",
+        )
+        .run();
+
+    // Verify the repsponder has been pinged
+    let lock = arc2.lock().unwrap();
+    assert_eq!(*lock, 2);
+    drop(lock);
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                [dependencies]
+                delay_with_underscore = "0.0.1"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build").with_status(0).run();
+}
+
+#[cargo_test]
+fn wait_for_subsequent_publish() {
+    // Counter for number of tries before the package is "published"
+    let arc: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
+    let arc2 = arc.clone();
+    let publish_req = Arc::new(Mutex::new(None));
+    let publish_req2 = publish_req.clone();
+
+    let registry = registry::RegistryBuilder::new()
+        .http_index()
+        .http_api()
+        .add_responder("/api/v1/crates/new", move |req, server| {
+            // Capture the publish request, but defer publishing
+            *publish_req.lock().unwrap() = Some(req.clone());
+            server.ok(req)
+        })
+        .add_responder("/index/de/la/delay", move |req, server| {
+            let mut lock = arc.lock().unwrap();
+            *lock += 1;
+            if *lock == 3 {
+                // Run the publish on the 3rd attempt
+                let rep = server
+                    .check_authorized_publish(&publish_req2.lock().unwrap().as_ref().unwrap());
+                assert_eq!(rep.code, 200);
+            }
+            server.index(req)
+        })
+        .build();
+
+    // Publish an earlier version
+    Package::new("delay", "0.0.1")
+        .file("src/lib.rs", "")
+        .publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "delay"
+                version = "0.0.2"
+                authors = []
+                license = "MIT"
+                description = "foo"
+
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("publish --no-verify")
+        .replace_crates_io(registry.index_url())
+        .with_status(0)
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] delay v0.0.2 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] delay v0.0.2 ([CWD])
+[UPDATING] crates.io index
+[WAITING] on `delay` to propagate to crates.io index (ctrl-c to wait asynchronously)
+",
+        )
+        .run();
+
+    // Verify the responder has been pinged
+    let lock = arc2.lock().unwrap();
+    assert_eq!(*lock, 3);
+    drop(lock);
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                [dependencies]
+                delay = "0.0.2"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .build();
+
+    p.cargo("build").with_status(0).run();
+}
+
+#[cargo_test]
+fn skip_wait_for_publish() {
+    // Intentionally using local registry so the crate never makes it to the index
+    let registry = registry::init();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "foo"
+                version = "0.0.1"
+                authors = []
+                license = "MIT"
+                description = "foo"
+            "#,
+        )
+        .file("src/main.rs", "fn main() {}")
+        .file(
+            ".cargo/config",
+            "
+                [publish]
+                timeout = 0
+                ",
+        )
+        .build();
+
+    p.cargo("publish --no-verify -Zpublish-timeout")
+        .replace_crates_io(registry.index_url())
+        .masquerade_as_nightly_cargo(&["publish-timeout"])
+        .with_stderr(
+            "\
+[UPDATING] crates.io index
+[WARNING] manifest has no documentation, [..]
+See [..]
+[PACKAGING] foo v0.0.1 ([CWD])
+[PACKAGED] [..] files, [..] ([..] compressed)
+[UPLOADING] foo v0.0.1 ([CWD])
 ",
         )
         .run();

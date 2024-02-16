@@ -1,0 +1,37 @@
+Index: toml/Cargo.toml
+===================================================================
+--- toml.orig/Cargo.toml
++++ toml/Cargo.toml
+@@ -45,6 +45,7 @@ categories = [
+ ]
+ license = "MIT OR Apache-2.0"
+ repository = "https://github.com/toml-rs/toml"
++autotests = false
+ 
+ [package.metadata.docs.rs]
+ rustdoc-args = [
+@@ -108,14 +109,6 @@ required-features = [
+     "display",
+ ]
+ 
+-[[test]]
+-name = "decoder_compliance"
+-harness = false
+-
+-[[test]]
+-name = "encoder_compliance"
+-harness = false
+-
+ [dependencies.indexmap]
+ version = ">= 1.9.1"
+ optional = true
+@@ -146,9 +139,6 @@ version = "1.0.96"
+ [dev-dependencies.snapbox]
+ version = "0.4.8"
+ 
+-[dev-dependencies.toml-test-harness]
+-version = "0.4.3"
+-
+ [features]
+ default = [
+     "parse",

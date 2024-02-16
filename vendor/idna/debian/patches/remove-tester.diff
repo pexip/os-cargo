@@ -2,7 +2,7 @@ Index: idna/Cargo.toml
 ===================================================================
 --- idna.orig/Cargo.toml
 +++ idna/Cargo.toml
-@@ -24,10 +24,6 @@ repository = "https://github.com/servo/r
+@@ -25,10 +25,6 @@ repository = "https://github.com/servo/r
  doctest = false
  
  [[test]]
@@ -13,10 +13,13 @@ Index: idna/Cargo.toml
  name = "unit"
  
  [[bench]]
-@@ -48,6 +44,3 @@ version = "0.1"
- 
+@@ -53,9 +49,6 @@ version = "0.1"
  [dev-dependencies.serde_json]
  version = "1.0"
--
+ 
 -[dev-dependencies.tester]
 -version = "0.9"
+-
+ [features]
+ alloc = []
+ default = ["std"]

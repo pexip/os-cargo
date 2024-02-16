@@ -46,13 +46,13 @@ impl Default for StreamWrapper {
                 reserved: 0,
                 opaque: ptr::null_mut(),
                 state: ptr::null_mut(),
-                #[cfg(all(feature = "zlib", not(feature = "cloudflare-zlib-sys")))]
+                #[cfg(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys")))]
                 zalloc,
-                #[cfg(all(feature = "zlib", not(feature = "cloudflare-zlib-sys")))]
+                #[cfg(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys")))]
                 zfree,
-                #[cfg(not(all(feature = "zlib", not(feature = "cloudflare-zlib-sys"))))]
+                #[cfg(not(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys"))))]
                 zalloc: Some(zalloc),
-                #[cfg(not(all(feature = "zlib", not(feature = "cloudflare-zlib-sys"))))]
+                #[cfg(not(all(feature = "any_zlib", not(feature = "cloudflare-zlib-sys"))))]
                 zfree: Some(zfree),
             }),
         }
@@ -215,9 +215,9 @@ impl InflateBackend for Inflate {
         let raw = &mut *self.inner.stream_wrapper;
         raw.msg = ptr::null_mut();
         raw.next_in = input.as_ptr() as *mut u8;
-        raw.avail_in = cmp::min(input.len(), c_uint::max_value() as usize) as c_uint;
+        raw.avail_in = cmp::min(input.len(), c_uint::MAX as usize) as c_uint;
         raw.next_out = output.as_mut_ptr();
-        raw.avail_out = cmp::min(output.len(), c_uint::max_value() as usize) as c_uint;
+        raw.avail_out = cmp::min(output.len(), c_uint::MAX as usize) as c_uint;
 
         let rc = unsafe { mz_inflate(raw, flush as c_int) };
 
@@ -225,6 +225,12 @@ impl InflateBackend for Inflate {
         // 32 bits wide and overflow while processing large amounts of data.
         self.inner.total_in += (raw.next_in as usize - input.as_ptr() as usize) as u64;
         self.inner.total_out += (raw.next_out as usize - output.as_ptr() as usize) as u64;
+
+        // reset these pointers so we don't accidentally read them later
+        raw.next_in = ptr::null_mut();
+        raw.avail_in = 0;
+        raw.next_out = ptr::null_mut();
+        raw.avail_out = 0;
 
         match rc {
             MZ_DATA_ERROR | MZ_STREAM_ERROR => mem::decompress_failed(self.inner.msg()),
@@ -303,9 +309,9 @@ impl DeflateBackend for Deflate {
         let raw = &mut *self.inner.stream_wrapper;
         raw.msg = ptr::null_mut();
         raw.next_in = input.as_ptr() as *mut _;
-        raw.avail_in = cmp::min(input.len(), c_uint::max_value() as usize) as c_uint;
+        raw.avail_in = cmp::min(input.len(), c_uint::MAX as usize) as c_uint;
         raw.next_out = output.as_mut_ptr();
-        raw.avail_out = cmp::min(output.len(), c_uint::max_value() as usize) as c_uint;
+        raw.avail_out = cmp::min(output.len(), c_uint::MAX as usize) as c_uint;
 
         let rc = unsafe { mz_deflate(raw, flush as c_int) };
 
@@ -313,6 +319,12 @@ impl DeflateBackend for Deflate {
         // 32 bits wide and overflow while processing large amounts of data.
         self.inner.total_in += (raw.next_in as usize - input.as_ptr() as usize) as u64;
         self.inner.total_out += (raw.next_out as usize - output.as_ptr() as usize) as u64;
+
+        // reset these pointers so we don't accidentally read them later
+        raw.next_in = ptr::null_mut();
+        raw.avail_in = 0;
+        raw.next_out = ptr::null_mut();
+        raw.avail_out = 0;
 
         match rc {
             MZ_OK => Ok(Status::Ok),

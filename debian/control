@@ -4,6 +4,7 @@ Maintainer: Pexip AS <packaging@pexip.com>
 XSBC-Pexip-Original-Maintainer: Rust Maintainers <pkg-rust-maintainers@alioth-lists.debian.net>
 XSBC-Pexip-Original-Uploaders: Luca Bruno <lucab@debian.org>,
  Angus Lees <gus@debian.org>,
+ Fabian Grünbichler <debian@fabian.gruenbichler.email>,
  Ximin Luo <infinity0@debian.org>,
  Vasudev Kamath <vasudev@copyninja.info>
 Priority: optional
@@ -19,8 +20,8 @@ Build-Depends:
  python3:native,
  libcurl4-gnutls-dev | libcurl4-openssl-dev,
  libssh2-1-dev,
- libgit2-dev (>= 1.5.0),
- libgit2-dev (<< 1.6~~),
+ libgit2-dev (>= 1.7.1),
+ libgit2-dev (<< 1.8~~),
  libhttp-parser-dev,
  libssl-dev,
  zlib1g-dev,

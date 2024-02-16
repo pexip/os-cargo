@@ -1,0 +1,15 @@
+Index: p384/src/arithmetic/hash2curve.rs
+===================================================================
+--- p384.orig/src/arithmetic/hash2curve.rs
++++ p384/src/arithmetic/hash2curve.rs
+@@ -99,8 +99,9 @@ impl FromOkm for Scalar {
+ }
+ 
+ #[cfg(test)]
++#[cfg(feature = "sha2")]
+ mod tests {
+-    use crate::{FieldElement, NistP384, Scalar};
++    use crate::{arithmetic::FieldElement, NistP384, Scalar};
+     use elliptic_curve::{
+         bigint::{ArrayEncoding, NonZero, U384, U576},
+         consts::U72,

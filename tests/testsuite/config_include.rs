@@ -61,20 +61,21 @@ fn works_with_cli() {
         ",
     );
     let p = project().file("src/lib.rs", "").build();
-    p.cargo("build -v")
+    p.cargo("check -v")
         .with_stderr(
             "\
-[COMPILING] foo v0.0.1 [..]
+[CHECKING] foo v0.0.1 [..]
 [RUNNING] `rustc [..]-W unused`
 [FINISHED] [..]
 ",
         )
         .run();
-    p.cargo("build -v -Z config-include")
+    p.cargo("check -v -Z config-include")
         .masquerade_as_nightly_cargo(&["config-include"])
         .with_stderr(
             "\
-[COMPILING] foo v0.0.1 [..]
+[DIRTY] foo v0.0.1 ([..]): the rustflags changed
+[CHECKING] foo v0.0.1 [..]
 [RUNNING] `rustc [..]-W unsafe-code -W unused`
 [FINISHED] [..]
 ",
@@ -253,4 +254,32 @@ Caused by:
   failed to merge config value from `[..]/.cargo/other` into `[..]/.cargo/config`: \
   expected array, but found string",
     );
+}
+
+#[cargo_test]
+fn cli_include_take_priority_over_env() {
+    write_config_at(".cargo/include.toml", "k='include'");
+
+    // k=env
+    let config = ConfigBuilder::new().env("CARGO_K", "env").build();
+    assert_eq!(config.get::<String>("k").unwrap(), "env");
+
+    // k=env
+    // --config 'include=".cargo/include.toml"'
+    let config = ConfigBuilder::new()
+        .env("CARGO_K", "env")
+        .unstable_flag("config-include")
+        .config_arg("include='.cargo/include.toml'")
+        .build();
+    assert_eq!(config.get::<String>("k").unwrap(), "include");
+
+    // k=env
+    // --config '.cargo/foo.toml'
+    write_config_at(".cargo/foo.toml", "include='include.toml'");
+    let config = ConfigBuilder::new()
+        .env("CARGO_K", "env")
+        .unstable_flag("config-include")
+        .config_arg(".cargo/foo.toml")
+        .build();
+    assert_eq!(config.get::<String>("k").unwrap(), "include");
 }

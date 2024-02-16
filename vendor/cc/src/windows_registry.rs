@@ -80,6 +80,7 @@ pub fn find_tool(target: &str, tool: &str) -> Option<Tool> {
 
 /// A version of Visual Studio
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[non_exhaustive]
 pub enum VsVers {
     /// Visual Studio 12 (2013)
     Vs12,
@@ -91,13 +92,6 @@ pub enum VsVers {
     Vs16,
     /// Visual Studio 17 (2022)
     Vs17,
-
-    /// Hidden variant that should not be matched on. Callers that want to
-    /// handle an enumeration of `VsVers` instances should always have a default
-    /// case meaning that it's a VS version they don't understand.
-    #[doc(hidden)]
-    #[allow(bad_style)]
-    __Nonexhaustive_do_not_match_this_or_your_code_will_break,
 }
 
 /// Find the most recent installed version of Visual Studio
@@ -106,7 +100,7 @@ pub enum VsVers {
 /// generator.
 #[cfg(not(windows))]
 pub fn find_vs_version() -> Result<VsVers, String> {
-    Err(format!("not windows"))
+    Err("not windows".to_string())
 }
 
 /// Documented above
@@ -866,7 +860,9 @@ mod impl_ {
     // see http://stackoverflow.com/questions/328017/path-to-msbuild
     pub fn find_msbuild(target: &str) -> Option<Tool> {
         // VS 15 (2017) changed how to locate msbuild
-        if let Some(r) = find_msbuild_vs16(target) {
+        if let Some(r) = find_msbuild_vs17(target) {
+            return Some(r);
+        } else if let Some(r) = find_msbuild_vs16(target) {
             return Some(r);
         } else if let Some(r) = find_msbuild_vs15(target) {
             return Some(r);

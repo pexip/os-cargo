@@ -6,14 +6,14 @@ use cargo::util::IntoUrl;
 
 use cargo_util::paths;
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     subcommand("install")
         .about("Install a Rust binary. Default location is $HOME/.cargo/bin")
         .arg_quiet()
         .arg(
             Arg::new("crate")
                 .value_parser(clap::builder::NonEmptyStringValueParser::new())
-                .multiple_values(true),
+                .num_args(0..),
         )
         .arg(
             opt("version", "Specify a version to install")
@@ -126,10 +126,10 @@ pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
     } else if krates.is_empty() {
         from_cwd = true;
         SourceId::for_path(config.cwd())?
-    } else if let Some(registry) = args.registry(config)? {
-        SourceId::alt_registry(config, &registry)?
     } else if let Some(index) = args.get_one::<String>("index") {
         SourceId::for_registry(&index.into_url()?)?
+    } else if let Some(registry) = args.registry(config)? {
+        SourceId::alt_registry(config, &registry)?
     } else {
         SourceId::crates_io(config)?
     };

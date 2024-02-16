@@ -23,6 +23,22 @@ safe API to work with DEFLATE, zlib, or gzip streams, see
 [`flate2`](https://docs.rs/flate2). `flate2` supports many different
 implementations.
 
+# Development
+
+This crate is built from [the same sources as
+`libz-sys`](https://github.com/rust-lang/libz-sys). From within those sources,
+`Cargo.toml` is the manifest for `libz-sys`, and `Cargo-zng.toml` is the
+manifest for `libz-ng-sys`. The script `./cargo-zng` invokes Cargo on a
+temporary copy of the sources with `Cargo-zng.toml` replacing `Cargo.toml`; for
+instance, use `./cargo-zng publish` to publish `libz-ng-sys`.
+
+# Minimum Supported Rust Version (MSRV) Policy
+
+This crate uses the same MSRV policy as the
+[`flate2`](https://crates.io/crates/flate2) crate: This crate supports the
+current and previous stable versions of Rust. Older versions of Rust may work,
+but we don't guarantee these will continue to work.
+
 # License
 
 This project is licensed under either of

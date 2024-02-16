@@ -1,14 +1,11 @@
+use crate::{BOOL, FALSE, TRUE};
 use std::cmp;
 use std::io;
 use std::ptr;
 
-use winapi::shared::minwindef::*;
-use winapi::shared::ntdef::{BOOLEAN, FALSE, HANDLE, TRUE};
-use winapi::shared::winerror::*;
-use winapi::um::fileapi::*;
-use winapi::um::handleapi::*;
-use winapi::um::ioapiset::*;
-use winapi::um::minwinbase::*;
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, HANDLE};
+use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile};
+use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 
 #[derive(Debug)]
 pub struct Handle(HANDLE);
@@ -35,7 +32,7 @@ impl Handle {
 
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         let mut bytes = 0;
-        let len = cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
+        let len = cmp::min(buf.len(), <u32>::max_value() as usize) as u32;
         crate::cvt(unsafe {
             WriteFile(
                 self.0,
@@ -50,7 +47,7 @@ impl Handle {
 
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         let mut bytes = 0;
-        let len = cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
+        let len = cmp::min(buf.len(), <u32>::max_value() as usize) as u32;
         crate::cvt(unsafe {
             ReadFile(
                 self.0,
@@ -87,9 +84,9 @@ impl Handle {
         &self,
         buf: &mut [u8],
         overlapped: *mut OVERLAPPED,
-        wait: BOOLEAN,
+        wait: BOOL,
     ) -> io::Result<Option<usize>> {
-        let len = cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
+        let len = cmp::min(buf.len(), <u32>::max_value() as usize) as u32;
         let res = crate::cvt({
             ReadFile(
                 self.0,
@@ -106,7 +103,7 @@ impl Handle {
         }
 
         let mut bytes = 0;
-        let res = crate::cvt({ GetOverlappedResult(self.0, overlapped, &mut bytes, wait as BOOL) });
+        let res = crate::cvt(GetOverlappedResult(self.0, overlapped, &mut bytes, wait));
         match res {
             Ok(_) => Ok(Some(bytes as usize)),
             Err(ref e) if e.raw_os_error() == Some(ERROR_IO_INCOMPLETE as i32) && wait == FALSE => {
@@ -140,9 +137,9 @@ impl Handle {
         &self,
         buf: &[u8],
         overlapped: *mut OVERLAPPED,
-        wait: BOOLEAN,
+        wait: BOOL,
     ) -> io::Result<Option<usize>> {
-        let len = cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
+        let len = cmp::min(buf.len(), <u32>::max_value() as usize) as u32;
         let res = crate::cvt({
             WriteFile(
                 self.0,
@@ -159,7 +156,7 @@ impl Handle {
         }
 
         let mut bytes = 0;
-        let res = crate::cvt({ GetOverlappedResult(self.0, overlapped, &mut bytes, wait as BOOL) });
+        let res = crate::cvt(GetOverlappedResult(self.0, overlapped, &mut bytes, wait));
         match res {
             Ok(_) => Ok(Some(bytes as usize)),
             Err(ref e) if e.raw_os_error() == Some(ERROR_IO_INCOMPLETE as i32) && wait == FALSE => {

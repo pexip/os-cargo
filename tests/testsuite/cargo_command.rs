@@ -104,6 +104,32 @@ fn list_command_looks_at_path() {
     );
 }
 
+#[cfg(windows)]
+#[cargo_test]
+fn list_command_looks_at_path_case_mismatch() {
+    let proj = project()
+        .executable(Path::new("path-test").join("cargo-1"), "")
+        .build();
+
+    let mut path = path();
+    path.push(proj.root().join("path-test"));
+    let path = env::join_paths(path.iter()).unwrap();
+
+    // See issue #11814: Environment variable names are case-insensitive on Windows.
+    // We need to check that having "Path" instead of "PATH" is okay.
+    let output = cargo_process("-v --list")
+        .env("Path", &path)
+        .env_remove("PATH")
+        .exec_with_output()
+        .unwrap();
+    let output = str::from_utf8(&output.stdout).unwrap();
+    assert!(
+        output.contains("\n    1                   "),
+        "missing 1: {}",
+        output
+    );
+}
+
 #[cargo_test]
 fn list_command_handles_known_external_commands() {
     let p = project()
@@ -156,7 +182,7 @@ fn find_closest_capital_c_to_c() {
         .with_status(101)
         .with_stderr_contains(
             "\
-error: no such subcommand: `C`
+error: no such command: `C`
 
 <tab>Did you mean `c`?
 ",
@@ -170,7 +196,7 @@ fn find_closest_capital_b_to_b() {
         .with_status(101)
         .with_stderr_contains(
             "\
-error: no such subcommand: `B`
+error: no such command: `B`
 
 <tab>Did you mean `b`?
 ",
@@ -184,7 +210,7 @@ fn find_closest_biuld_to_build() {
         .with_status(101)
         .with_stderr_contains(
             "\
-error: no such subcommand: `biuld`
+error: no such command: `biuld`
 
 <tab>Did you mean `build`?
 ",
@@ -235,7 +261,7 @@ fn find_closest_alias() {
         .with_status(101)
         .with_stderr_contains(
             "\
-error: no such subcommand: `myalais`
+error: no such command: `myalais`
 
 <tab>Did you mean `myalias`?
 ",
@@ -247,7 +273,7 @@ error: no such subcommand: `myalais`
         .with_status(101)
         .with_stderr_contains(
             "\
-error: no such subcommand: `myalais`
+error: no such command: `myalais`
 ",
         )
         .with_stderr_does_not_contain(
@@ -266,7 +292,7 @@ fn find_closest_dont_correct_nonsense() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] no such subcommand: `there-is-no-way-that-there-is-a-command-close-to-this`
+[ERROR] no such command: `there-is-no-way-that-there-is-a-command-close-to-this`
 
 <tab>View all installed commands with `cargo --list`",
         )
@@ -279,7 +305,7 @@ fn displays_subcommand_on_error() {
         .with_status(101)
         .with_stderr(
             "\
-[ERROR] no such subcommand: `invalid-command`
+[ERROR] no such command: `invalid-command`
 
 <tab>View all installed commands with `cargo --list`",
         )
@@ -335,12 +361,25 @@ fn cargo_subcommand_env() {
 
     let cargo = cargo_exe().canonicalize().unwrap();
     let mut path = path();
-    path.push(target_dir);
+    path.push(target_dir.clone());
     let path = env::join_paths(path.iter()).unwrap();
 
     cargo_process("envtest")
         .env("PATH", &path)
         .with_stdout(cargo.to_str().unwrap())
+        .run();
+
+    // Check that subcommands inherit an overridden $CARGO
+    let envtest_bin = target_dir
+        .join("cargo-envtest")
+        .with_extension(std::env::consts::EXE_EXTENSION)
+        .canonicalize()
+        .unwrap();
+    let envtest_bin = envtest_bin.to_str().unwrap();
+    cargo_process("envtest")
+        .env("PATH", &path)
+        .env(cargo::CARGO_ENV, &envtest_bin)
+        .with_stdout(envtest_bin)
         .run();
 }
 
@@ -420,7 +459,6 @@ fn cargo_cmd_bins_vs_explicit_path() {
     }
 }
 
-#[test]
 #[cargo_test]
 fn cargo_subcommand_args() {
     let p = echo_subcommand();
@@ -473,7 +511,7 @@ fn subcommand_leading_plus_output_contains() {
         .with_status(101)
         .with_stderr(
             "\
-error: no such subcommand: `+nightly`
+error: no such command: `+nightly`
 
 <tab>Cargo does not handle `+toolchain` directives.
 <tab>Did you mean to invoke `cargo` through `rustup` instead?",
@@ -487,7 +525,7 @@ fn full_did_you_mean() {
         .with_status(101)
         .with_stderr(
             "\
-error: no such subcommand: `bluid`
+error: no such command: `bluid`
 
 <tab>Did you mean `build`?
 

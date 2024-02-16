@@ -1,38 +1,13 @@
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -37,7 +37,6 @@
- repository = "https://github.com/clap-rs/clap"
- 
- [package.metadata.docs.rs]
+--- clap.orig/Cargo.toml
++++ clap/Cargo.toml
+@@ -44 +43,0 @@
 -features = ["unstable-doc"]
- rustdoc-args = [
-     "--cfg",
-     "docsrs",
-@@ -47,9 +46,6 @@
-     "-Zrustdoc-scrape-examples=examples",
- ]
- 
+@@ -50,3 +48,0 @@
 -[package.metadata.playground]
 -features = ["unstable-doc"]
 -
- [package.metadata.release]
- shared-version = true
- tag-name = "v{{version}}"
-@@ -437,17 +433,6 @@
-     "textwrap/unicode-width",
-     "unicase",
- ]
+@@ -431,4 +426,0 @@
 -unstable-doc = [
+-    "clap_builder/unstable-doc",
 -    "derive",
--    "cargo",
--    "wrap_help",
--    "yaml",
--    "env",
--    "unicode",
--    "regex",
--    "unstable-replace",
--    "unstable-grouped",
 -]
- unstable-grouped = []
- unstable-replace = []
- unstable-v4 = [

@@ -1,7 +1,7 @@
 //! Bindings to OpenSSL
 //!
 //! This crate provides a safe interface to the popular OpenSSL cryptography library. OpenSSL versions 1.0.1 through
-//! 3.x.x and LibreSSL versions 2.5 through 3.4.1 are supported.
+//! 3.x.x and LibreSSL versions 2.5 through 3.7.x are supported.
 //!
 //! # Building
 //!
@@ -29,7 +29,7 @@
 //!
 //! ```not_rust
 //! # macOS (Homebrew)
-//! $ brew install openssl@1.1
+//! $ brew install openssl@3
 //!
 //! # macOS (MacPorts)
 //! $ sudo port install openssl
@@ -44,7 +44,7 @@
 //! $ sudo apt-get install pkg-config libssl-dev
 //!
 //! # Fedora
-//! $ sudo dnf install pkg-config openssl-devel
+//! $ sudo dnf install pkg-config perl-FindBin openssl-devel
 //!
 //! # Alpine Linux
 //! $ apk add pkgconfig openssl-dev
@@ -119,6 +119,7 @@
 //! ```
 #![doc(html_root_url = "https://docs.rs/openssl/0.10")]
 #![warn(rust_2018_idioms)]
+#![allow(clippy::uninlined_format_args)]
 
 #[doc(inline)]
 pub use ffi::init;
@@ -164,7 +165,6 @@ pub mod nid;
 #[cfg(not(any(boringssl, osslconf = "OPENSSL_NO_OCSP")))]
 pub mod ocsp;
 pub mod pkcs12;
-#[cfg(not(boringssl))]
 pub mod pkcs5;
 #[cfg(not(boringssl))]
 pub mod pkcs7;
@@ -188,6 +188,11 @@ pub mod x509;
 type LenType = libc::size_t;
 #[cfg(not(boringssl))]
 type LenType = libc::c_int;
+
+#[cfg(boringssl)]
+type SLenType = libc::ssize_t;
+#[cfg(not(boringssl))]
+type SLenType = libc::c_int;
 
 #[inline]
 fn cvt_p<T>(r: *mut T) -> Result<*mut T, ErrorStack> {

@@ -2,7 +2,7 @@ use crate::core::PackageId;
 use crate::sources::registry::CRATES_IO_HTTP_INDEX;
 use crate::sources::{DirectorySource, CRATES_IO_DOMAIN, CRATES_IO_INDEX, CRATES_IO_REGISTRY};
 use crate::sources::{GitSource, PathSource, RegistrySource};
-use crate::util::{CanonicalUrl, CargoResult, Config, IntoUrl};
+use crate::util::{config, CanonicalUrl, CargoResult, Config, IntoUrl};
 use log::trace;
 use serde::de;
 use serde::ser;
@@ -39,6 +39,10 @@ struct SourceIdInner {
     /// WARNING: this is not always set for alt-registries when the name is
     /// not known.
     name: Option<String>,
+    /// Name of the alt registry in the `[registries]` table.
+    /// WARNING: this is not always set for alt-registries when the name is
+    /// not known.
+    alt_registry_key: Option<String>,
 }
 
 /// The possible kinds of code source. Along with `SourceIdInner`, this fully defines the
@@ -51,6 +55,8 @@ enum SourceKind {
     Path,
     /// A remote registry.
     Registry,
+    /// A sparse registry.
+    SparseRegistry,
     /// A local filesystem-based registry.
     LocalRegistry,
     /// A directory-based registry.
@@ -75,12 +81,21 @@ impl SourceId {
     ///
     /// The canonical url will be calculated, but the precise field will not
     fn new(kind: SourceKind, url: Url, name: Option<&str>) -> CargoResult<SourceId> {
+        if kind == SourceKind::SparseRegistry {
+            // Sparse URLs are different because they store the kind prefix (sparse+)
+            // in the URL. This is because the prefix is necessary to differentiate
+            // from regular registries (git-based). The sparse+ prefix is included
+            // everywhere, including user-facing locations such as the `config.toml`
+            // file that defines the registry, or whenever Cargo displays it to the user.
+            assert!(url.as_str().starts_with("sparse+"));
+        }
         let source_id = SourceId::wrap(SourceIdInner {
             kind,
             canonical_url: CanonicalUrl::new(&url)?,
             url,
             precise: None,
             name: name.map(|n| n.into()),
+            alt_registry_key: None,
         });
         Ok(source_id)
     }
@@ -93,6 +108,14 @@ impl SourceId {
             inner
         });
         SourceId { inner }
+    }
+
+    fn remote_source_kind(url: &Url) -> SourceKind {
+        if url.as_str().starts_with("sparse+") {
+            SourceKind::SparseRegistry
+        } else {
+            SourceKind::Registry
+        }
     }
 
     /// Parses a source URL and returns the corresponding ID.
@@ -138,7 +161,7 @@ impl SourceId {
             }
             "sparse" => {
                 let url = string.into_url()?;
-                Ok(SourceId::new(SourceKind::Registry, url, None)?
+                Ok(SourceId::new(SourceKind::SparseRegistry, url, None)?
                     .with_precise(Some("locked".to_string())))
             }
             "path" => {
@@ -175,12 +198,14 @@ impl SourceId {
     /// Use [`SourceId::for_alt_registry`] if a name can provided, which
     /// generates better messages for cargo.
     pub fn for_registry(url: &Url) -> CargoResult<SourceId> {
-        SourceId::new(SourceKind::Registry, url.clone(), None)
+        let kind = Self::remote_source_kind(url);
+        SourceId::new(kind, url.to_owned(), None)
     }
 
     /// Creates a `SourceId` from a remote registry URL with given name.
     pub fn for_alt_registry(url: &Url, name: &str) -> CargoResult<SourceId> {
-        SourceId::new(SourceKind::Registry, url.clone(), Some(name))
+        let kind = Self::remote_source_kind(url);
+        SourceId::new(kind, url.to_owned(), Some(name))
     }
 
     /// Creates a SourceId from a local registry path.
@@ -210,24 +235,44 @@ impl SourceId {
     /// Returns the `SourceId` corresponding to the main repository, using the
     /// sparse HTTP index if allowed.
     pub fn crates_io_maybe_sparse_http(config: &Config) -> CargoResult<SourceId> {
-        if config.cli_unstable().sparse_registry {
+        if Self::crates_io_is_sparse(config)? {
             config.check_registry_index_not_set()?;
             let url = CRATES_IO_HTTP_INDEX.into_url().unwrap();
-            SourceId::new(SourceKind::Registry, url, Some(CRATES_IO_REGISTRY))
+            SourceId::new(SourceKind::SparseRegistry, url, Some(CRATES_IO_REGISTRY))
         } else {
             Self::crates_io(config)
         }
     }
 
+    /// Returns whether to access crates.io over the sparse protocol.
+    pub fn crates_io_is_sparse(config: &Config) -> CargoResult<bool> {
+        let proto: Option<config::Value<String>> = config.get("registries.crates-io.protocol")?;
+        let is_sparse = match proto.as_ref().map(|v| v.val.as_str()) {
+            Some("sparse") => true,
+            Some("git") => false,
+            Some(unknown) => anyhow::bail!(
+                "unsupported registry protocol `{unknown}` (defined in {})",
+                proto.as_ref().unwrap().definition
+            ),
+            None => config.cli_unstable().sparse_registry,
+        };
+        Ok(is_sparse)
+    }
+
     /// Gets the `SourceId` associated with given name of the remote registry.
     pub fn alt_registry(config: &Config, key: &str) -> CargoResult<SourceId> {
+        if key == CRATES_IO_REGISTRY {
+            return Self::crates_io(config);
+        }
         let url = config.get_registry_index(key)?;
+        let kind = Self::remote_source_kind(&url);
         Ok(SourceId::wrap(SourceIdInner {
-            kind: SourceKind::Registry,
+            kind,
             canonical_url: CanonicalUrl::new(&url)?,
             url,
             precise: None,
             name: Some(key.to_string()),
+            alt_registry_key: Some(key.to_string()),
         }))
     }
 
@@ -243,7 +288,7 @@ impl SourceId {
     }
 
     pub fn display_index(self) -> String {
-        if self.is_default_registry() {
+        if self.is_crates_io() {
             format!("{} index", CRATES_IO_DOMAIN)
         } else {
             format!("`{}` index", self.display_registry_name())
@@ -251,7 +296,7 @@ impl SourceId {
     }
 
     pub fn display_registry_name(self) -> String {
-        if self.is_default_registry() {
+        if self.is_crates_io() {
             CRATES_IO_REGISTRY.to_string()
         } else if let Some(name) = &self.inner.name {
             name.clone()
@@ -262,6 +307,13 @@ impl SourceId {
         } else {
             url_display(self.url())
         }
+    }
+
+    /// Gets the name of the remote registry as defined in the `[registries]` table.
+    /// WARNING: alt registries that come from Cargo.lock, or --index will
+    /// not have a name.
+    pub fn alt_registry_key(&self) -> Option<&str> {
+        self.inner.alt_registry_key.as_deref()
     }
 
     /// Returns `true` if this source is from a filesystem path.
@@ -282,8 +334,13 @@ impl SourceId {
     pub fn is_registry(self) -> bool {
         matches!(
             self.inner.kind,
-            SourceKind::Registry | SourceKind::LocalRegistry
+            SourceKind::Registry | SourceKind::SparseRegistry | SourceKind::LocalRegistry
         )
+    }
+
+    /// Returns `true` if this source is from a sparse registry.
+    pub fn is_sparse(self) -> bool {
+        matches!(self.inner.kind, SourceKind::SparseRegistry)
     }
 
     /// Returns `true` if this source is a "remote" registry.
@@ -291,7 +348,10 @@ impl SourceId {
     /// "remote" may also mean a file URL to a git index, so it is not
     /// necessarily "remote". This just means it is not `local-registry`.
     pub fn is_remote_registry(self) -> bool {
-        matches!(self.inner.kind, SourceKind::Registry)
+        matches!(
+            self.inner.kind,
+            SourceKind::Registry | SourceKind::SparseRegistry
+        )
     }
 
     /// Returns `true` if this source from a Git repository.
@@ -315,11 +375,9 @@ impl SourceId {
                 };
                 Ok(Box::new(PathSource::new(&path, self, config)))
             }
-            SourceKind::Registry => Ok(Box::new(RegistrySource::remote(
-                self,
-                yanked_whitelist,
-                config,
-            )?)),
+            SourceKind::Registry | SourceKind::SparseRegistry => Ok(Box::new(
+                RegistrySource::remote(self, yanked_whitelist, config)?,
+            )),
             SourceKind::LocalRegistry => {
                 let path = match self.inner.url.to_file_path() {
                     Ok(p) => p,
@@ -364,13 +422,15 @@ impl SourceId {
     }
 
     /// Returns `true` if the remote registry is the standard <https://crates.io>.
-    pub fn is_default_registry(self) -> bool {
+    pub fn is_crates_io(self) -> bool {
         match self.inner.kind {
-            SourceKind::Registry => {}
+            SourceKind::Registry | SourceKind::SparseRegistry => {}
             _ => return false,
         }
         let url = self.inner.url.as_str();
-        url == CRATES_IO_INDEX || url == CRATES_IO_HTTP_INDEX
+        url == CRATES_IO_INDEX
+            || url == CRATES_IO_HTTP_INDEX
+            || std::env::var("__CARGO_TEST_CRATES_IO_URL_DO_NOT_USE_THIS").as_deref() == Ok(url)
     }
 
     /// Hashes `self`.
@@ -496,7 +556,9 @@ impl fmt::Display for SourceId {
                 Ok(())
             }
             SourceKind::Path => write!(f, "{}", url_display(&self.inner.url)),
-            SourceKind::Registry => write!(f, "registry `{}`", self.display_registry_name()),
+            SourceKind::Registry | SourceKind::SparseRegistry => {
+                write!(f, "registry `{}`", self.display_registry_name())
+            }
             SourceKind::LocalRegistry => write!(f, "registry `{}`", url_display(&self.inner.url)),
             SourceKind::Directory => write!(f, "dir {}", url_display(&self.inner.url)),
         }
@@ -610,6 +672,10 @@ impl Ord for SourceKind {
             (SourceKind::Registry, _) => Ordering::Less,
             (_, SourceKind::Registry) => Ordering::Greater,
 
+            (SourceKind::SparseRegistry, SourceKind::SparseRegistry) => Ordering::Equal,
+            (SourceKind::SparseRegistry, _) => Ordering::Less,
+            (_, SourceKind::SparseRegistry) => Ordering::Greater,
+
             (SourceKind::LocalRegistry, SourceKind::LocalRegistry) => Ordering::Equal,
             (SourceKind::LocalRegistry, _) => Ordering::Less,
             (_, SourceKind::LocalRegistry) => Ordering::Greater,
@@ -621,31 +687,6 @@ impl Ord for SourceKind {
             (SourceKind::Git(a), SourceKind::Git(b)) => a.cmp(b),
         }
     }
-}
-
-// This is a test that the hash of the `SourceId` for crates.io is a well-known
-// value.
-//
-// Note that the hash value matches what the crates.io source id has hashed
-// since long before Rust 1.30. We strive to keep this value the same across
-// versions of Cargo because changing it means that users will need to
-// redownload the index and all crates they use when using a new Cargo version.
-//
-// This isn't to say that this hash can *never* change, only that when changing
-// this it should be explicitly done. If this hash changes accidentally and
-// you're able to restore the hash to its original value, please do so!
-// Otherwise please just leave a comment in your PR as to why the hash value is
-// changing and why the old value can't be easily preserved.
-//
-// The hash value depends on endianness and bit-width, so we only run this test on
-// little-endian 64-bit CPUs (such as x86-64 and ARM64) where it matches the
-// well-known value.
-#[test]
-#[cfg(all(target_endian = "little", target_pointer_width = "64"))]
-fn test_cratesio_hash() {
-    let config = Config::default().unwrap();
-    let crates_io = SourceId::crates_io(&config).unwrap();
-    assert_eq!(crate::util::hex::short_hash(&crates_io), "1ecc6299db9ec823");
 }
 
 /// A `Display`able view into a `SourceId` that will write it as a url
@@ -680,7 +721,17 @@ impl<'a> fmt::Display for SourceIdAsUrl<'a> {
                 kind: SourceKind::Registry,
                 ref url,
                 ..
-            } => write!(f, "registry+{}", url),
+            } => {
+                write!(f, "registry+{url}")
+            }
+            SourceIdInner {
+                kind: SourceKind::SparseRegistry,
+                ref url,
+                ..
+            } => {
+                // Sparse registry URL already includes the `sparse+` prefix
+                write!(f, "{url}")
+            }
             SourceIdInner {
                 kind: SourceKind::LocalRegistry,
                 ref url,
@@ -725,7 +776,7 @@ impl<'a> fmt::Display for PrettyRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::{GitReference, SourceId, SourceKind};
-    use crate::util::IntoUrl;
+    use crate::util::{Config, IntoUrl};
 
     #[test]
     fn github_sources_equal() {
@@ -741,5 +792,95 @@ mod tests {
         let foo = SourceKind::Git(GitReference::Branch("foo".to_string()));
         let s3 = SourceId::new(foo, loc, None).unwrap();
         assert_ne!(s1, s3);
+    }
+
+    // This is a test that the hash of the `SourceId` for crates.io is a well-known
+    // value.
+    //
+    // Note that the hash value matches what the crates.io source id has hashed
+    // since long before Rust 1.30. We strive to keep this value the same across
+    // versions of Cargo because changing it means that users will need to
+    // redownload the index and all crates they use when using a new Cargo version.
+    //
+    // This isn't to say that this hash can *never* change, only that when changing
+    // this it should be explicitly done. If this hash changes accidentally and
+    // you're able to restore the hash to its original value, please do so!
+    // Otherwise please just leave a comment in your PR as to why the hash value is
+    // changing and why the old value can't be easily preserved.
+    //
+    // The hash value depends on endianness and bit-width, so we only run this test on
+    // little-endian 64-bit CPUs (such as x86-64 and ARM64) where it matches the
+    // well-known value.
+    #[test]
+    #[cfg(all(target_endian = "little", target_pointer_width = "64"))]
+    fn test_cratesio_hash() {
+        let config = Config::default().unwrap();
+        let crates_io = SourceId::crates_io(&config).unwrap();
+        assert_eq!(crate::util::hex::short_hash(&crates_io), "1ecc6299db9ec823");
+    }
+
+    // See the comment in `test_cratesio_hash`.
+    //
+    // Only test on non-Windows as paths on Windows will get different hashes.
+    #[test]
+    #[cfg(all(target_endian = "little", target_pointer_width = "64", not(windows)))]
+    fn test_stable_hash() {
+        use std::hash::Hasher;
+        use std::path::Path;
+
+        let gen_hash = |source_id: SourceId| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            source_id.stable_hash(Path::new("/tmp/ws"), &mut hasher);
+            hasher.finish()
+        };
+
+        let url = "https://my-crates.io".into_url().unwrap();
+        let source_id = SourceId::for_registry(&url).unwrap();
+        assert_eq!(gen_hash(source_id), 18108075011063494626);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "fb60813d6cb8df79");
+
+        let url = "https://your-crates.io".into_url().unwrap();
+        let source_id = SourceId::for_alt_registry(&url, "alt").unwrap();
+        assert_eq!(gen_hash(source_id), 12862859764592646184);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "09c10fd0cbd74bce");
+
+        let url = "sparse+https://my-crates.io".into_url().unwrap();
+        let source_id = SourceId::for_registry(&url).unwrap();
+        assert_eq!(gen_hash(source_id), 8763561830438022424);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "d1ea0d96f6f759b5");
+
+        let url = "sparse+https://your-crates.io".into_url().unwrap();
+        let source_id = SourceId::for_alt_registry(&url, "alt").unwrap();
+        assert_eq!(gen_hash(source_id), 5159702466575482972);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "135d23074253cb78");
+
+        let url = "file:///tmp/ws/crate".into_url().unwrap();
+        let source_id = SourceId::for_git(&url, GitReference::DefaultBranch).unwrap();
+        assert_eq!(gen_hash(source_id), 15332537265078583985);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "73a808694abda756");
+
+        let path = Path::new("/tmp/ws/crate");
+
+        let source_id = SourceId::for_local_registry(path).unwrap();
+        assert_eq!(gen_hash(source_id), 18446533307730842837);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "52a84cc73f6fd48b");
+
+        let source_id = SourceId::for_path(path).unwrap();
+        assert_eq!(gen_hash(source_id), 8764714075439899829);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "e1ddd48578620fc1");
+
+        let source_id = SourceId::for_directory(path).unwrap();
+        assert_eq!(gen_hash(source_id), 17459999773908528552);
+        assert_eq!(crate::util::hex::short_hash(&source_id), "6568fe2c2fab5bfe");
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let url = "sparse+https://my-crates.io/".into_url().unwrap();
+        let source_id = SourceId::for_registry(&url).unwrap();
+        let formatted = format!("{}", source_id.as_url());
+        let deserialized = SourceId::from_url(&formatted).unwrap();
+        assert_eq!(formatted, "sparse+https://my-crates.io/");
+        assert_eq!(source_id, deserialized);
     }
 }

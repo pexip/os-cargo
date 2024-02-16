@@ -2,7 +2,7 @@
 
 use cargo::core::Edition;
 use cargo_test_support::compare::assert_match_exact;
-use cargo_test_support::git;
+use cargo_test_support::git::{self, init};
 use cargo_test_support::paths::{self, CargoPathExt};
 use cargo_test_support::registry::{Dependency, Package};
 use cargo_test_support::tools;
@@ -658,7 +658,7 @@ fn fixes_missing_ampersand() {
         .with_stderr_contains("[FIXED] tests/a.rs (1 fix)")
         .with_stderr_contains("[FINISHED] [..]")
         .run();
-    p.cargo("build").run();
+    p.cargo("check").run();
     p.cargo("test").run();
 }
 
@@ -688,9 +688,9 @@ fn fix_features() {
         .build();
 
     p.cargo("fix --allow-no-vcs").run();
-    p.cargo("build").run();
+    p.cargo("check").run();
     p.cargo("fix --features bar --allow-no-vcs").run();
-    p.cargo("build --features bar").run();
+    p.cargo("check --features bar").run();
 }
 
 #[cargo_test]
@@ -769,6 +769,32 @@ commit the changes to these files:
         )
         .run();
     p.cargo("fix --allow-staged").run();
+}
+
+#[cargo_test]
+fn errors_about_untracked_files() {
+    let mut git_project = project().at("foo");
+    git_project = git_project.file("src/lib.rs", "pub fn foo() {}");
+    let p = git_project.build();
+    let _ = init(&p.root());
+
+    p.cargo("fix")
+        .with_status(101)
+        .with_stderr(
+            "\
+error: the working directory of this package has uncommitted changes, \
+and `cargo fix` can potentially perform destructive changes; if you'd \
+like to suppress this error pass `--allow-dirty`, `--allow-staged`, or \
+commit the changes to these files:
+
+  * Cargo.toml (dirty)
+  * src/ (dirty)
+
+
+",
+        )
+        .run();
+    p.cargo("fix --allow-dirty").run();
 }
 
 #[cargo_test]
@@ -1405,7 +1431,7 @@ fn fix_in_existing_repo_weird_ignore() {
     let p = git::new("foo", |project| {
         project
             .file("src/lib.rs", "")
-            .file(".gitignore", "foo\ninner\n")
+            .file(".gitignore", "foo\ninner\nCargo.lock\ntarget\n")
             .file("inner/file", "")
     });
 
@@ -1715,7 +1741,7 @@ fn fix_with_run_cargo_in_proc_macros() {
             "src/lib.rs",
             r#"
                 use proc_macro::*;
-    
+
                 #[proc_macro]
                 pub fn foo(_input: TokenStream) -> TokenStream {
                     let output = std::process::Command::new(env!("CARGO"))
@@ -1725,7 +1751,7 @@ fn fix_with_run_cargo_in_proc_macros() {
                     eprintln!("{}", std::str::from_utf8(&output.stderr).unwrap());
                     println!("{}", std::str::from_utf8(&output.stdout).unwrap());
                     "".parse().unwrap()
-                }                    
+                }
             "#,
         )
         .file(

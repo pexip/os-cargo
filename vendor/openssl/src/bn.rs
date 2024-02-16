@@ -91,7 +91,7 @@ foreign_type_and_impl_send_sync! {
     /// to allocate.  BigNumContext and the OpenSSL [`BN_CTX`] structure are used
     /// internally when passing BigNum values between subroutines.
     ///
-    /// [`BN_CTX`]: https://www.openssl.org/docs/man1.1.0/crypto/BN_CTX_new.html
+    /// [`BN_CTX`]: https://www.openssl.org/docs/manmaster/crypto/BN_CTX_new.html
     pub struct BigNumContext;
     /// Reference to [`BigNumContext`]
     ///
@@ -134,7 +134,7 @@ foreign_type_and_impl_send_sync! {
     ///
     /// [`new`]: struct.BigNum.html#method.new
     /// [`Dref<Target = BigNumRef>`]: struct.BigNum.html#deref-methods
-    /// [`BN_new`]: https://www.openssl.org/docs/man1.1.0/crypto/BN_new.html
+    /// [`BN_new`]: https://www.openssl.org/docs/manmaster/crypto/BN_new.html
     ///
     /// # Examples
     /// ```
@@ -333,6 +333,20 @@ impl BigNumRef {
     #[corresponds(BN_is_negative)]
     pub fn is_negative(&self) -> bool {
         unsafe { BN_is_negative(self.as_ptr()) == 1 }
+    }
+
+    /// Returns `true` is `self` is even.
+    #[corresponds(BN_is_even)]
+    #[cfg(any(ossl110, boringssl, libressl350))]
+    pub fn is_even(&self) -> bool {
+        !self.is_odd()
+    }
+
+    /// Returns `true` is `self` is odd.
+    #[corresponds(BN_is_odd)]
+    #[cfg(any(ossl110, boringssl, libressl350))]
+    pub fn is_odd(&self) -> bool {
+        unsafe { ffi::BN_is_odd(self.as_ptr()) == 1 }
     }
 
     /// Returns the number of significant bits in `self`.
@@ -639,6 +653,26 @@ impl BigNumRef {
         }
     }
 
+    /// Places into `self` the modular square root of `a` such that `self^2 = a (mod p)`
+    #[corresponds(BN_mod_sqrt)]
+    #[cfg(ossl110)]
+    pub fn mod_sqrt(
+        &mut self,
+        a: &BigNumRef,
+        p: &BigNumRef,
+        ctx: &mut BigNumContextRef,
+    ) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt_p(ffi::BN_mod_sqrt(
+                self.as_ptr(),
+                a.as_ptr(),
+                p.as_ptr(),
+                ctx.as_ptr(),
+            ))
+            .map(|_| ())
+        }
+    }
+
     /// Places the result of `a^p` in `self`.
     #[corresponds(BN_exp)]
     pub fn exp(
@@ -814,7 +848,7 @@ impl BigNumRef {
     /// assert_eq!(&bn_vec, &[0, 0, 0x45, 0x43]);
     /// ```
     #[corresponds(BN_bn2binpad)]
-    #[cfg(ossl110)]
+    #[cfg(any(ossl110, libressl340, boringssl))]
     pub fn to_vec_padded(&self, pad_to: i32) -> Result<Vec<u8>, ErrorStack> {
         let mut v = Vec::with_capacity(pad_to as usize);
         unsafe {
@@ -1063,7 +1097,7 @@ impl BigNum {
     ///
     /// OpenSSL documentation at [`BN_bin2bn`]
     ///
-    /// [`BN_bin2bn`]: https://www.openssl.org/docs/man1.1.0/crypto/BN_bin2bn.html
+    /// [`BN_bin2bn`]: https://www.openssl.org/docs/manmaster/crypto/BN_bin2bn.html
     ///
     /// ```
     /// # use openssl::bn::BigNum;
@@ -1454,5 +1488,31 @@ mod tests {
         let mut b = BigNum::new().unwrap();
         b.set_const_time();
         assert!(b.is_const_time())
+    }
+
+    #[cfg(ossl110)]
+    #[test]
+    fn test_mod_sqrt() {
+        let mut ctx = BigNumContext::new().unwrap();
+
+        let s = BigNum::from_hex_str("47A8DD7626B9908C80ACD7E0D3344D69").unwrap();
+        let p = BigNum::from_hex_str("81EF47265B58BCE5").unwrap();
+        let mut out = BigNum::new().unwrap();
+
+        out.mod_sqrt(&s, &p, &mut ctx).unwrap();
+        assert_eq!(out, BigNum::from_hex_str("7C6D179E19B97BDD").unwrap());
+    }
+
+    #[test]
+    #[cfg(any(ossl110, boringssl, libressl350))]
+    fn test_odd_even() {
+        let a = BigNum::from_u32(17).unwrap();
+        let b = BigNum::from_u32(18).unwrap();
+
+        assert!(a.is_odd());
+        assert!(!b.is_odd());
+
+        assert!(!a.is_even());
+        assert!(b.is_even());
     }
 }

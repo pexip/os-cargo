@@ -1,5 +1,5 @@
+use super::super::*;
 use libc::*;
-use *;
 
 #[cfg(any(libressl, all(ossl102, not(ossl110))))]
 pub enum X509_VERIFY_PARAM_ID {}
@@ -21,6 +21,7 @@ extern "C" {
         ret: *mut *mut c_char,
     ) -> c_int;
     pub fn X509_load_cert_file(ctx: *mut X509_LOOKUP, file: *const c_char, _type: c_int) -> c_int;
+    pub fn X509_load_crl_file(ctx: *mut X509_LOOKUP, file: *const c_char, _type: c_int) -> c_int;
 }
 
 extern "C" {
@@ -47,6 +48,9 @@ extern "C" {
 
     pub fn X509_STORE_set_default_paths(store: *mut X509_STORE) -> c_int;
     pub fn X509_STORE_set_flags(store: *mut X509_STORE, flags: c_ulong) -> c_int;
+    pub fn X509_STORE_set_purpose(ctx: *mut X509_STORE, purpose: c_int) -> c_int;
+    pub fn X509_STORE_set_trust(ctx: *mut X509_STORE, trust: c_int) -> c_int;
+
 }
 
 const_ptr_api! {
@@ -114,9 +118,21 @@ extern "C" {
     #[cfg(any(ossl102, libressl261))]
     pub fn X509_VERIFY_PARAM_set_hostflags(param: *mut X509_VERIFY_PARAM, flags: c_uint);
     #[cfg(any(ossl102, libressl261))]
+    pub fn X509_VERIFY_PARAM_set1_email(
+        param: *mut X509_VERIFY_PARAM,
+        email: *const c_char,
+        emaillen: size_t,
+    ) -> c_int;
+    #[cfg(any(ossl102, libressl261))]
     pub fn X509_VERIFY_PARAM_set1_ip(
         param: *mut X509_VERIFY_PARAM,
         ip: *const c_uchar,
         iplen: size_t,
     ) -> c_int;
+    #[cfg(ossl110)]
+    pub fn X509_VERIFY_PARAM_set_auth_level(param: *mut X509_VERIFY_PARAM, lvl: c_int);
+    #[cfg(ossl110)]
+    pub fn X509_VERIFY_PARAM_get_auth_level(param: *const X509_VERIFY_PARAM) -> c_int;
+    #[cfg(ossl102)]
+    pub fn X509_VERIFY_PARAM_set_purpose(param: *mut X509_VERIFY_PARAM, purpose: c_int) -> c_int;
 }

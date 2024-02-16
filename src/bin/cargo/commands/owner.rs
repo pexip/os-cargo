@@ -1,12 +1,13 @@
 use crate::command_prelude::*;
 
 use cargo::ops::{self, OwnersOptions};
+use cargo::util::auth::Secret;
 
-pub fn cli() -> App {
+pub fn cli() -> Command {
     subcommand("owner")
         .about("Manage the owners of a crate on the registry")
         .arg_quiet()
-        .arg(Arg::new("crate"))
+        .arg(Arg::new("crate").action(ArgAction::Set))
         .arg(
             multi_opt(
                 "add",
@@ -31,12 +32,10 @@ pub fn cli() -> App {
 }
 
 pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
-    config.load_credentials()?;
-
     let registry = args.registry(config)?;
     let opts = OwnersOptions {
         krate: args.get_one::<String>("crate").cloned(),
-        token: args.get_one::<String>("token").cloned(),
+        token: args.get_one::<String>("token").cloned().map(Secret::from),
         index: args.get_one::<String>("index").cloned(),
         to_add: args
             .get_many::<String>("add")

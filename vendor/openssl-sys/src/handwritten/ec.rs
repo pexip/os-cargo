@@ -1,5 +1,5 @@
+use super::super::*;
 use libc::*;
-use *;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -45,6 +45,8 @@ extern "C" {
     pub fn EC_GROUP_get_curve_name(group: *const EC_GROUP) -> c_int;
 
     pub fn EC_GROUP_set_asn1_flag(key: *mut EC_GROUP, flag: c_int);
+
+    pub fn EC_GROUP_get_asn1_flag(group: *const EC_GROUP) -> c_int;
 
     pub fn EC_GROUP_get_curve_GFp(
         group: *const EC_GROUP,
@@ -99,7 +101,7 @@ extern "C" {
 
     pub fn EC_POINT_dup(p: *const EC_POINT, group: *const EC_GROUP) -> *mut EC_POINT;
 
-    #[cfg(ossl111)]
+    #[cfg(any(ossl111, boringssl, libressl350))]
     pub fn EC_POINT_get_affine_coordinates(
         group: *const EC_GROUP,
         p: *const EC_POINT,
@@ -149,6 +151,20 @@ extern "C" {
         len: size_t,
         ctx: *mut BN_CTX,
     ) -> c_int;
+
+    pub fn EC_POINT_point2hex(
+        group: *const EC_GROUP,
+        p: *const EC_POINT,
+        form: point_conversion_form_t,
+        ctx: *mut BN_CTX,
+    ) -> *mut c_char;
+
+    pub fn EC_POINT_hex2point(
+        group: *const EC_GROUP,
+        s: *const c_char,
+        p: *mut EC_POINT,
+        ctx: *mut BN_CTX,
+    ) -> *mut EC_POINT;
 
     pub fn EC_POINT_add(
         group: *const EC_GROUP,
